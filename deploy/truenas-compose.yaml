@@ -1,0 +1,62 @@
+# Parley for TrueNAS SCALE 24.10+  —  Apps → Discover → ⋮ → Install via YAML → paste this.
+# Nothing to copy to the NAS: the image comes from GitHub, LiveKit's config is inline,
+# and llama.cpp downloads its model from Hugging Face on first start.
+#
+# Before pasting, change:
+#   1. OWNER in the image line (your GitHub username, lowercase)
+#   2. 192.168.1.50 → your NAS's IP (3 places)
+#   3. CHANGE_ME secret → one long random string (2 places, must match)
+#   4. /mnt/tank → your pool name. Create the dataset first:
+#      Datasets → Add Dataset → "parley" under apps, preset "Apps".
+services:
+  parley:
+    image: ghcr.io/OWNER/parley:latest
+    pull_policy: always
+    restart: unless-stopped
+    user: "568:568"
+    ports:
+      - "8090:8080"
+    volumes:
+      - /mnt/tank/apps/parley:/data
+    environment:
+      PARLEY_PUBLIC_URL: "http://192.168.1.50:8090"
+      PARLEY_MAX_UPLOAD_MB: "1024"
+      PARLEY_GUILD_CREATE: "admin"
+      LIVEKIT_URL: "ws://192.168.1.50:7880"
+      LIVEKIT_API_KEY: "parley"
+      LIVEKIT_API_SECRET: "CHANGE_ME_long_random_secret_at_least_32_chars"
+      PARLEY_BOT_NAME: "Parley"
+      PARLEY_LLAMA_URL: "http://llama:8081"
+      PARLEY_BOT_WORKERS: "admins"
+      RUST_LOG: "parley_server=info"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          port_range_start: 50000
+          port_range_end: 50100
+          node_ip: 192.168.1.50
+          use_external_ip: false
+        keys:
+          parley: CHANGE_ME_long_random_secret_at_least_32_chars
+        room:
+          empty_timeout: 300
+
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    volumes:
+      - llama-models:/models
+    environment:
+      LLAMA_CACHE: /models
+    # Downloads ~2.5 GB once, then runs on the NAS CPU (fallback when no GPU is lent).
+    command: ["-hf", "unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M", "-c", "8192", "--host", "0.0.0.0", "--port", "8081", "--jinja", "-t", "8"]
+
+volumes:
+  llama-models:
