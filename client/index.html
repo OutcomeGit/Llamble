@@ -2,8 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: blob:; media-src * blob: data:; connect-src *; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src https://www.youtube-nocookie.com" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: blob:; manifest-src 'self'; worker-src 'self'; media-src * blob: data:; connect-src *; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src https://www.youtube-nocookie.com" />
     <title>Llamble</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" />
+    <meta name="theme-color" content="#1e1f22" />
   </head>
   <body>
     <div id="root"></div>

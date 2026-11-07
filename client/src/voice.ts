@@ -110,6 +110,10 @@ function attachAudio(track: RemoteTrack, p: RemoteParticipant) {
 export async function joinVoice(channelId: string) {
   if (vget().channelId === channelId && room) return;
   if (room) await leaveVoice(false);
+  if (!window.isSecureContext) {
+    vset({ error: "Voice and video need a secure (https://) connection in a browser. Use the desktop app, or open Llamble through its HTTPS address." });
+    return;
+  }
   vset({ channelId, status: "connecting", error: null, camera: false, screen: false, speaking: [] });
   let info: { url: string; token: string; can_speak: boolean; can_video: boolean };
   try {
