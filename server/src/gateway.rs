@@ -74,7 +74,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
             "voice_enabled": state.cfg.voice_enabled(),
             "max_upload_bytes": state.cfg.max_upload_bytes,
             "guild_create": state.cfg.guild_create,
-            "bot": { "id": state.bot_id, "name": state.cfg.bot_name, "server_backend": crate::ai::server_llama_url(state).await.is_some(), "worker_policy": state.cfg.bot_workers },
+            "bot": { "id": state.bot_id, "name": state.cfg.bot_name, "server_backend": crate::ai::server_llama_url(state).await.is_some(), "worker_policy": crate::bot::gpu_policy(state).await },
         }
     }))
 }
@@ -138,14 +138,23 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
                                         vram_mb: v["vram_mb"].as_i64().unwrap_or(0),
                                         model: v["model"].as_str().unwrap_or("").chars().take(120).collect(),
                                         active: 0,
+                                        available: v["available"].as_bool().unwrap_or(true),
+                                        reason: v["reason"].as_str().unwrap_or("").chars().take(80).collect(),
                                     });
                                     let _ = sink.send(WsMsg::Text(json!({"t":"WORKER_ACCEPTED","d":{}}).to_string().into())).await;
                                     tracing::info!("GPU worker online: {} ({})", auth.id, v["gpu"]);
                                 } else {
-                                    let _ = sink.send(WsMsg::Text(json!({"t":"WORKER_REJECTED","d":{"reason":"Only server admins can lend a GPU on this server."}}).to_string().into())).await;
+                                    let policy = crate::bot::gpu_policy(&state).await;
+                                    let _ = sink.send(WsMsg::Text(json!({"t":"WORKER_REJECTED","d":{"reason": crate::bot::rejection_reason(&policy)}}).to_string().into())).await;
                                 }
                             }
                             Some("worker_unregister") => crate::bot::worker_gone(&state, conn_id),
+                            Some("worker_status") => {
+                                if let Some(mut w) = state.bot.workers.get_mut(&conn_id) {
+                                    w.available = v["available"].as_bool().unwrap_or(false);
+                                    w.reason = v["reason"].as_str().unwrap_or("").chars().take(80).collect();
+                                }
+                            }
                             Some("job_chunk") | Some("job_done") | Some("job_error") => crate::bot::job_event(&state, conn_id, &v),
                             _ => {}
                         }

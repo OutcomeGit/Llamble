@@ -238,6 +238,15 @@ ipcMain.on("set-autostart", (_e, on) => app.setLoginItemSettings({ openAtLogin: 
 
 // ---- local AI (llama.cpp) ----
 ipcMain.handle("llm-gpus", () => llm.detectGpus(app));
+// idle + GPU-busy signals for "only lend when I'm away / not gaming"
+ipcMain.handle("sys-state", async (_e, gpuIndex) => {
+  const { powerMonitor } = require("electron");
+  return {
+    idleSeconds: powerMonitor.getSystemIdleTime(),
+    locked: powerMonitor.getSystemIdleState(1) === "locked",
+    gpuUtil: await llm.gpuUtil(gpuIndex),
+  };
+});
 ipcMain.handle("llm-start", (_e, cfg) => llm.start(cfg));
 ipcMain.handle("llm-stop", () => llm.stop());
 ipcMain.handle("llm-status", () => ({ status: llm.status(), log: llm.log() }));

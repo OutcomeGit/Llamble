@@ -194,6 +194,7 @@ declare global {
         stop: () => Promise<void>;
         status: () => Promise<{ status: LlmStatus; log: string[] }>;
         chat: (job: unknown) => void;
+        sysState: (gpuIndex?: number | null) => Promise<{ idleSeconds: number; locked: boolean; gpuUtil: number | null }>;
         on: (cb: (kind: "status" | "log" | "job", d: any) => void) => () => void;
       };
     };

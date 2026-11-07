@@ -441,6 +441,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
           <h2>AI Model (on this server)</h2>
           <p className="muted small">Runs on the NAS whenever nobody is lending a GPU. Downloads come from Hugging Face once, then everything runs locally.</p>
           <ModelPicker />
+          <GpuSharing />
         </div>
       )}
       {tab === "logout" && (
@@ -674,12 +675,53 @@ function AiSettings() {
         <div>
           <div className="bold">Lend my GPU to the AI bot</div>
           <div className="muted small">
-            {ai.registered ? `Serving the bot · ${ai.served} replies this session${ai.active ? " · generating now" : ""}` : ai.rejected ? ai.rejected : st === "ready" ? "Model loaded — connecting to server…" : "Starts llama-server when the app launches."}
+            {ai.rejected
+              ? ai.rejected
+              : !c.enabled
+                ? "Off. Your GPU is never used."
+                : ai.pauseReason
+                  ? `Paused: ${ai.pauseReason}. The server uses the next-best GPU (or its own model) meanwhile.${st === "off" ? " Model unloaded, VRAM freed." : ""}`
+                  : ai.registered
+                    ? `Available to the server · ${ai.served} replies this session${ai.active ? " · generating now" : ""}`
+                    : st === "starting"
+                      ? "Loading the model…"
+                      : "Waiting until this PC is idle…"}
           </div>
         </div>
         <Toggle on={c.enabled} onChange={(v) => setLending(v)} />
       </div>
 
+      <div className="profile-section">When to lend</div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Only while I'm away</div>
+          <div className="muted small">Lend only after this PC has had no keyboard or mouse input for a while, or is locked.</div>
+        </div>
+        <div className="row gap center-v">
+          {c.idleOnly && (
+            <select value={c.idleMinutes} onChange={(e) => set({ idleMinutes: Number(e.target.value) })} style={{ width: 120 }}>
+              {[2, 5, 10, 15, 30].map((n) => (
+                <option key={n} value={n}>
+                  {n} min idle
+                </option>
+              ))}
+            </select>
+          )}
+          <Toggle on={c.idleOnly} onChange={(v) => set({ idleOnly: v })} />
+        </div>
+      </div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Pause while my GPU is busy (games)</div>
+          <div className="muted small">
+            If something else is using the GPU (over {c.busyThreshold}%), pause and unload the model so the game gets all the VRAM back. Now: {ai.gpuUtil ?? "?"}% · idle {Math.floor(ai.idleSeconds / 60)} min
+          </div>
+        </div>
+        <Toggle on={c.pauseWhenBusy} onChange={(v) => set({ pauseWhenBusy: v })} />
+      </div>
+      <p className="muted small">The server always uses the best GPU among everyone currently lending, and falls back to its own model when nobody is available.</p>
+
+      <div className="profile-section">How to run the model</div>
       <div className="kind-pick">
         {(["managed", "external"] as const).map((m) => (
           <label key={m} className={"kind-opt" + (c.mode === m ? " on" : "")}>
@@ -905,6 +947,54 @@ function Admin() {
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function GpuSharing() {
+  const [pool, setPool] = useState<any>(null);
+  const load = () => api("/api/admin/gpu").then(setPool).catch(() => {});
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, []);
+  if (!pool) return null;
+  const setPolicy = (policy: string) => api("/api/admin/gpu", { method: "PATCH", body: { policy } }).then(load).catch((e) => toast(e.message, "error"));
+  return (
+    <div>
+      <h2 style={{ marginTop: 28 }}>GPU sharing</h2>
+      <p className="muted small">
+        Members can offer their graphics card from their app (User Settings → AI &amp; GPU). The bot always uses the <b>best available</b> one, switches when its owner starts using
+        their PC, starts a game, or logs off, and falls back to this server's own model when none are free.
+      </p>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Who can lend a GPU</div>
+          <div className="muted small">A lent GPU only ever receives conversations from channels its owner can already read.</div>
+        </div>
+        <select value={pool.policy} onChange={(e) => setPolicy(e.target.value)} style={{ width: 200 }}>
+          <option value="off">Off (server only)</option>
+          <option value="admins">Admins only</option>
+          <option value="members">Any member</option>
+        </select>
+      </div>
+      <div className="backend-list" style={{ marginTop: 12 }}>
+        {pool.workers.map((w: any) => (
+          <div key={w.user_id + w.gpu} className={"backend " + (w.available ? "ok" : "off")}>
+            <Icon name="cpu" size={16} />
+            <b>{w.gpu}</b>
+            {w.vram_mb ? ` · ${(w.vram_mb / 1024).toFixed(0)} GB` : ""} · {w.name ?? "member"}
+            <span className="grow" />
+            {w.in_use ? <span className="role-chip has">in use</span> : w.available ? <span className="muted small">standby</span> : <span className="muted small">paused: {w.reason || "busy"}</span>}
+          </div>
+        ))}
+        <div className={"backend " + (pool.server_model?.state === "ready" ? "ok" : "off")}>
+          <Icon name="cpu" size={16} /> <b>This server</b> · {pool.server_model?.state === "ready" ? `${pool.server_model.repo?.split("/")[1]} ${pool.server_model.quant}` : "no model loaded"}
+          <span className="grow" />
+          {!pool.workers.some((w: any) => w.in_use) && pool.server_model?.state === "ready" && <span className="role-chip has">in use</span>}
+        </div>
       </div>
     </div>
   );

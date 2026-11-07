@@ -25,6 +25,9 @@ pub struct Worker {
     pub vram_mb: i64,
     pub model: String,
     pub active: usize,
+    /// false while the lender is using their PC (not idle) or gaming (GPU busy)
+    pub available: bool,
+    pub reason: String,
 }
 
 pub enum JobMsg {
@@ -142,22 +145,36 @@ pub async fn update_settings(State(state): State<Shared>, auth: AuthUser, Path(g
 pub async fn status(State(state): State<Shared>, _auth: AuthUser) -> ApiResult<Json<Value>> {
     let mut workers: Vec<Value> = vec![];
     for w in state.bot.workers.iter() {
-        workers.push(json!({ "user_id": w.user_id, "gpu": w.gpu, "vram_mb": w.vram_mb, "model": w.model, "active_jobs": w.active }));
+        workers.push(json!({ "user_id": w.user_id, "gpu": w.gpu, "vram_mb": w.vram_mb, "model": w.model, "active_jobs": w.active, "available": w.available, "reason": w.reason }));
     }
     Ok(Json(json!({
         "bot_user_id": state.bot_id,
         "bot_name": state.cfg.bot_name,
         "server_backend": crate::ai::server_llama_url(&state).await.is_some(),
         "server_model": state.ai.snapshot().await,
-        "worker_policy": state.cfg.bot_workers,
+        "worker_policy": gpu_policy(&state).await,
         "workers": workers,
     })))
 }
 
 // ---------- worker registration (called from the gateway) ----------
 
+/// Who may lend a GPU: "off" | "admins" | "members". Admin-controlled; env sets the default.
+pub async fn gpu_policy(state: &Shared) -> String {
+    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'gpu.lending'")
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| state.cfg.bot_workers.clone())
+}
+
 pub async fn worker_eligible(state: &Shared, user_id: &str) -> bool {
-    if state.cfg.bot_workers == "members" {
+    let policy = gpu_policy(state).await;
+    if policy == "off" {
+        return false;
+    }
+    if policy == "members" {
         return true;
     }
     sqlx::query_scalar::<_, bool>("SELECT is_admin FROM users WHERE id = ?")
@@ -193,6 +210,79 @@ pub fn job_event(state: &Shared, conn: u64, v: &Value) {
         _ => JobMsg::Error(v["error"].as_str().unwrap_or("worker error").to_string()),
     };
     let _ = entry.1.send(msg);
+}
+
+// ---------- admin: GPU sharing ----------
+
+pub async fn get_gpu_pool(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
+    if !auth.is_admin {
+        return Err(crate::error::AppError::forbidden());
+    }
+    let mut rows: Vec<(String, String, i64, String, bool, String, usize)> = state
+        .bot
+        .workers
+        .iter()
+        .map(|w| (w.user_id.clone(), w.gpu.clone(), w.vram_mb, w.model.clone(), w.available, w.reason.clone(), w.active))
+        .collect();
+    rows.sort_by(|a, b| b.4.cmp(&a.4).then(b.2.cmp(&a.2)));
+    let ids: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
+    let users = load_users(&state.db, &ids).await?;
+    let first_available = rows.iter().position(|r| r.4);
+    let workers: Vec<Value> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (uid, gpu, vram, model, avail, reason, active))| {
+            json!({
+                "user_id": uid,
+                "name": users.get(uid).map(|u| u.display_name.clone()),
+                "gpu": gpu, "vram_mb": vram, "model": model,
+                "available": avail, "reason": reason, "active_jobs": active,
+                "in_use": Some(i) == first_available,
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "policy": gpu_policy(&state).await,
+        "workers": workers,
+        "server_model": state.ai.snapshot().await,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct GpuPolicy {
+    pub policy: String,
+}
+
+pub async fn set_gpu_policy(State(state): State<Shared>, auth: AuthUser, Json(req): Json<GpuPolicy>) -> ApiResult<Json<Value>> {
+    if !auth.is_admin {
+        return Err(crate::error::AppError::forbidden());
+    }
+    if !["off", "admins", "members"].contains(&req.policy.as_str()) {
+        return Err(crate::error::AppError::bad("policy must be off, admins or members"));
+    }
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('gpu.lending', ?)")
+        .bind(&req.policy)
+        .execute(&state.db)
+        .await?;
+    // drop lenders that are no longer allowed
+    let conns: Vec<(u64, String)> = state.bot.workers.iter().map(|w| (*w.key(), w.user_id.clone())).collect();
+    for (conn, uid) in conns {
+        if !worker_eligible(&state, &uid).await {
+            if let Some(w) = state.bot.workers.get(&conn) {
+                let _ = w.tx.send(json!({ "t": "WORKER_REJECTED", "d": { "reason": rejection_reason(&req.policy) } }).to_string());
+            }
+            worker_gone(&state, conn);
+        }
+    }
+    Ok(Json(json!({ "policy": req.policy })))
+}
+
+pub fn rejection_reason(policy: &str) -> &'static str {
+    if policy == "off" {
+        "The server admin has turned off GPU sharing."
+    } else {
+        "Only server admins can lend a GPU on this server."
+    }
 }
 
 // ---------- triggering ----------
@@ -503,10 +593,11 @@ async fn eligible_workers(state: &Shared, ch: &Channel) -> Vec<u64> {
         .bot
         .workers
         .iter()
+        .filter(|w| w.available)
         .map(|w| (*w.key(), w.vram_mb, w.active, w.user_id.clone()))
         .collect();
-    // least busy first, then most VRAM
-    list.sort_by(|a, b| a.2.cmp(&b.2).then(b.1.cmp(&a.1)));
+    // best GPU (most VRAM) first; a busy GPU drops behind idle ones
+    list.sort_by(|a, b| (a.2 > 0).cmp(&(b.2 > 0)).then(b.1.cmp(&a.1)));
     let mut out = vec![];
     for (conn, _, _, uid) in list {
         // privacy: a lent GPU only ever sees channels its owner can already read

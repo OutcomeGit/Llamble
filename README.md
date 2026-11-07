@@ -36,14 +36,17 @@ Each server can turn the bot on under **Server Settings → AI Bot**, and give i
 
 It reads the last ~40 messages for context, shows a typing indicator, streams its reply live into the message, and hides `<think>` reasoning from models like Qwen3.
 
-**Where it runs:**
+**Where it runs: a shared GPU pool.**
 
-1. **A lent GPU (preferred).** In the desktop app: **User Settings → AI & GPU**. It's off until you accept a consent screen. Llamble detects GPUs with `nvidia-smi` (it falls back to WMI), picks the card with the most VRAM, and launches `llama-server` pinned to it with `CUDA_VISIBLE_DEVICES`. You can also point it at a llama-server you already run. The server sends bot jobs to that PC over the existing connection and streams tokens back.
-2. **llama.cpp on the NAS (fallback).** The `llama` service in the compose file.
+1. **Members' GPUs.** Anyone allowed can offer their graphics card from the desktop app (**User Settings → AI & GPU**, off until they accept a consent screen). The app runs `llama-server` pinned to that PC's best card. The server always uses the **best available GPU among everyone currently lending**:
+   - A lender's PC only counts as *available* while its owner is **away** (no input for N minutes, or locked; on by default) and its GPU **isn't busy with something else**, like a game (over 30% use).
+   - While paused, the app **unloads the model to free the VRAM**, and the server switches to the next-best GPU.
+   - When the owner is idle again it reloads and rejoins. Logging off hands over immediately.
+2. **The server itself.** The built-in model from setup is the fallback whenever no lent GPU is available.
 
-If several GPUs are lent, the least busy / largest one is used. If one disconnects mid-job, the bot fails over to the next GPU, then to the NAS.
+**Admin switch:** **Settings → AI Model → GPU sharing** sets who may lend a GPU: *Off (server only)*, *Admins only* (default), or *Any member*. It also shows every lent GPU live: in use, standby, or paused and why.
 
-**Privacy rule (built in):** a lent GPU only receives conversations from channels its owner can already read. By default only **instance admins** can lend a GPU (`LLAMBLE_BOT_WORKERS=admins`), so clients' chats run on your machine, not on another client's. Set it to `members` to let anyone lend.
+**Privacy rule (built in):** a lent GPU only ever receives conversations from channels its owner can already read.
 
 Recommended for your 4090: a Qwen3-14B or Gemma-3-27B class instruct GGUF at Q4_K_M with 16k context. Use the **CUDA** build of llama.cpp for Windows (from the llama.cpp GitHub releases). The NAS CPU fallback should use a small 3–4B Q4 model.
 
@@ -94,7 +97,7 @@ The installer registers the `llamble://` protocol, so invite links open the app.
 | `LLAMBLE_LLAMA_URL` | — | optional: use an external llama-server instead of the built-in one |
 | `HF_TOKEN` | — | optional: Hugging Face token for gated models |
 | `LLAMBLE_BOT_NAME` | `Llamble` | |
-| `LLAMBLE_BOT_WORKERS` | `admins` | who may lend a GPU: `admins` / `members` |
+| `LLAMBLE_BOT_WORKERS` | `admins` | default for who may lend a GPU (`off` / `admins` / `members`); admins change it in Settings |
 | `LLAMBLE_BOT_MAX_TOKENS` | `1024` | |
 | `LLAMBLE_WEB_DIR` | `/app/web` in Docker | also serves the web client at `/` |
 | `LLAMBLE_BOOTSTRAP_INVITE` | random | fixed first admin invite code |

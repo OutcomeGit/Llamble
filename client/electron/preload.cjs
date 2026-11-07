@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("llambleNative", {
     stop: () => ipcRenderer.invoke("llm-stop"),
     status: () => ipcRenderer.invoke("llm-status"),
     chat: (job) => ipcRenderer.send("llm-chat", job),
+    sysState: (gpuIndex) => ipcRenderer.invoke("sys-state", gpuIndex),
     on: (cb) => {
       const a = (_e, d) => cb("status", d);
       const b = (_e, d) => cb("log", d);

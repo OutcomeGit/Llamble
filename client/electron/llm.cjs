@@ -206,7 +206,15 @@ async function chat(job) {
   }
 }
 
+// GPU utilization % for one NVIDIA card (null if unknown)
+async function gpuUtil(index) {
+  const out = await run("nvidia-smi", ["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits", "-i", String(index ?? 0)], 5000);
+  const n = out ? parseInt(out.trim(), 10) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
 module.exports = {
+  gpuUtil,
   init(sender) {
     emit = sender;
   },
