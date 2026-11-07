@@ -1187,33 +1187,6 @@ function ServerConfig() {
   );
 }
 
-function PortTable({ rows, to }: { rows: [string, string, string, string][]; to: string }) {
-  return (
-    <table className="ports">
-      <thead>
-        <tr>
-          <th>Outside port</th>
-          <th>Protocol</th>
-          <th>To</th>
-          <th>For</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([out, proto, inner, what]) => (
-          <tr key={out + proto}>
-            <td>{out}</td>
-            <td>{proto}</td>
-            <td>
-              {to} : {inner}
-            </td>
-            <td>{what}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
 const PROVIDERS: Record<string, { name: string; example: string; secret?: string; steps: React.ReactNode[] }> = {
   namecheap: {
     name: "Namecheap",
@@ -1265,6 +1238,93 @@ const PROVIDERS: Record<string, { name: string; example: string; secret?: string
   },
 };
 
+function RouterSteps({ router, nasIp, ports }: { router: string; nasIp: string; ports: any }) {
+  const rules: [string, string, string, string][] = [
+    ["TCP", "443", String(ports.https), "Llamble web, app and HTTPS certificate"],
+    ["TCP", String(ports.voice_tcp), String(ports.voice_tcp), "Llamble voice (backup)"],
+    ["UDP", String(ports.voice_udp), String(ports.voice_udp), "Llamble voice"],
+  ];
+  const table = (
+    <table className="ports">
+      <thead>
+        <tr>
+          <th>Rule</th>
+          <th>Protocol</th>
+          <th>Outside port</th>
+          <th>Send to</th>
+          <th>Inside port</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rules.map(([proto, out, inner, what], i) => (
+          <tr key={i}>
+            <td>{what}</td>
+            <td>{proto}</td>
+            <td>{out}</td>
+            <td>{nasIp}</td>
+            <td>{inner}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  if (router === "opnsense" || router === "pfsense") {
+    const opn = router === "opnsense";
+    return (
+      <>
+        {table}
+        <ol className="small">
+          <li>
+            Sign in to {opn ? "OPNsense" : "pfSense"} and open{" "}
+            {opn ? (
+              <>
+                <b>Firewall → NAT → Destination NAT</b> (called <b>Port Forward</b> before version 26.1)
+              </>
+            ) : (
+              <b>Firewall → NAT → Port Forward</b>
+            )}
+            , then click <b>+ / Add</b>.
+          </li>
+          <li>
+            Fill in the first rule from the table:
+            <ul>
+              <li><b>Interface:</b> WAN · <b>TCP/IP version:</b> IPv4</li>
+              <li><b>Protocol:</b> TCP (UDP for the voice rule)</li>
+              <li><b>Source:</b> any (leave source port as any)</li>
+              <li><b>Destination:</b> WAN address · <b>Destination port:</b> the outside port (443)</li>
+              <li><b>Redirect target IP</b>{opn ? " (Target)" : ""}: {nasIp} · <b>Redirect target port</b>{opn ? " (Local port)" : ""}: the inside port ({ports.https})</li>
+              <li><b>Description:</b> the rule name, e.g. "Llamble web"</li>
+              <li><b>Filter rule association:</b> Add associated filter rule (this also opens the firewall for it)</li>
+            </ul>
+          </li>
+          <li>Save, then add the other two rules the same way.</li>
+          <li>Click <b>Apply changes</b>.</li>
+          <li>
+            So it also works from inside your house: <b>Firewall → Settings → Advanced</b>, tick <b>Reflection for port forwards</b> and <b>Automatic outbound NAT for Reflection</b>, then Save.
+          </li>
+          <li>
+            Check: the WAN IP on the {opn ? "OPNsense" : "pfSense"} dashboard should be a public address (not 192.168.x.x, 10.x.x.x or 100.64–127.x.x). If it isn't, your
+            internet provider's modem is also routing and needs to be put in bridge mode first.
+          </li>
+          <li>Back here, click <b>Check again now</b> under the status below.</li>
+        </ol>
+      </>
+    );
+  }
+  return (
+    <>
+      {table}
+      <ol className="small">
+        <li>Open your router's settings (often <code>192.168.1.1</code> or <code>192.168.0.1</code> in a browser, or your internet provider's app).</li>
+        <li>Find <b>Port Forwarding</b>, <b>Virtual Server</b> or <b>NAT</b> (often under Advanced, WAN or Firewall).</li>
+        <li>Add one entry per row above: protocol, outside (external) port, the NAS address {nasIp}, and inside (internal) port. Some routers call it "start/end port"; use the same number for both.</li>
+        <li>Save or Apply. Some ISP routers need a restart afterwards.</li>
+        <li>Back here, click <b>Check again now</b> under the status below.</li>
+      </ol>
+    </>
+  );
+}
+
 function RemoteAccess() {
   const [r, setR] = useState<any>(null);
   const [mode, setMode] = useState<"off" | "direct" | "relay">("off");
@@ -1275,6 +1335,8 @@ function RemoteAccess() {
   const [provider, setProvider] = useState("namecheap");
   const [ddnsUrl, setDdnsUrl] = useState("");
   const [lanIp, setLanIp] = useState("");
+  const [router, setRouter] = useState(() => localStorage.getItem("llamble.routerType") || "opnsense");
+  useEffect(() => localStorage.setItem("llamble.routerType", router), [router]);
   useEffect(() => {
     api("/api/admin/settings").then((x) => setLanIp(x.settings.lan_ip || "")).catch(() => {});
   }, []);
@@ -1416,15 +1478,13 @@ function RemoteAccess() {
             <div className="step-num">3</div>
             <div className="grow">
               <div className="bold">On your router: forward these ports to {nasIp}</div>
-              <p className="muted small">Usually under "Port Forwarding" or "Virtual Servers" in the router's settings (sometimes under Advanced, or in the internet provider's app).</p>
-              <PortTable
-                to={nasIp}
-                rows={[
-                  ["443", "TCP", String(p.https), "Chat, files, web app, call setup, certificate"],
-                  [String(p.voice_tcp), "TCP", String(p.voice_tcp), "Voice/video fallback"],
-                  [String(p.voice_udp), "UDP", String(p.voice_udp), "Voice/video"],
-                ]}
-              />
+              <p className="muted small">This tells your router to send outside visitors to the NAS. Pick your router for exact steps:</p>
+              <select value={router} onChange={(e) => setRouter(e.target.value)} style={{ width: 320 }}>
+                <option value="opnsense">OPNsense</option>
+                <option value="pfsense">pfSense</option>
+                <option value="other">Other router (Netgear, TP-Link, Asus, ISP router…)</option>
+              </select>
+              <RouterSteps router={router} nasIp={nasIp} ports={p} />
             </div>
           </div>
         </>
@@ -1509,10 +1569,17 @@ function RemoteAccess() {
                     : "not yet: waiting for the relay and your address to point at the VPS. It retries automatically."
                   : "off"}
           </div>
-          {st.tls_state === "ready" && (
+          {st.tls_state === "ready" ? (
             <p className="small">
               ✅ People outside can now use <b>https://{r.domain}</b> in the app or a browser (Chromebooks too). New invites use this address.
             </p>
+          ) : (
+            <div className="row gap">
+              <button className="btn small" disabled={busy} onClick={() => save()}>
+                Check again now
+              </button>
+              <span className="muted small">Use this right after changing your router; otherwise it retries by itself.</span>
+            </div>
           )}
         </div>
       )}
