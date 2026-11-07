@@ -22,6 +22,15 @@ pub struct AppState {
     pub bot: crate::bot::BotRuntime,
     pub ai: crate::ai::AiManager,
     pub remote: crate::remote::Remote,
+    pub voice: crate::voice_server::VoiceServer,
+    pub settings: std::sync::RwLock<crate::settings::ServerSettings>,
+}
+
+impl AppState {
+    /// current admin-editable server settings
+    pub fn s(&self) -> crate::settings::ServerSettings {
+        self.settings.read().unwrap().clone()
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]

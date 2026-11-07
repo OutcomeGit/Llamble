@@ -545,3 +545,13 @@ table.ports td { padding: 8px 6px; border-bottom: 1px solid var(--bg-3); }
 .rs { background: var(--bg-1); padding: 10px 12px; border-radius: 6px; border-left: 3px solid var(--faint); font-size: 14px; }
 .rs.ok { border-left-color: var(--green); }
 .rs.err { border-left-color: var(--red); }
+
+/* remote access mode picker + server settings */
+.mode-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+.mode-card { text-align: left; background: var(--bg-2, #2b2d31); border: 2px solid transparent; border-radius: 8px; padding: 12px; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.mode-card:hover { border-color: #4e5058; }
+.mode-card.on { border-color: var(--accent, #5865f2); }
+pre.cmd { background: #1e1f22; padding: 10px 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; font-size: 12px; cursor: copy; margin: 8px 0; }
+input.switch { width: 40px; height: 22px; accent-color: var(--accent, #5865f2); }
+@media (max-width: 700px) { .mode-cards { grid-template-columns: 1fr; } }
+.login-logo { display: block; width: 220px; max-width: 70%; margin: -8px auto 12px; border-radius: 12px; }

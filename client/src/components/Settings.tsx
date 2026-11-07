@@ -426,6 +426,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "notifications", label: "Notifications" },
         { id: "sessions", label: "Devices" },
         { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
+        { id: "server", label: "Server", hidden: !me.is_admin },
         { id: "aimodel", label: "AI Model", hidden: !me.is_admin },
         { id: "remote", label: "Remote Access", hidden: !me.is_admin },
         { id: "logout", label: "Log Out", danger: true },
@@ -438,6 +439,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
       {tab === "remote" && <RemoteAccess />}
+      {tab === "server" && <ServerConfig />}
       {tab === "aimodel" && (
         <div>
           <h2>AI Model (on this server)</h2>
@@ -1002,12 +1004,153 @@ function GpuSharing() {
   );
 }
 
+function nasAddress() {
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) return location.hostname;
+  try {
+    const h = new URL(localStorage.getItem("llamble.server") || "").hostname;
+    return /^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : "";
+  } catch {
+    return "";
+  }
+}
+
+function ServerConfig() {
+  const [d, setD] = useState<any>(null);
+  const [f, setF] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () =>
+    api("/api/admin/settings").then((x) => {
+      setD(x);
+      return x;
+    });
+  useEffect(() => {
+    load().then((x) => setF({ ...x.settings, lan_ip: x.settings.lan_ip || "" }));
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, []);
+  if (!d || !f) return <div className="muted">Loading…</div>;
+  const set = (k: string, v: any) => setF({ ...f, [k]: v });
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/api/admin/settings", { method: "PUT", body: f });
+      setF({ ...r.settings, lan_ip: r.settings.lan_ip || "" });
+      toast("Saved");
+      load();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const v = d.voice || {};
+  const voiceText: Record<string, string> = {
+    running: `running · media at ${v.media_address}`,
+    starting: "starting…",
+    "no-address": "waiting for the server's home-network address (set it below)",
+    external: "using an external LiveKit server (set in the server's environment)",
+    error: v.error || "stopped",
+    off: "not available in this build",
+  };
+  return (
+    <div>
+      <h2>Server</h2>
+      <p className="muted small">Settings for the Llamble server itself (your NAS). Changes apply right away, no restart.</p>
+      <div className={"rs " + (v.state === "running" || v.state === "external" ? "ok" : v.state === "error" ? "err" : "off")}>
+        <b>Voice &amp; video</b> {voiceText[v.state] ?? v.state}
+      </div>
+
+      <div className="profile-section">Network</div>
+      <label>
+        Server's home-network address
+        <input value={f.lan_ip} onChange={(e) => set("lan_ip", e.target.value)} placeholder={nasAddress() || "192.168.1.20"} />
+      </label>
+      <p className="muted small">Calls use this to reach the server at home. Llamble fills it in automatically the first time you connect by IP; only change it if your NAS's address changes.</p>
+
+      <div className="profile-section">Files</div>
+      <label>
+        Largest upload (MB)
+        <input type="number" min={1} max={20000} value={f.max_upload_mb} onChange={(e) => set("max_upload_mb", Number(e.target.value))} />
+      </label>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Link previews</div>
+          <div className="muted small">Show a preview card for links posted in chat (the server fetches the page).</div>
+        </div>
+        <input type="checkbox" className="switch" checked={f.unfurl_links} onChange={(e) => set("unfurl_links", e.target.checked)} />
+      </div>
+
+      <div className="profile-section">People</div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Who can create new servers</div>
+          <div className="muted small">Servers are the groups in the left sidebar.</div>
+        </div>
+        <select value={f.guild_create} onChange={(e) => set("guild_create", e.target.value)} style={{ width: 200 }}>
+          <option value="admin">Admins only</option>
+          <option value="all">Anyone with an account</option>
+        </select>
+      </div>
+
+      <div className="profile-section">AI bot</div>
+      <label>
+        Bot name
+        <input value={f.bot_name} maxLength={32} onChange={(e) => set("bot_name", e.target.value)} />
+      </label>
+      <p className="muted small">People can call it by this name in chat.</p>
+
+      <div className="profile-section">Recording</div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Allow recording on the server</div>
+          <div className="muted small">Lets show recordings be saved on the NAS instead of a member's PC. Everyone included is always asked first.</div>
+        </div>
+        <input type="checkbox" className="switch" checked={f.allow_server_recording} onChange={(e) => set("allow_server_recording", e.target.checked)} />
+      </div>
+
+      <div className="row gap" style={{ marginTop: 16 }}>
+        <button className="btn primary" disabled={busy} onClick={save}>
+          Save changes
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PortTable({ rows, to }: { rows: [string, string, string, string][]; to: string }) {
+  return (
+    <table className="ports">
+      <thead>
+        <tr>
+          <th>Outside port</th>
+          <th>Protocol</th>
+          <th>To</th>
+          <th>For</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([out, proto, inner, what]) => (
+          <tr key={out + proto}>
+            <td>{out}</td>
+            <td>{proto}</td>
+            <td>
+              {to} : {inner}
+            </td>
+            <td>{what}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function RemoteAccess() {
   const [r, setR] = useState<any>(null);
+  const [mode, setMode] = useState<"off" | "direct" | "relay">("off");
   const [domain, setDomain] = useState("");
   const [pw, setPw] = useState("");
   const [email, setEmail] = useState("");
-  const [enabled, setEnabled] = useState(false);
+  const [relayAddr, setRelayAddr] = useState("");
   const [busy, setBusy] = useState(false);
   const load = () =>
     api("/api/admin/remote").then((d) => {
@@ -1018,25 +1161,23 @@ function RemoteAccess() {
     load().then((d) => {
       setDomain(d.domain || "");
       setEmail(d.email || "");
-      setEnabled(d.enabled);
+      setRelayAddr(d.relay_addr || "");
+      setMode(d.enabled ? d.mode : "off");
     });
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, []);
   if (!r) return <div className="muted">Loading…</div>;
-  const nasIp = /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname) ? location.hostname : (() => {
-    try {
-      const h = new URL(localStorage.getItem("llamble.server") || "").hostname;
-      return /^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : "your NAS's IP";
-    } catch {
-      return "your NAS's IP";
-    }
-  })();
-  const save = async (on: boolean) => {
+  const nasIp = nasAddress() || "your NAS's IP";
+  const p = r.ports;
+  const save = async (extra: any = {}) => {
     setBusy(true);
     try {
-      await api("/api/admin/remote", { method: "PUT", body: { enabled: on, domain, ddns_password: pw || undefined, email } });
-      setEnabled(on);
+      const on = mode !== "off";
+      await api("/api/admin/remote", {
+        method: "PUT",
+        body: { enabled: on, mode: on ? mode : r.mode, domain: on ? domain : r.domain, ddns_password: pw || undefined, email, relay_addr: relayAddr, ...extra },
+      });
       setPw("");
       toast(on ? "Saved, connecting…" : "Remote access turned off");
       load();
@@ -1047,104 +1188,160 @@ function RemoteAccess() {
     }
   };
   const st = r.status || {};
-  const dot = (state: string) => (state === "ok" || state === "ready" ? "ok" : state === "error" ? "err" : "off");
+  const active = r.enabled ? r.mode : "off";
+  const dot = (state: string) => (state === "ok" || state === "ready" || state === "connected" ? "ok" : state === "error" ? "err" : "off");
+  const choice = (id: "off" | "direct" | "relay", title: string, desc: string) => (
+    <button className={"mode-card" + (mode === id ? " on" : "")} onClick={() => setMode(id)}>
+      <div className="bold">
+        {title} {active === id && <span className="role-chip has">current</span>}
+      </div>
+      <div className="muted small">{desc}</div>
+    </button>
+  );
+  const domainField = (
+    <>
+      <label>
+        Address people will use
+        <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="chat.example.com" />
+      </label>
+      <label>
+        Your email <span className="muted">(optional; Let's Encrypt emails you only if a certificate has problems)</span>
+        <input value={email} onChange={(e) => setEmail(e.target.value)} />
+      </label>
+    </>
+  );
   return (
     <div className="remote">
       <h2>Remote Access</h2>
-      <p className="muted small">
-        Lets people outside your home reach Llamble at your own address (like <b>chat.llamble.com</b>) with HTTPS. Llamble keeps the address pointed at your home when your internet provider changes your IP, and gets and renews the security certificate on its own.
-      </p>
-
-      <div className="remote-step">
-        <div className="step-num">1</div>
-        <div className="grow">
-          <div className="bold">In Namecheap: turn on Dynamic DNS</div>
-          <ol className="small">
-            <li>Domain List → <b>Manage</b> next to your domain → <b>Advanced DNS</b>.</li>
-            <li>Add New Record → <b>A + Dynamic DNS Record</b>. Host: <code>chat</code>, Value: <code>127.0.0.1</code> (Llamble replaces it) → ✓ save.</li>
-            <li>Further down, switch <b>Dynamic DNS</b> on and copy the <b>Dynamic DNS Password</b>.</li>
-          </ol>
-        </div>
+      <p className="muted small">How people outside your home reach this server. Everyone uses an address you own (like chat.example.com) with HTTPS.</p>
+      <div className="mode-cards">
+        {choice("off", "Home only", "Only devices on your home network can connect.")}
+        {choice("direct", "Direct", "Forward ports on your router. Free, fastest. Your home IP is visible to people who look up your address.")}
+        {choice("relay", "Through your own relay", "Rent a small server (VPS) and run one command on it. Hides your home IP, no router setup.")}
       </div>
 
-      <div className="remote-step">
-        <div className="step-num">2</div>
-        <div className="grow">
-          <div className="bold">Tell Llamble</div>
-          <label>
-            Address people will use
-            <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="chat.llamble.com" />
-          </label>
-          <label>
-            Namecheap Dynamic DNS password {r.has_ddns_password && <span className="green">· saved</span>}
-            <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={r.has_ddns_password ? "(leave blank to keep the saved one)" : "paste it here"} />
-          </label>
-          <label>
-            Your email <span className="muted">(optional; Let's Encrypt emails you only if a certificate has problems)</span>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} />
-          </label>
-          <div className="row gap">
-            <button className="btn primary" disabled={busy || !domain} onClick={() => save(true)}>
-              {enabled ? "Save" : "Turn on remote access"}
+      {mode === "off" && (
+        <div className="row gap" style={{ marginTop: 12 }}>
+          {active !== "off" && (
+            <button className="btn primary" disabled={busy} onClick={() => save()}>
+              Turn off remote access
             </button>
-            {enabled && (
-              <button className="btn" disabled={busy} onClick={() => save(false)}>
-                Turn off
-              </button>
-            )}
+          )}
+        </div>
+      )}
+
+      {mode === "direct" && (
+        <>
+          <div className="remote-step">
+            <div className="step-num">1</div>
+            <div className="grow">
+              <div className="bold">At your domain registrar: turn on Dynamic DNS</div>
+              <p className="muted small">Your internet provider changes your home IP now and then; Dynamic DNS keeps your address pointed at it. Steps for Namecheap:</p>
+              <ol className="small">
+                <li>Domain List → <b>Manage</b> next to your domain → <b>Advanced DNS</b>.</li>
+                <li>Add New Record → <b>A + Dynamic DNS Record</b>. Host: <code>chat</code>, Value: <code>127.0.0.1</code> (Llamble replaces it) → ✓ save.</li>
+                <li>Further down, switch <b>Dynamic DNS</b> on and copy the <b>Dynamic DNS Password</b>.</li>
+              </ol>
+            </div>
           </div>
-        </div>
-      </div>
+          <div className="remote-step">
+            <div className="step-num">2</div>
+            <div className="grow">
+              <div className="bold">Tell Llamble</div>
+              {domainField}
+              <label>
+                Namecheap Dynamic DNS password {r.has_ddns_password && <span className="green">· saved</span>}
+                <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={r.has_ddns_password ? "(leave blank to keep the saved one)" : "paste it here"} />
+              </label>
+              <button className="btn primary" disabled={busy || !domain} onClick={() => save()}>
+                {active === "direct" ? "Save" : "Turn on direct access"}
+              </button>
+            </div>
+          </div>
+          <div className="remote-step">
+            <div className="step-num">3</div>
+            <div className="grow">
+              <div className="bold">On your router: forward these ports to {nasIp}</div>
+              <p className="muted small">Usually under "Port Forwarding" or "Virtual Servers" in the router's settings. Spectrum and Windstream app routers have it under Advanced.</p>
+              <PortTable
+                to={nasIp}
+                rows={[
+                  ["443", "TCP", String(p.https), "Chat, files, web app, call setup, certificate"],
+                  [String(p.voice_tcp), "TCP", String(p.voice_tcp), "Voice/video fallback"],
+                  [String(p.voice_udp), "UDP", String(p.voice_udp), "Voice/video"],
+                ]}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
-      <div className="remote-step">
-        <div className="step-num">3</div>
-        <div className="grow">
-          <div className="bold">On your router: forward these ports to {nasIp}</div>
-          <p className="muted small">Usually under "Port Forwarding" or "Virtual Servers" in the router's settings page. Spectrum/Windstream app routers call it "Port forwarding" under Advanced.</p>
-          <table className="ports">
-            <thead>
-              <tr>
-                <th>Outside port</th>
-                <th>Protocol</th>
-                <th>To</th>
-                <th>For</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>443</td>
-                <td>TCP</td>
-                <td>
-                  {nasIp} : {r.https_port}
-                </td>
-                <td>Chat, files, web app, call setup, certificate</td>
-              </tr>
-              <tr>
-                <td>{r.voice_ports.tcp}</td>
-                <td>TCP</td>
-                <td>
-                  {nasIp} : {r.voice_ports.tcp}
-                </td>
-                <td>Voice/video fallback</td>
-              </tr>
-              <tr>
-                <td>{r.voice_ports.udp}</td>
-                <td>UDP</td>
-                <td>
-                  {nasIp} : {r.voice_ports.udp}
-                </td>
-                <td>Voice/video</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {mode === "relay" && (
+        <>
+          <div className="remote-step">
+            <div className="step-num">1</div>
+            <div className="grow">
+              <div className="bold">Get a small server (VPS)</div>
+              <p className="muted small">
+                Any Linux VPS with Docker works. The relay only passes traffic along, so the smallest plan is plenty: Oracle Cloud's Always Free tier, or about $4–6/month from Hetzner, Vultr or DigitalOcean.
+                In the provider's firewall, allow TCP {`443, ${p.relay_control}, ${p.voice_tcp}`} and UDP {p.voice_udp}.
+              </p>
+            </div>
+          </div>
+          <div className="remote-step">
+            <div className="step-num">2</div>
+            <div className="grow">
+              <div className="bold">Run this on the VPS</div>
+              <pre className="cmd" onClick={() => copy(r.relay_command, "Command copied")}>
+                {r.relay_command}
+              </pre>
+              <div className="row gap">
+                <button className="btn" onClick={() => copy(r.relay_command, "Command copied")}>
+                  Copy command
+                </button>
+                <button
+                  className="btn"
+                  onClick={() =>
+                    openModal({ kind: "confirm", title: "Make a new relay key?", body: "The current relay stops accepting this server until you run the new command on the VPS.", confirmLabel: "New key", onConfirm: () => save({ new_relay_token: true }) })
+                  }
+                >
+                  New key
+                </button>
+              </div>
+              <p className="muted small">The key in this command is what lets your server (and only yours) use the relay. Treat it like a password.</p>
+            </div>
+          </div>
+          <div className="remote-step">
+            <div className="step-num">3</div>
+            <div className="grow">
+              <div className="bold">Point your address at the VPS, then tell Llamble</div>
+              <p className="muted small">At your registrar, add an <b>A record</b>: host <code>chat</code> → the VPS's IP address. This only needs doing once; the VPS's IP doesn't change.</p>
+              <label>
+                VPS address (IP)
+                <input value={relayAddr} onChange={(e) => setRelayAddr(e.target.value)} placeholder="203.0.113.10" />
+              </label>
+              {domainField}
+              <button className="btn primary" disabled={busy || !domain || !relayAddr} onClick={() => save()}>
+                {active === "relay" ? "Save" : "Turn on relay"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
-      {enabled && (
+      {r.enabled && mode === active && (
         <div className="remote-status">
-          <div className={"rs " + dot(st.ddns_state)}>
-            <b>Address</b>{" "}
-            {st.ddns_state === "ok" ? `${r.domain} → ${st.ddns_ip} (checked ${new Date(st.ddns_at).toLocaleTimeString()})` : st.ddns_state === "error" ? st.ddns_error : "not set up"}
+          {active === "direct" ? (
+            <div className={"rs " + dot(st.ddns_state)}>
+              <b>Address</b> {st.ddns_state === "ok" ? `${r.domain} → ${st.ddns_ip} (checked ${new Date(st.ddns_at).toLocaleTimeString()})` : st.ddns_state === "error" ? st.ddns_error : "not set up"}
+            </div>
+          ) : (
+            <div className={"rs " + dot(st.relay_state)}>
+              <b>Relay</b> {st.relay_state === "connected" ? `connected to ${r.relay_addr}` : st.relay_state === "connecting" ? "connecting…" : st.relay_error || "not connected"}
+            </div>
+          )}
+          <div className={"rs " + dot(r.voice?.state === "running" ? "ok" : r.voice?.state)}>
+            <b>Calls</b> {r.voice?.state === "running" ? `reachable at ${r.voice.media_address}` : r.voice?.state}
           </div>
           <div className={"rs " + dot(st.tls_state)}>
             <b>HTTPS certificate</b>{" "}
@@ -1153,12 +1350,14 @@ function RemoteAccess() {
               : st.tls_state === "obtaining"
                 ? "requesting from Let's Encrypt…"
                 : st.tls_state === "error"
-                  ? "not yet: Let's Encrypt couldn't reach this server. Check that port 443 is forwarded (step 3). It retries automatically."
+                  ? active === "direct"
+                    ? "not yet: Let's Encrypt couldn't reach this server. Check that port 443 is forwarded (step 3). It retries automatically."
+                    : "not yet: waiting for the relay and your address to point at the VPS. It retries automatically."
                   : "off"}
           </div>
           {st.tls_state === "ready" && (
             <p className="small">
-              ✅ People outside can now use <b>https://{r.domain}</b> in the app or a browser (Chromebooks too). New invites will use this address.
+              ✅ People outside can now use <b>https://{r.domain}</b> in the app or a browser (Chromebooks too). New invites use this address.
             </p>
           )}
         </div>

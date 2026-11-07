@@ -1,6 +1,8 @@
 # Llamble
 
-A self-hosted Discord-style chat server for your clients. Rust server on TrueNAS, Windows desktop app (Electron), voice/video/screen share through a self-hosted LiveKit SFU, and an AI bot powered by llama.cpp.
+<p align="center"><img src="docs/logo.jpg" width="420" alt="Llamble: Chat, Show & Voice Platform"></p>
+
+A self-hosted Discord-style chat server for your clients. Rust server on TrueNAS, Windows desktop app (Electron), voice/video/screen share through LiveKit (bundled), and an AI bot powered by llama.cpp.
 
 ```
 llamble/
@@ -52,35 +54,40 @@ Recommended for your 4090: a Qwen3-14B or Gemma-3-27B class instruct GGUF at Q4_
 
 ## Deploy on TrueNAS SCALE (Install via YAML)
 
-GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`, public) and the Windows installer on every push to `main`. TrueNAS pulls the image, so nothing is copied to the NAS and no registry login is needed.
+GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`, public) and the Windows installer on every push to `main`. TrueNAS pulls the image, so nothing is copied to the NAS and no registry login is needed. The image includes everything: the web client, llama.cpp for the AI bot, and LiveKit for voice/video (Llamble runs and configures it itself, with its own generated keys).
 
-1. **Apps → Discover Apps → ⋮ → Install via YAML.** Name it `llamble` and paste `deploy/truenas-compose.yaml` after replacing:
-   - `NAS_IP`: your NAS's LAN IP
-   - `SECRET`: one long random string, in both places
-   Storage (`llamble-data`) is created automatically on your apps pool.
+1. **Apps → Discover Apps → ⋮ → Install via YAML.** Name it `llamble` and paste `deploy/truenas-compose.yaml` **as-is**. There's nothing to fill in. Storage (`llamble-data`) is created automatically on your apps pool.
 2. **Run setup:** open `http://NAS_IP:8090` in a browser, or enter that address in the Llamble app. A fresh server shows the setup wizard:
    - **Admin account:** creates the owner. Setup locks once it exists.
    - **First server name:** optional; the AI bot is switched on in it.
-   - **AI model:** pick from the list (sizes and RAM needs shown) or paste any Hugging Face GGUF repo and choose a quantization. It downloads in the background with progress, then `llama-server` (bundled in the image) runs it on the NAS. Change it later under **Settings → AI Model**.
-3. **Desktop app:** **https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe**. It updates itself.
+   - **AI model:** pick from the list (sizes and RAM needs shown) or paste any Hugging Face GGUF repo and choose a quantization. It downloads in the background with progress, then runs on the NAS. Change it later under **Settings → AI Model**.
+3. **Desktop app:** download the installer from this repo's Releases (`Llamble-Setup.exe`). It updates itself.
+
+Every other server setting is in the app for admins: **Settings → Server** (upload limit, link previews, who can create servers, bot name, recording), **AI Model** (model and GPU sharing), and **Remote Access**.
 
 **Updating the server:** push to `main`, wait for the Actions build, then **Update** the app in TrueNAS (`pull_policy: always`). Models and data survive updates.
 
 ### Access from outside your house (Settings → Remote Access)
 
-Built in, with no reverse proxy to set up:
-1. **Namecheap:** add an **A + Dynamic DNS Record** for `chat`, then turn on **Dynamic DNS** and copy its password.
-2. **Llamble:** enter `chat.llamble.com` and that password, then click **Turn on**. Llamble:
-   - keeps the name pointed at your home IP (it re-checks every 10 minutes, since Spectrum/Windstream IPs change)
-   - gets and renews a **Let's Encrypt** HTTPS certificate
-   - serves everything, including call signaling (`wss://chat.llamble.com/livekit`), on one port
-3. **Router:** forward **443/tcp → NAS:8443**, **7881/tcp → NAS:7881**, and **50000–50100/udp → NAS**.
+Each install uses its own address and, optionally, its own relay. Nothing goes through a shared Llamble service. Pick one:
 
-People outside then use **https://chat.llamble.com** in the app or any browser, including Chromebooks (calls work there because it's HTTPS). New invites use that address automatically. At home, `http://NAS_IP:8090` keeps working.
+- **Home only** (default): only devices on your network can connect.
+- **Direct:** your router forwards ports to the NAS.
+  1. At your registrar, add a Dynamic DNS record for your address (the app shows the steps for Namecheap) and copy its password.
+  2. In Llamble, enter the address (e.g. `chat.example.com`) and that password.
+  3. On your router, forward **443/tcp → NAS:8443**, **7881/tcp → NAS:7881**, and **7882/udp → NAS:7882**.
+  
+  Llamble keeps the address pointed at your home IP (it re-checks every 10 minutes, since home IPs change) and moves calls to the new IP on its own. Your home IP is visible to anyone who looks up the address.
+- **Through your own relay:** hides your home IP; no router changes.
+  1. Rent a small VPS with Docker (Oracle Cloud's free tier works, or about $4–6/month elsewhere).
+  2. Run the one-line `docker run … llamble-server relay` command that the app shows. It contains your server's private relay key.
+  3. Point your address's A record at the VPS's IP, then enter the VPS IP and your address in Llamble.
+  
+  Your NAS dials out to the relay and proves it has the key. Visitors' HTTPS and call traffic then passes through that connection. HTTPS is end-to-end: the VPS never holds your certificate.
 
-Notes:
-- LiveKit finds your public IP when it starts. If your ISP changes your IP, restart the app in TrueNAS so outside callers' media reaches the new address (chat is unaffected).
-- Your home IP is visible to anyone with the address, and the login page is reachable from the internet. Accounts are invite-only, passwords are hashed, and everything is HTTPS. Keep TrueNAS and Llamble updated.
+In both modes, Llamble gets and renews a **Let's Encrypt** certificate on its own, and serves the app, files and call setup on one HTTPS port. People outside use **https://chat.example.com** in the app or any browser, including Chromebooks. New invites use that address automatically. At home, `http://NAS_IP:8090` keeps working.
+
+Accounts are invite-only, passwords are hashed, and everything outside is HTTPS. Keep TrueNAS and Llamble updated.
 
 ## Desktop app (Windows)
 
@@ -95,20 +102,22 @@ The installer registers the `llamble://` protocol, so invite links open the app.
 
 ## Server configuration (env)
 
+Optional. Admins change the day-to-day settings in the app; these environment variables are only first-boot defaults or advanced overrides.
+
 | Var | Default | |
 |---|---|---|
 | `LLAMBLE_DATA` | `./data` | SQLite DB, files, thumbnails, proxy cache, secret key |
 | `LLAMBLE_BIND` | `0.0.0.0:8080` | |
-| `LLAMBLE_PUBLIC_URL` | — | informational |
-| `LLAMBLE_MAX_UPLOAD_MB` | `500` | per file |
-| `LLAMBLE_GUILD_CREATE` | `admin` | `all` = anyone can create servers |
-| `LLAMBLE_UNFURL` | `1` | link previews on/off |
-| `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | — | voice off if unset |
-| `LLAMBLE_LLAMA_URL` | — | optional: use an external llama-server instead of the built-in one |
-| `HF_TOKEN` | — | optional: Hugging Face token for gated models |
-| `LLAMBLE_BOT_NAME` | `Llamble` | |
-| `LLAMBLE_BOT_WORKERS` | `admins` | default for who may lend a GPU (`off` / `admins` / `members`); admins change it in Settings |
+| `LLAMBLE_MAX_UPLOAD_MB` | `500` | first-boot default (Settings → Server) |
+| `LLAMBLE_GUILD_CREATE` | `admin` | first-boot default (Settings → Server) |
+| `LLAMBLE_UNFURL` | `1` | first-boot default (Settings → Server) |
+| `LLAMBLE_BOT_NAME` | `Llamble` | first-boot default (Settings → Server) |
+| `LLAMBLE_BOT_WORKERS` | `admins` | first-boot default for GPU sharing (Settings → AI Model) |
 | `LLAMBLE_BOT_MAX_TOKENS` | `1024` | |
+| `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | — | advanced: use your own external LiveKit instead of the built-in one |
+| `LLAMBLE_LLAMA_URL` | — | advanced: use an external llama-server instead of the built-in one |
+| `HF_TOKEN` | — | optional: Hugging Face token for gated models |
+| `LLAMBLE_IMAGE` | `ghcr.io/outcomegit/llamble:latest` | image name shown in the relay command (set it if you publish your own build) |
 | `LLAMBLE_WEB_DIR` | `/app/web` in Docker | also serves the web client at `/` |
 | `LLAMBLE_BOOTSTRAP_INVITE` | random | fixed first admin invite code |
 
@@ -117,15 +126,15 @@ The installer registers the `llamble://` protocol, so invite links open the app.
 ## Tests
 
 ```sh
-cd server && cargo test                                       # unit tests
-LLAMBLE_DATA=/tmp/p LLAMBLE_BIND=127.0.0.1:8099 ./target/release/llamble-server &
-python3 tests/smoke.py http://127.0.0.1:8099 $(cat /tmp/p/ADMIN_INVITE.txt)   # full API flow
-python3 tests/mock_llama.py & ; (restart server with LLAMBLE_LLAMA_URL=http://127.0.0.1:8098)
-python3 tests/bot_test.py http://127.0.0.1:8099 <invite>      # bot: server backend, GPU worker, failover, DMs
+cd server && cargo build && cargo test   # unit tests
+tests/run_all.sh                         # every API suite against a fresh server, with stand-ins for
+                                         # llama-server, Hugging Face, Namecheap, LiveKit and a relay
 ```
 
 ## Not done yet / next ideas
 
+- Image and video generation in chat (stable-diffusion.cpp: FLUX.2-klein / Z-Image for images, LTX for video) on lent GPUs
+- Show recording: multi-camera with auto-switching, director mode, overlays, per-person consent
 - Per-channel permission overrides (only server-wide roles today)
 - Message pins, threads, custom server emoji, link to a specific message
 - Push notifications for phones (an Android app would reuse the web UI)

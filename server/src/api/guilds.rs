@@ -53,7 +53,7 @@ pub struct CreateGuild {
 }
 
 pub async fn create_guild(State(state): State<Shared>, auth: AuthUser, Json(req): Json<CreateGuild>) -> ApiResult<Json<Value>> {
-    if state.cfg.guild_create != "all" && !auth.is_admin {
+    if state.s().guild_create != "all" && !auth.is_admin {
         return Err(AppError::forbidden());
     }
     let name: String = req.name.trim().chars().take(100).collect();

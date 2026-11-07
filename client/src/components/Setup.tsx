@@ -57,6 +57,7 @@ export function Setup({ server, onDone, onCancel }: { server: string; onDone: (t
             <span className="on">1. Admin account</span>
             <span>2. AI model</span>
           </div>
+          <img className="login-logo" src="./logo-banner.jpg" alt="Llamble" />
           <h1>Set up your Llamble server</h1>
           <p className="muted">
             This server has no accounts yet. The account you create here is the <b>owner/admin</b>.

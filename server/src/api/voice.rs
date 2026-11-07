@@ -9,9 +9,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-fn mint_livekit_token(state: &Shared, room: &str, identity: &str, name: &str, sources: &[&str]) -> ApiResult<String> {
-    let key = state.cfg.livekit_key.clone().ok_or_else(|| AppError::bad("voice not configured"))?;
-    let secret = state.cfg.livekit_secret.clone().ok_or_else(|| AppError::bad("voice not configured"))?;
+async fn mint_livekit_token(state: &Shared, room: &str, identity: &str, name: &str, sources: &[&str]) -> ApiResult<String> {
+    let (key, secret) = crate::voice_server::credentials(state).await.ok_or_else(|| AppError::bad("voice not configured"))?;
     let now = chrono_now();
     let claims = json!({
         "iss": key,
@@ -54,9 +53,10 @@ pub async fn leave_voice(state: &Shared, user_id: &str) {
 }
 
 pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, headers: axum::http::HeaderMap) -> ApiResult<Json<Value>> {
-    if !state.cfg.voice_enabled() {
-        return Err(AppError::bad("voice is not configured on this server (set LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET)"));
+    if !crate::voice_server::enabled(&state) {
+        return Err(AppError::bad("voice isn't available on this server"));
     }
+    crate::settings::learn_lan_ip(&state, &headers).await;
     let ch = load_channel(&state.db, &cid).await?;
     if !(ch.kind == "voice" || ch.kind == "dm") {
         return Err(AppError::bad("not a voice channel"));
@@ -70,7 +70,7 @@ pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
         sources.extend(["camera", "screen_share", "screen_share_audio"]);
     }
     let user = get_user(&state.db, &auth.id).await?;
-    let token = mint_livekit_token(&state, &cid, &auth.id, &user.display_name, &sources)?;
+    let token = mint_livekit_token(&state, &cid, &auth.id, &user.display_name, &sources).await?;
 
     // moving between channels: announce leave from the old one
     if let Some(old) = state.hub.voice.get(&auth.id).map(|v| v.channel_id.clone()) {
@@ -89,7 +89,7 @@ pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
     };
     state.hub.voice.insert(auth.id.clone(), vs.clone());
     broadcast_voice(&state, &cid, serde_json::to_value(&vs).unwrap()).await;
-    let url = crate::remote::livekit_url_for(&state, &headers).await;
+    let url = crate::voice_server::client_url(&state, &headers).await;
     Ok(Json(json!({ "url": url, "token": token, "room": cid, "can_speak": p & perms::SPEAK != 0, "can_video": p & perms::VIDEO != 0 })))
 }
 

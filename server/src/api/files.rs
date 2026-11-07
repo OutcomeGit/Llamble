@@ -121,7 +121,7 @@ pub async fn upload(State(state): State<Shared>, auth: AuthUser, mut mp: Multipa
                 }
             };
             size += chunk.len() as u64;
-            if size > state.cfg.max_upload_bytes {
+            if size > state.s().max_upload_bytes() {
                 drop(f);
                 let _ = tokio::fs::remove_file(&tmp).await;
                 return Err(AppError(axum::http::StatusCode::PAYLOAD_TOO_LARGE, "file too large".into()));

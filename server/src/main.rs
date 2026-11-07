@@ -7,8 +7,11 @@ mod error;
 mod gateway;
 mod models;
 mod perms;
+mod relay;
 mod remote;
+mod settings;
 mod state;
+mod voice_server;
 
 use crate::error::{invite_code, now_ms};
 use crate::state::{AppState, Hub, Shared};
@@ -27,6 +30,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    if std::env::args().nth(1).as_deref() == Some("relay") {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        return relay::run_relay_server().await;
+    }
     let cfg = config::Config::from_env();
     for d in [cfg.data_dir.clone(), cfg.files_dir(), cfg.thumbs_dir(), cfg.proxy_dir()] {
         std::fs::create_dir_all(&d)?;
@@ -55,8 +62,11 @@ async fn main() -> anyhow::Result<()> {
         bot: bot::BotRuntime::default(),
         ai: ai::AiManager::default(),
         remote: remote::Remote::default(),
+        voice: voice_server::VoiceServer::default(),
+        settings: std::sync::RwLock::new(settings::ServerSettings::defaults(&cfg)),
     });
 
+    settings::load_into_cache(&state).await;
     bootstrap(&state).await?;
     tokio::spawn(janitor(state.clone()));
     tokio::spawn(ai::boot(state.clone()));
@@ -74,12 +84,13 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
     remote::init(state.clone(), app.clone());
+    voice_server::refresh(state.clone());
 
     tracing::info!(
         "Llamble listening on {} (public url {}, voice {}, server llama {})",
         cfg.bind,
         cfg.public_url,
-        if cfg.voice_enabled() { "enabled" } else { "disabled" },
+        if voice_server::enabled(&state) { "enabled" } else { "disabled" },
         cfg.llama_url.as_deref().unwrap_or("built-in")
     );
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;

@@ -1,52 +1,20 @@
-# Llamble for TrueNAS SCALE 24.10+  —  Apps → Discover → ⋮ → Install via YAML → paste this.
-# Nothing to copy to the NAS: the image comes from GitHub and LiveKit's config is inline.
-# After it starts, open http://NAS_IP:8090 (or the Llamble app) to run first-time setup:
-# create the admin account and pick the AI model (downloaded and run inside the app).
-#
-# Before pasting, change:
-#   1. (image already points at ghcr.io/outcomegit/llamble)
-#   2. NAS_IP → your NAS's LAN IP (3 places)
-#   3. SECRET → one long random string (2 places, must match)
-#   (storage is created automatically as Docker volumes — nothing to set up)
+# Llamble for TrueNAS SCALE 24.10+  —  Apps → Discover → ⋮ → Install via YAML → paste this as-is.
+# Nothing to edit, nothing to copy to the NAS, no GitHub login. Storage is created automatically.
+# Then open http://NAS_IP:8090 (or the Llamble app) to create the admin account and pick the AI model.
+# Everything else (remote access, upload limits, bot name, GPU sharing...) is in the app:
+# Settings → Instance Admin.
 services:
   llamble:
     image: ghcr.io/outcomegit/llamble:latest
     pull_policy: always
     restart: unless-stopped
     ports:
-      - "8090:8080"   # home network (http)
-      - "8443:8443"   # remote access (https) — router forwards outside 443 here
-    extra_hosts:
-      - "host.docker.internal:host-gateway"   # lets Llamble reach LiveKit for wss://…/livekit
+      - "8090:8080"       # the app and web client on your home network
+      - "8443:8443"       # remote access (HTTPS) — only used if you turn it on
+      - "7881:7881"       # voice/video (TCP fallback)
+      - "7882:7882/udp"   # voice/video
     volumes:
       - llamble-data:/data
-    environment:
-      LLAMBLE_PUBLIC_URL: "http://NAS_IP:8090"
-      LLAMBLE_MAX_UPLOAD_MB: "1024"
-      LLAMBLE_GUILD_CREATE: "admin"
-      LIVEKIT_URL: "ws://NAS_IP:7880"
-      LIVEKIT_API_KEY: "llamble"
-      LIVEKIT_API_SECRET: "SECRET"
-      LLAMBLE_BOT_NAME: "Llamble"
-      LLAMBLE_BOT_WORKERS: "admins"
-      RUST_LOG: "llamble_server=info"
-
-  livekit:
-    image: livekit/livekit-server:latest
-    restart: unless-stopped
-    network_mode: host
-    environment:
-      LIVEKIT_CONFIG: |
-        port: 7880
-        rtc:
-          tcp_port: 7881
-          port_range_start: 50000
-          port_range_end: 50100
-          use_external_ip: true   # advertise your public IP so outside callers can connect
-        keys:
-          llamble: SECRET
-        room:
-          empty_timeout: 300
 
 volumes:
   llamble-data:

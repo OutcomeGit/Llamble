@@ -15,12 +15,15 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 
 pub fn router(state: Shared) -> Router<Shared> {
-    let upload_limit = state.cfg.max_upload_bytes as usize + 1024 * 1024;
+    let _ = &state;
+    // per-file size is enforced in files.rs from Server Settings; this is only a hard ceiling
+    let upload_limit: usize = 20_000 * 1024 * 1024;
     Router::new()
         .route("/api/info", get(info))
         .route("/api/setup", post(setup))
         .route("/api/admin/ai", get(crate::ai::get_status).post(crate::ai::set_model).delete(crate::ai::disable))
         .route("/api/admin/ai/quants", get(crate::ai::get_quants))
+        .route("/api/admin/settings", get(crate::settings::get_settings).put(crate::settings::put_settings))
         .route("/api/admin/remote", get(crate::remote::get_remote).put(crate::remote::set_remote))
         .route("/livekit/{*rest}", axum::routing::any(crate::remote::livekit_proxy))
         .route("/api/admin/gpu", get(crate::bot::get_gpu_pool).patch(crate::bot::set_gpu_policy))
@@ -132,9 +135,9 @@ async fn info(State(state): State<Shared>) -> Json<Value> {
         "setup_required": setup_required(&state).await,
         "name": "Llamble",
         "version": env!("CARGO_PKG_VERSION"),
-        "voice_enabled": state.cfg.voice_enabled(),
-        "max_upload_bytes": state.cfg.max_upload_bytes,
-        "bot_name": state.cfg.bot_name,
+        "voice_enabled": crate::voice_server::enabled(&state),
+        "max_upload_bytes": state.s().max_upload_bytes(),
+        "bot_name": state.s().bot_name,
     }))
 }
 

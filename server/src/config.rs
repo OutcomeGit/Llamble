@@ -56,7 +56,4 @@ impl Config {
     pub fn proxy_dir(&self) -> PathBuf {
         self.data_dir.join("proxy_cache")
     }
-    pub fn voice_enabled(&self) -> bool {
-        self.livekit_url.is_some() && self.livekit_key.is_some() && self.livekit_secret.is_some()
-    }
 }

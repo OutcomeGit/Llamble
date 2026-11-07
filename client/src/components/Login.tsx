@@ -92,6 +92,7 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
     <div className="login-bg">
       <div className="titlebar-drag" />
       <form className="login-card" onSubmit={submit}>
+        <img className="login-logo" src="./logo-banner.jpg" alt="Llamble" />
         <h1>{mode === "login" ? "Welcome back!" : "Create your account"}</h1>
         <p className="muted">{mode === "login" ? "Sign in to your Llamble server." : "You'll need an invite from the server owner."}</p>
         <label>

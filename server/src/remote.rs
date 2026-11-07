@@ -25,12 +25,25 @@ pub const HTTPS_PORT: u16 = 8443;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct RemoteConfig {
     pub enabled: bool,
-    /// full host name clients use, e.g. chat.llamble.com
+    /// full host name clients use, e.g. chat.example.com
     pub domain: String,
     #[serde(default)]
     pub ddns_password: String,
     #[serde(default)]
     pub email: String,
+    /// "direct" (router port forwarding + Namecheap DDNS) or "relay" (your own VPS)
+    #[serde(default = "default_mode")]
+    pub mode: String,
+    /// relay mode: the VPS's address (IP or host name)
+    #[serde(default)]
+    pub relay_addr: String,
+    /// relay mode: shared secret, generated here, pasted into the VPS command
+    #[serde(default)]
+    pub relay_token: String,
+}
+
+fn default_mode() -> String {
+    "direct".into()
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -41,6 +54,9 @@ pub struct RemoteStatus {
     pub ddns_at: Option<i64>,
     pub tls_state: String, // off | obtaining | ready | error
     pub tls_error: Option<String>,
+    pub relay_state: String, // off | connecting | connected | error
+    pub relay_error: Option<String>,
+    pub relay_ip: Option<String>,
 }
 
 #[derive(Default)]
@@ -48,6 +64,7 @@ pub struct Remote {
     pub status: RwLock<RemoteStatus>,
     server: Mutex<Option<axum_server::Handle>>,
     kick: tokio::sync::Notify,
+    relay_gen: std::sync::atomic::AtomicU64,
 }
 
 static APP: OnceLock<Router> = OnceLock::new();
@@ -60,6 +77,20 @@ pub async fn load(state: &Shared) -> RemoteConfig {
         .flatten()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
+}
+
+/// The relay VPS's IPv4 address (voice media is advertised there in relay mode).
+pub async fn relay_ip(state: &Shared) -> Option<String> {
+    state.remote.status.read().await.relay_ip.clone()
+}
+
+async fn resolve_ipv4(addr: &str) -> Option<String> {
+    let host = addr.split(':').next()?.to_string();
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        return Some(ip.to_string());
+    }
+    let found = tokio::net::lookup_host((host.as_str(), 0)).await.ok()?.find(|a| a.is_ipv4()).map(|a| a.ip().to_string());
+    found
 }
 
 /// Public base URL for clients that came in through the remote domain.
@@ -117,7 +148,11 @@ async fn update_ddns(state: &Shared, c: &RemoteConfig) {
             let errs: i64 = xml_tag(&body, "ErrCount").and_then(|v| v.parse().ok()).unwrap_or(1);
             if errs == 0 {
                 st.ddns_state = "ok".into();
-                st.ddns_ip = xml_tag(&body, "IP").map(|s| s.to_string());
+                let ip = xml_tag(&body, "IP").map(|s| s.to_string());
+                if ip != st.ddns_ip {
+                    st.ddns_ip = ip;
+                    crate::voice_server::refresh(state.clone());
+                }
                 st.ddns_error = None;
             } else {
                 st.ddns_state = "error".into();
@@ -197,7 +232,7 @@ pub fn init(state: Shared, app: Router) {
                 _ = state.remote.kick.notified() => { apply(&state).await; continue; }
             }
             let c = load(&state).await;
-            if c.enabled && !c.ddns_password.is_empty() {
+            if c.enabled && c.mode == "direct" && !c.ddns_password.is_empty() {
                 update_ddns(&state, &c).await;
             }
         }
@@ -206,17 +241,93 @@ pub fn init(state: Shared, app: Router) {
 
 async fn apply(state: &Shared) {
     let c = load(state).await;
+    // any running relay link stops when settings change; restarted below if still wanted
+    let relay_gen = state.remote.relay_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     if !c.enabled || c.domain.is_empty() {
         stop_https(state).await;
-        *state.remote.status.write().await = RemoteStatus { ddns_state: "off".into(), tls_state: "off".into(), ..Default::default() };
+        *state.remote.status.write().await = RemoteStatus { ddns_state: "off".into(), tls_state: "off".into(), relay_state: "off".into(), ..Default::default() };
+        crate::voice_server::refresh(state.clone());
         return;
     }
+    if c.mode == "relay" {
+        {
+            let mut st = state.remote.status.write().await;
+            st.ddns_state = "off".into();
+            st.ddns_ip = None;
+            st.ddns_error = None;
+        }
+        start_https(state, &c).await;
+        tokio::spawn(relay_loop(state.clone(), c, relay_gen));
+        return;
+    }
+    {
+        let mut st = state.remote.status.write().await;
+        st.relay_state = "off".into();
+        st.relay_error = None;
+        st.relay_ip = None;
+    }
+    crate::voice_server::refresh(state.clone());
     if !c.ddns_password.is_empty() {
         update_ddns(state, &c).await;
     } else {
         state.remote.status.write().await.ddns_state = "off".into();
     }
     start_https(state, &c).await;
+}
+
+/// Keep the outbound link to the relay VPS up while relay mode is on.
+async fn relay_loop(state: Shared, c: RemoteConfig, gen: u64) {
+    use std::sync::atomic::Ordering;
+    let mut backoff = 2u64;
+    while state.remote.relay_gen.load(Ordering::SeqCst) == gen {
+        if c.relay_addr.trim().is_empty() {
+            let mut st = state.remote.status.write().await;
+            st.relay_state = "error".into();
+            st.relay_error = Some("enter your relay server's address".into());
+            return;
+        }
+        let ip = resolve_ipv4(c.relay_addr.trim()).await;
+        {
+            let mut st = state.remote.status.write().await;
+            st.relay_state = "connecting".into();
+            if st.relay_ip != ip {
+                st.relay_ip = ip.clone();
+                drop(st);
+                crate::voice_server::refresh(state.clone());
+            }
+        }
+        let st2 = state.clone();
+        let link = crate::relay::run_home_link(c.relay_addr.trim(), &c.relay_token, move || {
+            let st2 = st2.clone();
+            tokio::spawn(async move {
+                let mut st = st2.remote.status.write().await;
+                st.relay_state = "connected".into();
+                st.relay_error = None;
+            });
+            tracing::info!("relay link up");
+        });
+        let stopped = async {
+            while state.remote.relay_gen.load(Ordering::SeqCst) == gen {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        };
+        let was_up;
+        tokio::select! {
+            r = link => {
+                let err = r.err().unwrap_or_default();
+                let mut st = state.remote.status.write().await;
+                was_up = st.relay_state == "connected";
+                st.relay_state = "error".into();
+                st.relay_error = Some(err);
+            }
+            _ = stopped => return,
+        }
+        if was_up {
+            backoff = 2;
+        }
+        tokio::time::sleep(Duration::from_secs(backoff)).await;
+        backoff = (backoff * 2).min(60);
+    }
 }
 
 // ---------- admin API ----------
@@ -226,14 +337,36 @@ pub async fn get_remote(State(state): State<Shared>, auth: AuthUser) -> ApiResul
         return Err(AppError::forbidden());
     }
     let c = load(&state).await;
+    let mut c = c;
+    if c.relay_token.is_empty() {
+        c.relay_token = crate::error::random_token(24);
+        save(&state, &c).await?;
+    }
+    let image = std::env::var("LLAMBLE_IMAGE").unwrap_or_else(|_| "ghcr.io/outcomegit/llamble:latest".into());
+    let relay_command = format!(
+        "docker run -d --name llamble-relay --restart unless-stopped -p 443:{https} -p {ctl}:{ctl} -p {tcp}:{tcp} -p {udp}:{udp}/udp -e LLAMBLE_RELAY_TOKEN={tok} {image} llamble-server relay",
+        https = HTTPS_PORT,
+        ctl = crate::relay::CONTROL_PORT,
+        tcp = crate::voice_server::TCP_PORT,
+        udp = crate::voice_server::UDP_PORT,
+        tok = c.relay_token,
+    );
     Ok(Json(json!({
         "enabled": c.enabled,
+        "mode": c.mode,
         "domain": c.domain,
         "email": c.email,
         "has_ddns_password": !c.ddns_password.is_empty(),
+        "relay_addr": c.relay_addr,
+        "relay_command": relay_command,
         "status": *state.remote.status.read().await,
-        "https_port": HTTPS_PORT,
-        "voice_ports": { "tcp": 7881, "udp": "50000-50100" },
+        "voice": crate::voice_server::status_json(&state).await,
+        "ports": {
+            "https": HTTPS_PORT,
+            "voice_tcp": crate::voice_server::TCP_PORT,
+            "voice_udp": crate::voice_server::UDP_PORT,
+            "relay_control": crate::relay::CONTROL_PORT,
+        },
     })))
 }
 
@@ -243,6 +376,19 @@ pub struct SetRemote {
     pub domain: String,
     pub ddns_password: Option<String>,
     pub email: Option<String>,
+    pub mode: Option<String>,
+    pub relay_addr: Option<String>,
+    /// make a new relay token (the VPS command must then be run again)
+    #[serde(default)]
+    pub new_relay_token: bool,
+}
+
+async fn save(state: &Shared, c: &RemoteConfig) -> ApiResult<()> {
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote', ?)")
+        .bind(serde_json::to_string(c).unwrap())
+        .execute(&state.db)
+        .await?;
+    Ok(())
 }
 
 pub async fn set_remote(State(state): State<Shared>, auth: AuthUser, Json(req): Json<SetRemote>) -> ApiResult<Json<Value>> {
@@ -253,7 +399,7 @@ pub async fn set_remote(State(state): State<Shared>, auth: AuthUser, Json(req): 
     if req.enabled {
         let ok = domain.contains('.') && domain.split('.').all(|p| !p.is_empty() && p.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
         if !ok {
-            return Err(AppError::bad("enter a host name like chat.llamble.com"));
+            return Err(AppError::bad("enter a host name like chat.example.com"));
         }
     }
     let mut c = load(&state).await;
@@ -267,24 +413,33 @@ pub async fn set_remote(State(state): State<Shared>, auth: AuthUser, Json(req): 
     if let Some(e) = req.email {
         c.email = e.trim().to_string();
     }
-    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote', ?)")
-        .bind(serde_json::to_string(&c).unwrap())
-        .execute(&state.db)
-        .await?;
+    if let Some(m) = req.mode {
+        if m != "direct" && m != "relay" {
+            return Err(AppError::bad("mode must be direct or relay"));
+        }
+        c.mode = m;
+    }
+    if let Some(a) = req.relay_addr {
+        c.relay_addr = a.trim().trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/').to_string();
+    }
+    if req.new_relay_token || c.relay_token.is_empty() {
+        c.relay_token = crate::error::random_token(24);
+    }
+    if c.enabled && c.mode == "relay" && c.relay_addr.is_empty() {
+        return Err(AppError::bad("enter your relay server's address"));
+    }
+    save(&state, &c).await?;
     state.remote.kick.notify_one();
     Ok(Json(json!({ "ok": true })))
 }
 
 // ---------- LiveKit signaling proxy: /livekit/... -> LiveKit server ----------
 
-fn livekit_internal() -> String {
-    std::env::var("LIVEKIT_INTERNAL_URL").unwrap_or_else(|_| "http://host.docker.internal:7880".into()).trim_end_matches('/').to_string()
-}
 
-pub async fn livekit_proxy(Path(rest): Path<String>, ws: Result<WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>, req: Request) -> Response {
+pub async fn livekit_proxy(State(state): State<Shared>, Path(rest): Path<String>, ws: Result<WebSocketUpgrade, axum::extract::ws::rejection::WebSocketUpgradeRejection>, req: Request) -> Response {
     let ws = ws.ok();
     let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
-    let target = format!("{}/{}{}", livekit_internal(), rest, query);
+    let target = format!("{}/{}{}", crate::voice_server::internal_url(&state).await.trim_end_matches('/'), rest, query);
     if let Some(ws) = ws {
         let target = target.replacen("http", "ws", 1);
         return ws.on_upgrade(move |client| async move {

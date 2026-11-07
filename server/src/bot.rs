@@ -93,7 +93,7 @@ fn settings_json(state: &Shared, s: &BotSettings) -> Value {
         "system_prompt": s.system_prompt,
         "always_channels": s.always_channels,
         "bot_user_id": state.bot_id,
-        "bot_name": state.cfg.bot_name,
+        "bot_name": state.s().bot_name,
     })
 }
 
@@ -149,7 +149,7 @@ pub async fn status(State(state): State<Shared>, _auth: AuthUser) -> ApiResult<J
     }
     Ok(Json(json!({
         "bot_user_id": state.bot_id,
-        "bot_name": state.cfg.bot_name,
+        "bot_name": state.s().bot_name,
         "server_backend": crate::ai::server_llama_url(&state).await.is_some(),
         "server_model": state.ai.snapshot().await,
         "worker_policy": gpu_policy(&state).await,
@@ -324,7 +324,7 @@ pub async fn maybe_respond(state: &Shared, ch: &Channel, row_id: &str, author_id
                     .unwrap_or(false),
                 None => false,
             };
-            mention || reply_to_bot || name_call_re(&state.cfg.bot_name).is_match(content) || s.always_channels.contains(&ch.id)
+            mention || reply_to_bot || name_call_re(&state.s().bot_name).is_match(content) || s.always_channels.contains(&ch.id)
         }
     };
     if !triggered {
@@ -445,7 +445,7 @@ async fn build_messages(state: &Shared, ch: &Channel, trigger: &str) -> anyhow::
         merged.remove(0);
     }
 
-    let bot = &state.cfg.bot_name;
+    let bot = &state.s().bot_name;
     let place = match &ch.guild_id {
         Some(g) => {
             let gname: String = sqlx::query_scalar("SELECT name FROM guilds WHERE id = ?").bind(g).fetch_one(&state.db).await?;
@@ -522,7 +522,7 @@ impl Writer {
     }
 
     async fn flush(&mut self) {
-        let text = visible_text(&self.raw, &self.state.cfg.bot_name);
+        let text = visible_text(&self.raw, &self.state.s().bot_name);
         if text.is_empty() || text == self.last_sent {
             return;
         }
