@@ -235,6 +235,21 @@ async fn supervise(state: Shared, ip: String, gen: u64) {
     }
 }
 
+/// Wait (up to `max`) until the built-in voice server is running. No-op for an external one.
+pub async fn wait_ready(state: &Shared, max: Duration) {
+    if external(state) || !livekit_bin().exists() {
+        return;
+    }
+    let end = tokio::time::Instant::now() + max;
+    while tokio::time::Instant::now() < end {
+        let st = state.voice.state.read().await.clone();
+        if st == "running" || st == "no-address" || st == "off" {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 pub async fn status_json(state: &Shared) -> Value {
     json!({
         "state": *state.voice.state.read().await,

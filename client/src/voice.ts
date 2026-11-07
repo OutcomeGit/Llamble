@@ -1,10 +1,11 @@
 import {
-  AudioPresets, ConnectionState, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
+  AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
   Room, RoomEvent, ScreenSharePresets, Track, VideoPresets,
 } from "livekit-client";
 import { create } from "zustand";
 import { api } from "./api";
 import { sounds } from "./sounds";
+import { onEvent } from "./store";
 
 export interface VoiceUI {
   channelId: string | null;
@@ -40,6 +41,10 @@ const vget = useVoice.getState;
 const bump = () => vset((s) => ({ version: s.version + 1 }));
 
 let room: Room | null = null;
+// the channel the user means to be in; survives dropped connections so we can rejoin
+let wanted: string | null = null;
+let rejoinTimer: number | undefined;
+let rejoinStarted = 0;
 const audioBox = (() => {
   const d = document.createElement("div");
   d.style.display = "none";
@@ -64,8 +69,20 @@ export const prefs = {
   },
 };
 
+// devices seen on this machine (refreshed on device changes); a saved device that's
+// been unplugged falls back to the system default instead of failing
+let knownInputs: string[] | null = null;
+async function refreshDevices() {
+  try {
+    knownInputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput").map((d) => d.deviceId);
+  } catch {
+    knownInputs = null;
+  }
+}
+
 function audioCapture() {
-  const dev = prefs.get("audioInput");
+  let dev = prefs.get("audioInput");
+  if (dev && knownInputs && !knownInputs.includes(dev)) dev = "";
   return {
     deviceId: dev || undefined,
     echoCancellation: prefs.bool("echoCancellation"),
@@ -114,14 +131,43 @@ export async function joinVoice(channelId: string) {
     vset({ error: "Voice and video need a secure (https://) connection in a browser. Use the desktop app, or open Llamble through its HTTPS address." });
     return;
   }
-  vset({ channelId, status: "connecting", error: null, camera: false, screen: false, speaking: [] });
+  clearTimeout(rejoinTimer);
+  rejoinStarted = 0;
+  wanted = channelId;
+  await connect(channelId, false);
+}
+
+function scheduleRejoin(channelId: string) {
+  if (wanted !== channelId) return;
+  if (!rejoinStarted) rejoinStarted = Date.now();
+  if (Date.now() - rejoinStarted > 3 * 60_000) {
+    wanted = null;
+    rejoinStarted = 0;
+    vset({ channelId: null, status: "idle", error: "Lost the voice connection to the server. Click the voice channel to rejoin." });
+    bump();
+    return;
+  }
+  const tries = Math.round((Date.now() - rejoinStarted) / 1000);
+  vset({ channelId, status: "reconnecting", speaking: [] });
+  clearTimeout(rejoinTimer);
+  rejoinTimer = window.setTimeout(() => connect(channelId, true), Math.min(15_000, 1000 + tries * 500));
+}
+
+async function connect(channelId: string, rejoining: boolean) {
+  if (wanted !== channelId) return;
+  vset({ channelId, status: rejoining ? "reconnecting" : "connecting", error: null, camera: false, screen: false, speaking: [] });
+  await refreshDevices();
   let info: { url: string; token: string; can_speak: boolean; can_video: boolean };
   try {
     info = await api(`/api/channels/${channelId}/voice`, { method: "POST" });
   } catch (e: any) {
+    // server unreachable (restarting, network blip): keep trying; a real refusal stops
+    if (rejoining && (e?.status === undefined || e.status >= 500)) return scheduleRejoin(channelId);
+    wanted = null;
     vset({ channelId: null, status: "idle", error: e.message });
     return;
   }
+  if (wanted !== channelId) return;
   const r = new Room({
     adaptiveStream: true,
     dynacast: true,
@@ -171,26 +217,40 @@ export async function joinVoice(channelId: string) {
       if (st === ConnectionState.Reconnecting) vset({ status: "reconnecting" });
       else if (st === ConnectionState.Connected) vset({ status: "connected" });
     })
-    .on(RoomEvent.Disconnected, () => {
-      if (room === r) {
-        room = null;
-        audioBox.innerHTML = "";
-        vset({ channelId: null, status: "idle", camera: false, screen: false, speaking: [] });
-        bump();
+    .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+      if (room !== r) return;
+      room = null;
+      audioBox.innerHTML = "";
+      bump();
+      // dropped by the network or a server restart: rejoin by ourselves
+      if (wanted === channelId && reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY && reason !== DisconnectReason.PARTICIPANT_REMOVED) {
+        console.warn("voice dropped, rejoining", reason);
+        scheduleRejoin(channelId);
+        return;
       }
+      wanted = null;
+      const why = reason === DisconnectReason.DUPLICATE_IDENTITY ? "You joined voice from another device." : reason === DisconnectReason.PARTICIPANT_REMOVED ? "You were removed from the voice channel." : null;
+      vset({ channelId: null, status: "idle", camera: false, screen: false, speaking: [], error: why });
+    })
+    .on(RoomEvent.MediaDevicesChanged, () => {
+      refreshDevices().then(recoverMic);
     })
     .on(RoomEvent.MediaDevicesError, (e: Error) => vset({ error: "Microphone/camera error: " + e.message }));
 
   try {
     await r.connect(info.url, info.token, { autoSubscribe: true });
   } catch (e: any) {
-    room = null;
+    if (room === r) room = null;
+    if (rejoining) return scheduleRejoin(channelId);
+    wanted = null;
     vset({ channelId: null, status: "idle", error: "Couldn't connect to voice: " + (e?.message || e) });
     api("/api/voice/leave", { method: "POST" }).catch(() => {});
     return;
   }
+  if (room !== r) return;
+  rejoinStarted = 0;
   vset({ status: "connected", canSpeak: info.can_speak, canVideo: info.can_video });
-  sounds.join();
+  if (!rejoining) sounds.join();
   if (info.can_speak) {
     try {
       await r.localParticipant.setMicrophoneEnabled(!vget().muted && !vget().deafened, audioCapture());
@@ -203,6 +263,9 @@ export async function joinVoice(channelId: string) {
 }
 
 export async function leaveVoice(notify = true) {
+  wanted = null;
+  clearTimeout(rejoinTimer);
+  rejoinStarted = 0;
   const r = room;
   room = null;
   audioBox.innerHTML = "";
@@ -315,3 +378,34 @@ export function participants(): Participant[] {
 export function connectionQuality(): string {
   return room?.localParticipant.connectionQuality ?? "unknown";
 }
+
+/** Bring the microphone back if its device went away (unplugged headset, Windows switching the default, driver reset). */
+async function recoverMic() {
+  const r = room;
+  const s = vget();
+  if (!r || s.status !== "connected" || !s.canSpeak || s.muted || s.deafened) return;
+  const pub = r.localParticipant.getTrackPublication(Track.Source.Microphone);
+  const live = pub?.track?.mediaStreamTrack?.readyState === "live";
+  if (live) return;
+  try {
+    await r.localParticipant.setMicrophoneEnabled(false);
+    await r.localParticipant.setMicrophoneEnabled(true, audioCapture());
+    console.warn("microphone restarted");
+  } catch (e: any) {
+    vset({ error: "Microphone unavailable: " + e.message });
+  }
+}
+// cheap watchdog: a mic track can end without any device event
+window.setInterval(recoverMic, 5000);
+
+// After the chat connection comes back (or the server restarted), make sure the server
+// still lists us in the call we're in, so others don't see us drop out.
+onEvent((t, d) => {
+  if (t !== "READY" || !room || !wanted || vget().status !== "connected") return;
+  const me = d?.user?.id;
+  if (me && !(d.voice_states || []).some((v: any) => v.user_id === me && v.channel_id === wanted)) {
+    api(`/api/channels/${wanted}/voice`, { method: "POST" })
+      .then(() => syncServerState())
+      .catch(() => {});
+  }
+});

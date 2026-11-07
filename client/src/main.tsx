@@ -2,6 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
+import { getRoom, joinVoice, leaveVoice, useVoice } from "./voice";
+
+// handle for automated tests and troubleshooting from the dev console
+(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState() };
 
 createRoot(document.getElementById("root")!).render(<App />);
 

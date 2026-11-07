@@ -33,6 +33,21 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
             type=sha,format=short
+      # build and test the image before anyone can pull it
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: llamble:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Real voice calls against the image (two browsers, voice server killed mid-call)
+        run: |
+          docker run -d --name llamble -p 8090:8080 -p 7881:7881 -p 7882:7882/udp llamble:test
+          pip install --quiet playwright websocket-client requests
+          python -m playwright install --with-deps chromium > /dev/null
+          python tests/voice_e2e.py http://localhost:8090 llamble || { docker logs llamble | tail -80; exit 1; }
       - uses: docker/build-push-action@v6
         with:
           context: .

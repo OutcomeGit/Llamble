@@ -57,6 +57,9 @@ pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
         return Err(AppError::bad("voice isn't available on this server"));
     }
     crate::settings::learn_lan_ip(&state, &headers).await;
+    // the built-in voice server may still be (re)starting, e.g. right after the server
+    // learned its address or after an update: give it a moment instead of failing the call
+    crate::voice_server::wait_ready(&state, std::time::Duration::from_secs(12)).await;
     let ch = load_channel(&state.db, &cid).await?;
     if !(ch.kind == "voice" || ch.kind == "dm") {
         return Err(AppError::bad("not a voice channel"));
