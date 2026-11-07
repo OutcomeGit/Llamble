@@ -44,8 +44,18 @@ ok(requests.post(B+"/api/admin/ai",headers=T,json={"repo":"tiny/Test-GGUF","quan
 assert ok(requests.get(B+"/api/admin/ai",headers=T))["status"]["state"]!="ready"
 got=ask("llamble, still there?", "says hi.")
 assert got=="Built-in model says hi.", got; print("question asked while the model was loading got answered")
+# models on the server
+ms=ok(requests.get(B+"/api/admin/ai/models",headers=T))
+m=ms["models"]; assert len(m)==1 and m[0]["repo"]=="tiny/Test-GGUF" and m[0]["active"] and m[0]["complete"] and ms["total_bytes"]>3_000_000, ms
+r=requests.delete(B+"/api/admin/ai/models?repo=tiny/Test-GGUF&quant=q4_k_m",headers=T); assert r.status_code==400 and "in use" in r.text, r.text
+assert requests.delete(B+"/api/admin/ai/models?repo=../etc",headers=T).status_code==400
+print("models list:", m[0]["repo"], m[0]["quant"], m[0]["on_disk"], "bytes, in use; can't delete while in use")
 # disable
 ok(requests.delete(B+"/api/admin/ai",headers=T))
 got=ask("llamble, hello again?", ".*")
 assert "no AI model is set up" in got, got; print("no model ->", got); assert ok(requests.get(B+"/api/admin/ai",headers=T))["status"]["state"]=="none"
+m=ok(requests.get(B+"/api/admin/ai/models",headers=T))["models"]; assert len(m)==1 and not m[0]["active"], m
+ok(requests.delete(B+f"/api/admin/ai/models?repo=tiny/Test-GGUF&quant={m[0]['quant']}",headers=T))
+ms=ok(requests.get(B+"/api/admin/ai/models",headers=T)); assert ms["models"]==[] and ms["total_bytes"]==0, ms
+print("deleted the unused model; server storage empty")
 print("ALL SETUP OK")

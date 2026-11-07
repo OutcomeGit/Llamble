@@ -12,7 +12,11 @@ requests.put(B+"/api/admin/remote",headers=T,json={"enabled":True,"domain":"chat
 r=requests.get(B+"/api/admin/remote",headers=T).json(); st=r["status"]
 assert st["ddns_state"]=="ok" and st["ddns_ip"]=="203.0.113.7", st; print("DDNS update ok ->", st["ddns_ip"])
 assert st["tls_state"] in ("obtaining","error","ready"), st
-sock=socket.create_connection(("127.0.0.1",8443),timeout=3); print("HTTPS listener up on 8443 (tls:", st["tls_state"]+")"); sock.close()
+for _ in range(40):  # the listener starts in the background
+    try: sock=socket.create_connection(("127.0.0.1",8443),timeout=3); break
+    except OSError: time.sleep(0.25)
+else: raise SystemExit("HTTPS listener never came up")
+print("HTTPS listener up on 8443 (tls:", st["tls_state"]+")"); sock.close()
 # voice url depends on how the client connected
 ws=create_connection(B.replace("http","ws")+"/api/gateway?access_token="+s["token"]); import json; ready=json.loads(ws.recv())["d"]; ws.close()
 vc=[c for g in ready["guilds"] for c in g["channels"] if c["kind"]=="voice"][0]["id"]

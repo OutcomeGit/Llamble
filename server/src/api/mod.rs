@@ -23,6 +23,7 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/setup", post(setup))
         .route("/api/admin/ai", get(crate::ai::get_status).post(crate::ai::set_model).delete(crate::ai::disable))
         .route("/api/admin/ai/quants", get(crate::ai::get_quants))
+        .route("/api/admin/ai/models", get(crate::ai::list_models).delete(crate::ai::delete_model))
         .route("/api/admin/settings", get(crate::settings::get_settings).put(crate::settings::put_settings))
         .route("/api/admin/remote", get(crate::remote::get_remote).put(crate::remote::set_remote))
         .route("/livekit/{*rest}", axum::routing::any(crate::remote::livekit_proxy))

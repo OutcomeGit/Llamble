@@ -46,6 +46,10 @@ export function ModelPicker({ opts = {}, compact }: { opts?: Opts; compact?: boo
 
   useEffect(() => {
     load();
+    // the "Models on this server" list can switch models too
+    const h = () => load();
+    window.addEventListener("llamble:ai-changed", h);
+    return () => window.removeEventListener("llamble:ai-changed", h);
   }, []);
   // poll while something is in progress
   useEffect(() => {
@@ -60,6 +64,7 @@ export function ModelPicker({ opts = {}, compact }: { opts?: Opts; compact?: boo
     try {
       await api("/api/admin/ai", { ...opts, body: { repo, quant, ctx } });
       await load();
+      window.dispatchEvent(new Event("llamble:models-changed"));
     } catch (e: any) {
       setError(e.message);
     } finally {

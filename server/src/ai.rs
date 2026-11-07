@@ -513,3 +513,121 @@ pub async fn disable(State(state): State<Shared>, auth: AuthUser, axum::extract:
     Ok(Json(json!({ "ok": true })))
 }
 
+
+// ---------- models stored on the server ----------
+
+/// Every model on disk, grouped by repo + quantization, with what's complete and what's in use.
+pub async fn list_models(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
+    if !auth.is_admin {
+        return Err(AppError::forbidden());
+    }
+    let active = load_choice(&state).await;
+    let mut out = vec![];
+    let root = models_dir(&state);
+    let mut repos = match tokio::fs::read_dir(&root).await {
+        Ok(r) => r,
+        Err(_) => return Ok(Json(json!({ "models": [], "total_bytes": 0 }))),
+    };
+    let mut total: u64 = 0;
+    while let Ok(Some(d)) = repos.next_entry().await {
+        if !d.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let repo = d.file_name().to_string_lossy().replacen("__", "/", 1);
+        // all files in this repo folder and their sizes
+        let mut files: std::collections::HashMap<String, u64> = Default::default();
+        if let Ok(mut rd) = tokio::fs::read_dir(d.path()).await {
+            while let Ok(Some(f)) = rd.next_entry().await {
+                if let Ok(m) = f.metadata().await {
+                    if m.is_file() {
+                        files.insert(f.file_name().to_string_lossy().to_string(), m.len());
+                    }
+                }
+            }
+        }
+        let mut claimed: std::collections::HashSet<String> = Default::default();
+        for (name, _) in files.clone() {
+            let Some(quant) = name.strip_suffix(".json") else { continue };
+            let Ok(txt) = tokio::fs::read_to_string(d.path().join(&name)).await else { continue };
+            let Ok((parts, size)) = serde_json::from_str::<(Vec<String>, u64)>(&txt) else { continue };
+            claimed.insert(name.clone());
+            let mut on_disk = 0;
+            let mut complete = true;
+            for p in &parts {
+                let base = p.rsplit('/').next().unwrap_or(p).to_string();
+                let partial = format!("{}.part", base.trim_end_matches(".gguf").to_string() + ".gguf");
+                if let Some(n) = files.get(&base) {
+                    on_disk += n;
+                    claimed.insert(base);
+                } else {
+                    complete = false;
+                    if let Some(n) = files.get(&partial) {
+                        on_disk += n;
+                        claimed.insert(partial);
+                    }
+                }
+            }
+            total += on_disk;
+            let is_active = active.as_ref().map(|a| a.repo == repo && a.quant.eq_ignore_ascii_case(quant)).unwrap_or(false);
+            out.push(json!({
+                "repo": repo, "quant": quant, "size": size, "on_disk": on_disk,
+                "complete": complete, "active": is_active,
+            }));
+        }
+        // anything else in the folder (old or unknown files) still uses disk: show it
+        let other: u64 = files.iter().filter(|(n, _)| !claimed.contains(*n)).map(|(_, s)| s).sum();
+        if other > 0 {
+            total += other;
+            out.push(json!({ "repo": repo, "quant": null, "size": other, "on_disk": other, "complete": false, "active": false, "other": true }));
+        }
+    }
+    out.sort_by(|a, b| b["active"].as_bool().cmp(&a["active"].as_bool()).then(a["repo"].as_str().cmp(&b["repo"].as_str())));
+    Ok(Json(json!({ "models": out, "total_bytes": total })))
+}
+
+#[derive(Deserialize)]
+pub struct DeleteModelQ {
+    pub repo: String,
+    /// omit to delete the whole repo folder (including unknown files)
+    pub quant: Option<String>,
+}
+
+pub async fn delete_model(State(state): State<Shared>, auth: AuthUser, axum::extract::Query(q): axum::extract::Query<DeleteModelQ>) -> ApiResult<Json<Value>> {
+    if !auth.is_admin {
+        return Err(AppError::forbidden());
+    }
+    if q.repo.contains("..") || q.repo.starts_with('/') || q.quant.as_deref().map(|x| x.contains('/') || x.contains("..")).unwrap_or(false) {
+        return Err(AppError::bad("bad model name"));
+    }
+    let active = load_choice(&state).await;
+    let hits_active = active.as_ref().map(|a| a.repo == q.repo && q.quant.as_deref().map(|x| a.quant.eq_ignore_ascii_case(x)).unwrap_or(true)).unwrap_or(false);
+    if hits_active {
+        return Err(AppError::bad("that model is in use: choose a different one (or turn the server model off) first"));
+    }
+    let dir = models_dir(&state).join(q.repo.replace('/', "__"));
+    match &q.quant {
+        None => {
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        }
+        Some(quant) => {
+            let manifest = dir.join(format!("{quant}.json"));
+            if let Ok(txt) = tokio::fs::read_to_string(&manifest).await {
+                if let Ok((parts, _)) = serde_json::from_str::<(Vec<String>, u64)>(&txt) {
+                    for p in parts {
+                        let base = p.rsplit('/').next().unwrap_or(&p).to_string();
+                        let _ = tokio::fs::remove_file(dir.join(&base)).await;
+                        let _ = tokio::fs::remove_file(dir.join(base.trim_end_matches(".gguf").to_string() + ".gguf.part")).await;
+                    }
+                }
+            }
+            let _ = tokio::fs::remove_file(&manifest).await;
+            // drop the folder if nothing is left
+            if let Ok(mut rd) = tokio::fs::read_dir(&dir).await {
+                if rd.next_entry().await.ok().flatten().is_none() {
+                    let _ = tokio::fs::remove_dir(&dir).await;
+                }
+            }
+        }
+    }
+    Ok(Json(json!({ "ok": true })))
+}

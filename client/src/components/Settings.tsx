@@ -1,6 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
-import { api, upload } from "../api";
+import { api, formatBytes, upload } from "../api";
 import { chosenGpu, refreshGpus, saveAiConfig, setLending, startLocalModel, stopLocalModel, useAi, type AiConfig } from "../aiWorker";
 import { can, guildPerms, memberName, useStore } from "../store";
 import { P, PERM_LABELS, type Role, type User } from "../types";
@@ -445,6 +445,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
           <h2>AI Model (on this server)</h2>
           <p className="muted small">Runs on the NAS whenever nobody is lending a GPU. Downloads come from Hugging Face once, then everything runs locally.</p>
           <ModelPicker />
+          <ServerModels />
           <GpuSharing />
         </div>
       )}
@@ -956,6 +957,75 @@ function Admin() {
   );
 }
 
+function ServerModels() {
+  const [d, setD] = useState<{ models: any[]; total_bytes: number } | null>(null);
+  const load = () => api("/api/admin/ai/models").then(setD).catch(() => {});
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    window.addEventListener("llamble:models-changed", load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("llamble:models-changed", load);
+    };
+  }, []);
+  if (!d) return null;
+  const use = (m: any) =>
+    api("/api/admin/ai", { body: { repo: m.repo, quant: m.quant, ctx: 8192 } })
+      .then(() => {
+        toast(`Switching to ${m.repo.split("/").pop()} ${m.quant}…`);
+        window.dispatchEvent(new Event("llamble:ai-changed"));
+        load();
+      })
+      .catch((e) => toast(e.message, "error"));
+  const del = (m: any) =>
+    openModal({
+      kind: "confirm",
+      title: m.other ? "Delete leftover files?" : `Delete ${m.repo.split("/").pop()} ${m.quant}?`,
+      body: `Frees ${formatBytes(m.on_disk)} on the server. You can download it again later.`,
+      danger: true,
+      confirmLabel: "Delete",
+      onConfirm: () =>
+        api(`/api/admin/ai/models?repo=${encodeURIComponent(m.repo)}${m.quant ? `&quant=${encodeURIComponent(m.quant)}` : ""}`, { method: "DELETE" })
+          .then(load)
+          .catch((e) => toast(e.message, "error")),
+    });
+  return (
+    <div>
+      <h2 style={{ marginTop: 28 }}>Models on this server</h2>
+      <p className="muted small">
+        Everything downloaded to the NAS ({formatBytes(d.total_bytes)} total). Switching to one that's already here doesn't download it again.
+      </p>
+      {d.models.length === 0 && <p className="muted small">No models downloaded yet.</p>}
+      <div className="backend-list">
+        {d.models.map((m) => (
+          <div key={m.repo + (m.quant ?? "")} className={"backend " + (m.active ? "ok" : "off")}>
+            <Icon name="cpu" size={16} />
+            <span className="grow">
+              <b>{m.repo}</b> {m.quant ? `· ${m.quant}` : "· leftover files"} · {formatBytes(m.on_disk)}
+              {!m.other && !m.complete && <span className="muted small"> · partly downloaded ({Math.round((m.on_disk / Math.max(1, m.size)) * 100)}%)</span>}
+            </span>
+            {m.active ? (
+              <span className="role-chip has">in use</span>
+            ) : (
+              <>
+                {!m.other && (
+                  <button className="btn small" onClick={() => use(m)}>
+                    {m.complete ? "Use" : "Resume & use"}
+                  </button>
+                )}
+                <button className="btn small red" onClick={() => del(m)}>
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GpuSharing() {
   const [pool, setPool] = useState<any>(null);
   const load = () => api("/api/admin/gpu").then(setPool).catch(() => {});
@@ -1152,7 +1222,7 @@ const PROVIDERS: Record<string, { name: string; example: string; secret?: string
     steps: [
       <>Domain List → <b>Manage</b> next to your domain. Nameservers should be <b>Namecheap BasicDNS</b> (the default).</>,
       <><b>Advanced DNS</b> → scroll to <b>Dynamic DNS</b> → switch it on and copy the password.</>,
-      <>Host Records → Add New Record → <b>A + Dynamic DNS Record</b>, Host <code>chat</code>, Value <code>127.0.0.1</code> (Llamble replaces it) → save.</>,
+      <>Host Records → Add New Record → <b>A + Dynamic DNS Record</b>, Host <code>chat</code>, Value <code>127.0.0.1</code> → save. (That's only a placeholder because Namecheap won't save an empty record; Llamble swaps in your real home IP the moment you turn this on.)</>,
     ],
   },
   cloudflare: {
@@ -1204,6 +1274,10 @@ function RemoteAccess() {
   const [relayAddr, setRelayAddr] = useState("");
   const [provider, setProvider] = useState("namecheap");
   const [ddnsUrl, setDdnsUrl] = useState("");
+  const [lanIp, setLanIp] = useState("");
+  useEffect(() => {
+    api("/api/admin/settings").then((x) => setLanIp(x.settings.lan_ip || "")).catch(() => {});
+  }, []);
   const [busy, setBusy] = useState(false);
   const load = () =>
     api("/api/admin/remote").then((d) => {
@@ -1222,7 +1296,8 @@ function RemoteAccess() {
     return () => clearInterval(t);
   }, []);
   if (!r) return <div className="muted">Loading…</div>;
-  const nasIp = nasAddress() || "your NAS's IP";
+  // the server knows its own home-network address best; the browser's view is a fallback
+  const nasIp = lanIp || nasAddress() || "your NAS's IP";
   const p = r.ports;
   const save = async (extra: any = {}) => {
     setBusy(true);
