@@ -3,14 +3,14 @@
 # and llama.cpp downloads its model from Hugging Face on first start.
 #
 # Before pasting, change:
-#   1. OWNER in the image line (your GitHub username, lowercase)
+#   1. (image already points at ghcr.io/outcomegit/parley)
 #   2. 192.168.1.50 → your NAS's IP (3 places)
 #   3. CHANGE_ME secret → one long random string (2 places, must match)
 #   4. /mnt/tank → your pool name. Create the dataset first:
 #      Datasets → Add Dataset → "parley" under apps, preset "Apps".
 services:
   parley:
-    image: ghcr.io/OWNER/parley:latest
+    image: ghcr.io/outcomegit/parley:latest
     pull_policy: always
     restart: unless-stopped
     user: "568:568"
