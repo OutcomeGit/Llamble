@@ -22,13 +22,21 @@ use tokio::sync::{Mutex, RwLock};
 
 pub const HTTPS_PORT: u16 = 8443;
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RemoteConfig {
     pub enabled: bool,
     /// full host name clients use, e.g. chat.example.com
     pub domain: String,
+    /// how the address is kept pointed at home in direct mode:
+    /// namecheap | cloudflare | duckdns | custom | manual
+    #[serde(default = "default_provider")]
+    pub ddns_provider: String,
+    /// provider secret: Namecheap DDNS password, Cloudflare API token or DuckDNS token
     #[serde(default)]
     pub ddns_password: String,
+    /// custom provider: update URL (may contain {ip}); treated as a secret
+    #[serde(default)]
+    pub ddns_url: String,
     #[serde(default)]
     pub email: String,
     /// "direct" (router port forwarding + Namecheap DDNS) or "relay" (your own VPS)
@@ -41,6 +49,28 @@ pub struct RemoteConfig {
     #[serde(default)]
     pub relay_token: String,
 }
+
+impl Default for RemoteConfig {
+    fn default() -> Self {
+        RemoteConfig {
+            enabled: false,
+            domain: String::new(),
+            ddns_provider: default_provider(),
+            ddns_password: String::new(),
+            ddns_url: String::new(),
+            email: String::new(),
+            mode: default_mode(),
+            relay_addr: String::new(),
+            relay_token: String::new(),
+        }
+    }
+}
+
+fn default_provider() -> String {
+    "namecheap".into()
+}
+
+const PROVIDERS: &[&str] = &["namecheap", "cloudflare", "duckdns", "custom", "manual"];
 
 fn default_mode() -> String {
     "direct".into()
@@ -129,39 +159,153 @@ fn xml_tag<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
     Some(xml[s..e].trim())
 }
 
-async fn update_ddns(state: &Shared, c: &RemoteConfig) {
+fn http() -> reqwest::Client {
+    reqwest::Client::builder().timeout(Duration::from_secs(20)).build().unwrap_or_default()
+}
+
+/// This network's public IPv4, as seen from outside (only needed by providers that
+/// must be told the IP; the others detect it from the update request itself).
+async fn public_ipv4() -> Result<String, String> {
+    let url = std::env::var("LLAMBLE_IP_ECHO").unwrap_or_else(|_| "https://1.1.1.1/cdn-cgi/trace".into());
+    let body = http().get(&url).send().await.map_err(|e| format!("couldn't look up this network's public IP: {e}"))?.text().await.map_err(|e| e.to_string())?;
+    body.lines()
+        .find_map(|l| l.strip_prefix("ip="))
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.parse::<std::net::Ipv4Addr>().is_ok())
+        .ok_or_else(|| "couldn't find an IPv4 public address".into())
+}
+
+async fn update_namecheap(c: &RemoteConfig) -> Result<Option<String>, String> {
     let (host, root) = split_domain(&c.domain);
     let base = std::env::var("LLAMBLE_DDNS_ENDPOINT").unwrap_or_else(|_| "https://dynamicdns.park-your-domain.com".into());
-    let url = format!("{base}/update");
-    let res = reqwest::Client::new()
-        .get(&url)
+    let body = http()
+        .get(format!("{base}/update"))
         .query(&[("host", host.as_str()), ("domain", root.as_str()), ("password", c.ddns_password.as_str())])
-        .timeout(Duration::from_secs(20))
         .send()
-        .await;
-    let now = crate::error::now_ms();
+        .await
+        .map_err(|e| format!("couldn't reach Namecheap: {e}"))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+    let errs: i64 = xml_tag(&body, "ErrCount").and_then(|v| v.parse().ok()).unwrap_or(1);
+    if errs != 0 {
+        return Err(xml_tag(&body, "Err1").unwrap_or("Namecheap rejected the update").to_string());
+    }
+    Ok(xml_tag(&body, "IP").map(|s| s.to_string()))
+}
+
+async fn update_cloudflare(c: &RemoteConfig) -> Result<Option<String>, String> {
+    let api = std::env::var("LLAMBLE_CLOUDFLARE_API").unwrap_or_else(|_| "https://api.cloudflare.com/client/v4".into());
+    let auth = format!("Bearer {}", c.ddns_password);
+    let get = |url: String| {
+        let auth = auth.clone();
+        async move {
+            let v: Value = http().get(url).header("authorization", auth).send().await.map_err(|e| format!("couldn't reach Cloudflare: {e}"))?.json().await.map_err(|e| e.to_string())?;
+            if v["success"] != json!(true) {
+                return Err(cf_error(&v));
+            }
+            Ok::<Value, String>(v)
+        }
+    };
+    // the zone is the longest suffix of the address that Cloudflare knows about
+    let labels: Vec<&str> = c.domain.split('.').collect();
+    let mut zone = None;
+    for n in (2..=labels.len()).rev() {
+        let name = labels[labels.len() - n..].join(".");
+        let v = get(format!("{api}/zones?name={name}")).await?;
+        if let Some(id) = v["result"][0]["id"].as_str() {
+            zone = Some(id.to_string());
+            break;
+        }
+    }
+    let zone = zone.ok_or("this Cloudflare token can't see a zone for that address (give it Zone → DNS → Edit for your domain)")?;
+    let ip = public_ipv4().await?;
+    let existing = get(format!("{api}/zones/{zone}/dns_records?type=A&name={}", c.domain)).await?;
+    let body = json!({ "type": "A", "name": c.domain, "content": ip, "ttl": 60, "proxied": false });
+    let req = match existing["result"][0]["id"].as_str() {
+        Some(id) => http().put(format!("{api}/zones/{zone}/dns_records/{id}")),
+        None => http().post(format!("{api}/zones/{zone}/dns_records")),
+    };
+    let v: Value = req.header("authorization", &auth).json(&body).send().await.map_err(|e| format!("couldn't reach Cloudflare: {e}"))?.json().await.map_err(|e| e.to_string())?;
+    if v["success"] != json!(true) {
+        return Err(cf_error(&v));
+    }
+    Ok(Some(ip))
+}
+
+fn cf_error(v: &Value) -> String {
+    let msg = v["errors"][0]["message"].as_str().unwrap_or("Cloudflare rejected the request");
+    format!("Cloudflare: {msg}")
+}
+
+async fn update_duckdns(c: &RemoteConfig) -> Result<Option<String>, String> {
+    let sub = c.domain.strip_suffix(".duckdns.org").ok_or("DuckDNS addresses end in .duckdns.org")?;
+    let sub = sub.rsplit('.').next().unwrap_or(sub);
+    let base = std::env::var("LLAMBLE_DUCKDNS_ENDPOINT").unwrap_or_else(|_| "https://www.duckdns.org".into());
+    let body = http()
+        .get(format!("{base}/update"))
+        .query(&[("domains", sub), ("token", c.ddns_password.as_str()), ("verbose", "true")])
+        .send()
+        .await
+        .map_err(|e| format!("couldn't reach DuckDNS: {e}"))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut lines = body.lines();
+    if lines.next().map(str::trim) != Some("OK") {
+        return Err("DuckDNS rejected the update (check the subdomain and token)".into());
+    }
+    Ok(lines.next().map(|s| s.trim().to_string()).filter(|s| s.parse::<std::net::Ipv4Addr>().is_ok()))
+}
+
+async fn update_custom(c: &RemoteConfig) -> Result<Option<String>, String> {
+    let mut url = c.ddns_url.trim().to_string();
+    let mut ip = None;
+    if url.contains("{ip}") {
+        let p = public_ipv4().await?;
+        url = url.replace("{ip}", &p);
+        ip = Some(p);
+    }
+    let r = http().get(&url).send().await.map_err(|e| format!("couldn't reach the update URL: {}", e.without_url()))?;
+    if !r.status().is_success() {
+        return Err(format!("the update URL answered {}", r.status()));
+    }
+    Ok(ip)
+}
+
+/// What the address currently points to (used when the provider doesn't say).
+async fn resolve_domain(domain: &str) -> Option<String> {
+    resolve_ipv4(domain).await
+}
+
+/// Keep the address pointed at home (direct mode) and learn the public IP calls should use.
+async fn update_address(state: &Shared, c: &RemoteConfig) {
+    let result = match c.ddns_provider.as_str() {
+        "namecheap" => update_namecheap(c).await,
+        "cloudflare" => update_cloudflare(c).await,
+        "duckdns" => update_duckdns(c).await,
+        "custom" => update_custom(c).await,
+        _ => Ok(None), // manual: router DDNS or a static IP
+    };
+    let result = match result {
+        Ok(Some(ip)) => Ok(ip),
+        Ok(None) => resolve_domain(&c.domain).await.ok_or_else(|| format!("{} doesn't point anywhere yet", c.domain)),
+        Err(e) => Err(e),
+    };
     let mut st = state.remote.status.write().await;
-    st.ddns_at = Some(now);
-    match res {
-        Ok(r) => {
-            let body = r.text().await.unwrap_or_default();
-            let errs: i64 = xml_tag(&body, "ErrCount").and_then(|v| v.parse().ok()).unwrap_or(1);
-            if errs == 0 {
-                st.ddns_state = "ok".into();
-                let ip = xml_tag(&body, "IP").map(|s| s.to_string());
-                if ip != st.ddns_ip {
-                    st.ddns_ip = ip;
-                    crate::voice_server::refresh(state.clone());
-                }
-                st.ddns_error = None;
-            } else {
-                st.ddns_state = "error".into();
-                st.ddns_error = Some(xml_tag(&body, "Err1").unwrap_or("Namecheap rejected the update").to_string());
+    st.ddns_at = Some(crate::error::now_ms());
+    match result {
+        Ok(ip) => {
+            st.ddns_state = "ok".into();
+            st.ddns_error = None;
+            if st.ddns_ip.as_deref() != Some(ip.as_str()) {
+                st.ddns_ip = Some(ip);
+                crate::voice_server::refresh(state.clone());
             }
         }
         Err(e) => {
             st.ddns_state = "error".into();
-            st.ddns_error = Some(format!("couldn't reach Namecheap: {e}"));
+            st.ddns_error = Some(e);
         }
     }
 }
@@ -232,8 +376,8 @@ pub fn init(state: Shared, app: Router) {
                 _ = state.remote.kick.notified() => { apply(&state).await; continue; }
             }
             let c = load(&state).await;
-            if c.enabled && c.mode == "direct" && !c.ddns_password.is_empty() {
-                update_ddns(&state, &c).await;
+            if c.enabled && c.mode == "direct" {
+                update_address(&state, &c).await;
             }
         }
     });
@@ -267,11 +411,7 @@ async fn apply(state: &Shared) {
         st.relay_ip = None;
     }
     crate::voice_server::refresh(state.clone());
-    if !c.ddns_password.is_empty() {
-        update_ddns(state, &c).await;
-    } else {
-        state.remote.status.write().await.ddns_state = "off".into();
-    }
+    update_address(state, &c).await;
     start_https(state, &c).await;
 }
 
@@ -356,7 +496,8 @@ pub async fn get_remote(State(state): State<Shared>, auth: AuthUser) -> ApiResul
         "mode": c.mode,
         "domain": c.domain,
         "email": c.email,
-        "has_ddns_password": !c.ddns_password.is_empty(),
+        "ddns_provider": c.ddns_provider,
+        "has_ddns_secret": !c.ddns_password.is_empty() || !c.ddns_url.is_empty(),
         "relay_addr": c.relay_addr,
         "relay_command": relay_command,
         "status": *state.remote.status.read().await,
@@ -375,6 +516,8 @@ pub struct SetRemote {
     pub enabled: bool,
     pub domain: String,
     pub ddns_password: Option<String>,
+    pub ddns_provider: Option<String>,
+    pub ddns_url: Option<String>,
     pub email: Option<String>,
     pub mode: Option<String>,
     pub relay_addr: Option<String>,
@@ -405,6 +548,26 @@ pub async fn set_remote(State(state): State<Shared>, auth: AuthUser, Json(req): 
     let mut c = load(&state).await;
     c.enabled = req.enabled;
     c.domain = domain;
+    if let Some(pv) = req.ddns_provider {
+        if !PROVIDERS.contains(&pv.as_str()) {
+            return Err(AppError::bad("unknown address provider"));
+        }
+        if pv != c.ddns_provider {
+            // a secret for one provider means nothing to another
+            c.ddns_password.clear();
+            c.ddns_url.clear();
+        }
+        c.ddns_provider = pv;
+    }
+    if let Some(u) = req.ddns_url {
+        let u = u.trim();
+        if !u.is_empty() {
+            if !(u.starts_with("https://") || u.starts_with("http://")) {
+                return Err(AppError::bad("the update URL should start with https://"));
+            }
+            c.ddns_url = u.to_string();
+        }
+    }
     if let Some(p) = req.ddns_password {
         if !p.trim().is_empty() {
             c.ddns_password = p.trim().to_string();

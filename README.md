@@ -73,15 +73,15 @@ Each install uses its own address and, optionally, its own relay. Nothing goes t
 
 - **Home only** (default): only devices on your network can connect.
 - **Direct:** your router forwards ports to the NAS.
-  1. At your registrar, add a Dynamic DNS record for your address (the app shows the steps for Namecheap) and copy its password.
-  2. In Llamble, enter the address (e.g. `chat.example.com`) and that password.
+  1. Choose how your address stays pointed at your home IP: **Namecheap**, **Cloudflare** (API token), **DuckDNS** (free `yourname.duckdns.org`, no domain purchase needed), **another provider's update URL** (No-IP, Dynu, afraid.org, …), or **I handle it myself** (router DDNS or a static IP). The app shows the steps for whichever you pick.
+  2. Enter your address (e.g. `chat.example.com`) and the provider's password/token/URL.
   3. On your router, forward **443/tcp → NAS:8443**, **7881/tcp → NAS:7881**, and **7882/udp → NAS:7882**.
   
-  Llamble keeps the address pointed at your home IP (it re-checks every 10 minutes, since home IPs change) and moves calls to the new IP on its own. Your home IP is visible to anyone who looks up the address.
+  Llamble re-checks every 10 minutes and moves calls to the new IP when it changes. Your home IP is visible to anyone who looks up the address.
 - **Through your own relay:** hides your home IP; no router changes.
   1. Rent a small VPS with Docker (Oracle Cloud's free tier works, or about $4–6/month elsewhere).
   2. Run the one-line `docker run … llamble-server relay` command that the app shows. It contains your server's private relay key.
-  3. Point your address's A record at the VPS's IP, then enter the VPS IP and your address in Llamble.
+  3. Wherever your DNS is managed, point your address's A record at the VPS's IP (once), then enter the VPS IP and your address in Llamble.
   
   Your NAS dials out to the relay and proves it has the key. Visitors' HTTPS and call traffic then passes through that connection. HTTPS is end-to-end: the VPS never holds your certificate.
 

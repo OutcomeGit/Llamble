@@ -8,6 +8,8 @@ python3 mock_hf.py >/dev/null 2>&1 & M2=$!
 python3 mock_namecheap_livekit.py >/dev/null 2>&1 & M3=$!
 trap 'kill $M1 $M2 $M3 2>/dev/null; pkill -f fake_livekit.py; pkill -f fake_llama_server.py' EXIT
 sleep 1
+# lets the remote test check "I handle it myself" mode against a name that resolves
+grep -q manual.llamble.test /etc/hosts 2>/dev/null || { [ -w /etc/hosts ] && echo "127.0.0.1 manual.llamble.test" >> /etc/hosts; }
 FAIL=0
 run() { # name, extra env..., -- test args...
   local name=$1; shift; local envs=(); while [ "$1" != "--" ]; do envs+=("$1"); shift; done; shift
@@ -25,6 +27,6 @@ run smoke "${LK[@]}" -- smoke.py http://127.0.0.1:8099 @INV@
 run bot LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 -- bot_test.py http://127.0.0.1:8099 @INV@
 run setup LLAMBLE_HF_ENDPOINT=http://127.0.0.1:8097 LLAMBLE_LLAMA_BIN=$T/fake_llama_server.py -- setup_test.py http://127.0.0.1:8099
 run gpu_pool LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 -- gpu_pool_test.py http://127.0.0.1:8099
-run remote "${LK[@]}" LLAMBLE_DDNS_ENDPOINT=http://127.0.0.1:8096 LIVEKIT_INTERNAL_URL=http://127.0.0.1:8095 -- remote_test.py http://127.0.0.1:8099
+run remote "${LK[@]}" LLAMBLE_DDNS_ENDPOINT=http://127.0.0.1:8096 LLAMBLE_CLOUDFLARE_API=http://127.0.0.1:8096/client/v4 LLAMBLE_DUCKDNS_ENDPOINT=http://127.0.0.1:8096/duck LLAMBLE_IP_ECHO=http://127.0.0.1:8096/trace LIVEKIT_INTERNAL_URL=http://127.0.0.1:8095 -- remote_test.py http://127.0.0.1:8099
 run relay LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk.yaml -- relay_test.py http://127.0.0.1:8099 "$BIN"
 exit $FAIL

@@ -1144,6 +1144,57 @@ function PortTable({ rows, to }: { rows: [string, string, string, string][]; to:
   );
 }
 
+const PROVIDERS: Record<string, { name: string; example: string; secret?: string; steps: React.ReactNode[] }> = {
+  namecheap: {
+    name: "Namecheap",
+    example: "chat.example.com",
+    secret: "Dynamic DNS password",
+    steps: [
+      <>Domain List → <b>Manage</b> next to your domain. Nameservers should be <b>Namecheap BasicDNS</b> (the default).</>,
+      <><b>Advanced DNS</b> → scroll to <b>Dynamic DNS</b> → switch it on and copy the password.</>,
+      <>Host Records → Add New Record → <b>A + Dynamic DNS Record</b>, Host <code>chat</code>, Value <code>127.0.0.1</code> (Llamble replaces it) → save.</>,
+    ],
+  },
+  cloudflare: {
+    name: "Cloudflare",
+    example: "chat.example.com",
+    secret: "API token",
+    steps: [
+      <>My Profile → <b>API Tokens</b> → Create Token → use the <b>Edit zone DNS</b> template.</>,
+      <>Under Zone Resources pick your domain → Create, and copy the token.</>,
+      <>Llamble creates the <code>chat</code> record itself. Keep it <b>DNS only</b> (grey cloud): Cloudflare's proxy doesn't carry calls.</>,
+    ],
+  },
+  duckdns: {
+    name: "DuckDNS (free, no domain needed)",
+    example: "yourname.duckdns.org",
+    secret: "DuckDNS token",
+    steps: [
+      <>Sign in at <b>duckdns.org</b> and add a subdomain, like <code>yourname</code>.</>,
+      <>Copy the <b>token</b> shown at the top of the page.</>,
+      <>Your address is <code>yourname.duckdns.org</code>.</>,
+    ],
+  },
+  custom: {
+    name: "Another provider (update URL)",
+    example: "chat.example.com",
+    steps: [
+      <>Most providers (No-IP, Dynu, afraid.org, many registrars) give you an <b>update URL</b> in their Dynamic DNS settings.</>,
+      <>Paste it below. If it needs your IP in it, put <code>{"{ip}"}</code> where the IP goes; otherwise the provider detects it.</>,
+      <>Llamble opens that URL every 10 minutes.</>,
+    ],
+  },
+  manual: {
+    name: "I handle it myself (router or static IP)",
+    example: "chat.example.com",
+    steps: [
+      <>Use this if your router updates Dynamic DNS itself, or your internet plan has a fixed IP.</>,
+      <>Point your address (an A record) at your home's public IP at your DNS provider.</>,
+      <>Llamble checks where the address points and uses that IP for calls.</>,
+    ],
+  },
+};
+
 function RemoteAccess() {
   const [r, setR] = useState<any>(null);
   const [mode, setMode] = useState<"off" | "direct" | "relay">("off");
@@ -1151,6 +1202,8 @@ function RemoteAccess() {
   const [pw, setPw] = useState("");
   const [email, setEmail] = useState("");
   const [relayAddr, setRelayAddr] = useState("");
+  const [provider, setProvider] = useState("namecheap");
+  const [ddnsUrl, setDdnsUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const load = () =>
     api("/api/admin/remote").then((d) => {
@@ -1162,6 +1215,7 @@ function RemoteAccess() {
       setDomain(d.domain || "");
       setEmail(d.email || "");
       setRelayAddr(d.relay_addr || "");
+      setProvider(d.ddns_provider || "namecheap");
       setMode(d.enabled ? d.mode : "off");
     });
     const t = setInterval(load, 3000);
@@ -1176,9 +1230,10 @@ function RemoteAccess() {
       const on = mode !== "off";
       await api("/api/admin/remote", {
         method: "PUT",
-        body: { enabled: on, mode: on ? mode : r.mode, domain: on ? domain : r.domain, ddns_password: pw || undefined, email, relay_addr: relayAddr, ...extra },
+        body: { enabled: on, mode: on ? mode : r.mode, domain: on ? domain : r.domain, ddns_provider: provider, ddns_password: pw || undefined, ddns_url: ddnsUrl || undefined, email, relay_addr: relayAddr, ...extra },
       });
       setPw("");
+      setDdnsUrl("");
       toast(on ? "Saved, connecting…" : "Remote access turned off");
       load();
     } catch (e: any) {
@@ -1189,6 +1244,8 @@ function RemoteAccess() {
   };
   const st = r.status || {};
   const active = r.enabled ? r.mode : "off";
+  // a saved secret only counts for the provider it was saved with
+  const secretSaved = r.has_ddns_secret && r.ddns_provider === provider;
   const dot = (state: string) => (state === "ok" || state === "ready" || state === "connected" ? "ok" : state === "error" ? "err" : "off");
   const choice = (id: "off" | "direct" | "relay", title: string, desc: string) => (
     <button className={"mode-card" + (mode === id ? " on" : "")} onClick={() => setMode(id)}>
@@ -1213,7 +1270,7 @@ function RemoteAccess() {
   return (
     <div className="remote">
       <h2>Remote Access</h2>
-      <p className="muted small">How people outside your home reach this server. Everyone uses an address you own (like chat.example.com) with HTTPS.</p>
+      <p className="muted small">How people outside your home reach this server. Everyone uses your own address (like chat.example.com, or a free yourname.duckdns.org) with HTTPS.</p>
       <div className="mode-cards">
         {choice("off", "Home only", "Only devices on your home network can connect.")}
         {choice("direct", "Direct", "Forward ports on your router. Free, fastest. Your home IP is visible to people who look up your address.")}
@@ -1235,12 +1292,19 @@ function RemoteAccess() {
           <div className="remote-step">
             <div className="step-num">1</div>
             <div className="grow">
-              <div className="bold">At your domain registrar: turn on Dynamic DNS</div>
-              <p className="muted small">Your internet provider changes your home IP now and then; Dynamic DNS keeps your address pointed at it. Steps for Namecheap:</p>
+              <div className="bold">Keep your address pointed at home</div>
+              <p className="muted small">Most home internet IPs change now and then. Llamble can update your address for you; pick where your domain's DNS is managed.</p>
+              <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ width: 320 }}>
+                {Object.entries(PROVIDERS).map(([id, p]) => (
+                  <option key={id} value={id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
               <ol className="small">
-                <li>Domain List → <b>Manage</b> next to your domain. Under Nameservers it should say <b>Namecheap BasicDNS</b> (the default).</li>
-                <li><b>Advanced DNS</b> tab → scroll to <b>Dynamic DNS</b> → switch it on and copy the <b>Dynamic DNS Password</b>.</li>
-                <li>Back up under Host Records → Add New Record → <b>A + Dynamic DNS Record</b>. Host: <code>chat</code>, Value: <code>127.0.0.1</code> (Llamble replaces it) → ✓ save.</li>
+                {PROVIDERS[provider].steps.map((st, k) => (
+                  <li key={k}>{st}</li>
+                ))}
               </ol>
             </div>
           </div>
@@ -1248,10 +1312,25 @@ function RemoteAccess() {
             <div className="step-num">2</div>
             <div className="grow">
               <div className="bold">Tell Llamble</div>
-              {domainField}
               <label>
-                Namecheap Dynamic DNS password {r.has_ddns_password && <span className="green">· saved</span>}
-                <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={r.has_ddns_password ? "(leave blank to keep the saved one)" : "paste it here"} />
+                Address people will use
+                <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder={PROVIDERS[provider].example} />
+              </label>
+              {PROVIDERS[provider].secret && (
+                <label>
+                  {PROVIDERS[provider].secret} {secretSaved && <span className="green">· saved</span>}
+                  <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={secretSaved ? "(leave blank to keep the saved one)" : "paste it here"} />
+                </label>
+              )}
+              {provider === "custom" && (
+                <label>
+                  Update URL {secretSaved && <span className="green">· saved</span>}
+                  <input type="password" value={ddnsUrl} onChange={(e) => setDdnsUrl(e.target.value)} placeholder={secretSaved ? "(leave blank to keep the saved one)" : "https://provider.example/update?host=…&key=…&ip={ip}"} />
+                </label>
+              )}
+              <label>
+                Your email <span className="muted">(optional; Let's Encrypt emails you only if a certificate has problems)</span>
+                <input value={email} onChange={(e) => setEmail(e.target.value)} />
               </label>
               <button className="btn primary" disabled={busy || !domain} onClick={() => save()}>
                 {active === "direct" ? "Save" : "Turn on direct access"}
@@ -1262,7 +1341,7 @@ function RemoteAccess() {
             <div className="step-num">3</div>
             <div className="grow">
               <div className="bold">On your router: forward these ports to {nasIp}</div>
-              <p className="muted small">Usually under "Port Forwarding" or "Virtual Servers" in the router's settings. Spectrum and Windstream app routers have it under Advanced.</p>
+              <p className="muted small">Usually under "Port Forwarding" or "Virtual Servers" in the router's settings (sometimes under Advanced, or in the internet provider's app).</p>
               <PortTable
                 to={nasIp}
                 rows={[
@@ -1315,7 +1394,7 @@ function RemoteAccess() {
             <div className="step-num">3</div>
             <div className="grow">
               <div className="bold">Point your address at the VPS, then tell Llamble</div>
-              <p className="muted small">At your registrar, add an <b>A record</b>: host <code>chat</code> → the VPS's IP address. This only needs doing once; the VPS's IP doesn't change.</p>
+              <p className="muted small">Wherever your domain's DNS is managed, add an <b>A record</b>: host <code>chat</code> → the VPS's IP address. This only needs doing once; the VPS's IP doesn't change. (Cloudflare: keep it <b>DNS only</b>, grey cloud.)</p>
               <label>
                 VPS address (IP)
                 <input value={relayAddr} onChange={(e) => setRelayAddr(e.target.value)} placeholder="203.0.113.10" />
