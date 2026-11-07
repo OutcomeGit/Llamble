@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         remote: remote::Remote::default(),
         voice: voice_server::VoiceServer::default(),
         settings: std::sync::RwLock::new(settings::ServerSettings::defaults(&cfg)),
+        login_guard: Default::default(),
     });
 
     settings::load_into_cache(&state).await;
@@ -101,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.llama_url.as_deref().unwrap_or("built-in")
     );
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
-    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown()).await?;
     Ok(())
 }
 

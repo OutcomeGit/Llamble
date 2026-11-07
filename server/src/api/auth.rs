@@ -133,7 +133,13 @@ pub async fn register(State(state): State<Shared>, Json(req): Json<RegisterReq>)
     Ok(Json(json!({ "token": token, "user": user })))
 }
 
-pub async fn login(State(state): State<Shared>, Json(req): Json<LoginReq>) -> ApiResult<Json<Value>> {
+pub async fn login(State(state): State<Shared>, crate::state::ClientIp(ip): crate::state::ClientIp, Json(req): Json<LoginReq>) -> ApiResult<Json<Value>> {
+    if let Some(mins) = state.login_guard.blocked(&ip, &req.username) {
+        return Err(AppError(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            format!("too many wrong passwords; try again in {mins} minute{}", if mins == 1 { "" } else { "s" }),
+        ));
+    }
     let row: Option<(String, String)> = sqlx::query_as("SELECT id, password_hash FROM users WHERE username = ?")
         .bind(req.username.trim())
         .fetch_optional(&state.db)
@@ -143,8 +149,11 @@ pub async fn login(State(state): State<Shared>, Json(req): Json<LoginReq>) -> Ap
         (String::new(), "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$5Y1ZBvM6eN0m3e5dqK9H2bJm2w5u5bK5O6YqYV6m1sQ".into())
     });
     if !verify_password(req.password, hash).await || id.is_empty() {
+        state.login_guard.fail(&ip, &req.username);
+        tracing::info!("failed sign-in for {:?} from {ip}", req.username.trim());
         return Err(AppError(axum::http::StatusCode::UNAUTHORIZED, "wrong username or password".into()));
     }
+    state.login_guard.success(&ip, &req.username);
     let token = create_session(&state, &id, req.device_name.as_deref().unwrap_or("")).await?;
     let user = get_user(&state.db, &id).await?;
     Ok(Json(json!({ "token": token, "user": user })))

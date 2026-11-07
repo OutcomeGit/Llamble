@@ -29,4 +29,7 @@ run setup FAKE_LLAMA_LOAD_SECS=4 LLAMBLE_HF_ENDPOINT=http://127.0.0.1:8097 LLAMB
 run gpu_pool LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 -- gpu_pool_test.py http://127.0.0.1:8099
 run remote "${LK[@]}" LLAMBLE_DDNS_ENDPOINT=http://127.0.0.1:8096 LLAMBLE_CLOUDFLARE_API=http://127.0.0.1:8096/client/v4 LLAMBLE_DUCKDNS_ENDPOINT=http://127.0.0.1:8096/duck LLAMBLE_IP_ECHO=http://127.0.0.1:8096/trace LIVEKIT_INTERNAL_URL=http://127.0.0.1:8095 -- remote_test.py http://127.0.0.1:8099
 run relay LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk.yaml -- relay_test.py http://127.0.0.1:8099 "$BIN"
+# connect over the network address: relayed (localhost) visitors only get the per-account limit
+LAN_IP=$(hostname -I 2>/dev/null | awk "{print \$1}")
+run login_guard LLAMBLE_BIND=0.0.0.0:8099 -- login_guard_test.py http://${LAN_IP:-127.0.0.1}:8099
 exit $FAIL

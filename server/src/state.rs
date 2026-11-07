@@ -24,6 +24,81 @@ pub struct AppState {
     pub remote: crate::remote::Remote,
     pub voice: crate::voice_server::VoiceServer,
     pub settings: std::sync::RwLock<crate::settings::ServerSettings>,
+    /// failed sign-in attempts (brute-force protection)
+    pub login_guard: LoginGuard,
+}
+
+/// Counts failed sign-ins per address and per address+username in a sliding window.
+#[derive(Default)]
+pub struct LoginGuard {
+    fails: DashMap<String, Vec<i64>>,
+}
+
+impl LoginGuard {
+    const WINDOW_MS: i64 = 15 * 60 * 1000;
+    const PER_ACCOUNT: usize = 8; // wrong passwords for one username from one address
+    const PER_ADDRESS: usize = 30; // wrong passwords from one address, any usernames
+
+    fn keys(ip: &str, username: &str) -> [String; 2] {
+        [format!("ip:{ip}"), format!("acct:{ip}:{}", username.trim().to_lowercase())]
+    }
+
+    /// Minutes to wait if this address/username is currently blocked.
+    pub fn blocked(&self, ip: &str, username: &str) -> Option<i64> {
+        let now = now_ms();
+        let [a, b] = Self::keys(ip, username);
+        let mut wait = None;
+        // relayed visitors all arrive from this machine, so only the per-account limit applies
+        let local = Self::is_local(ip);
+        for (k, limit) in [(a, Self::PER_ADDRESS), (b, Self::PER_ACCOUNT)] {
+            if local && limit == Self::PER_ADDRESS {
+                continue;
+            }
+            if let Some(mut v) = self.fails.get_mut(&k) {
+                v.retain(|t| now - t < Self::WINDOW_MS);
+                if v.len() >= limit {
+                    let oldest = v[v.len() - limit];
+                    let mins = ((oldest + Self::WINDOW_MS - now) / 60_000).max(1);
+                    wait = Some(wait.map_or(mins, |w: i64| w.max(mins)));
+                }
+            }
+        }
+        wait
+    }
+
+    fn is_local(ip: &str) -> bool {
+        ip.parse::<std::net::IpAddr>().map(|i| i.is_loopback()).unwrap_or(false)
+    }
+
+    pub fn fail(&self, ip: &str, username: &str) {
+        let now = now_ms();
+        for k in Self::keys(ip, username) {
+            self.fails.entry(k).or_default().push(now);
+        }
+        if self.fails.len() > 50_000 {
+            self.fails.retain(|_, v| v.last().map(|t| now - t < Self::WINDOW_MS).unwrap_or(false));
+        }
+    }
+
+    pub fn success(&self, ip: &str, username: &str) {
+        let [_, b] = Self::keys(ip, username);
+        self.fails.remove(&b);
+    }
+}
+
+/// The connecting client's IP (from the socket, never from headers a client can fake).
+pub struct ClientIp(pub String);
+
+impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
+    type Rejection = std::convert::Infallible;
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        let ip = parts
+            .extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0.ip().to_string())
+            .unwrap_or_else(|| "unknown".into());
+        Ok(ClientIp(ip))
+    }
 }
 
 impl AppState {

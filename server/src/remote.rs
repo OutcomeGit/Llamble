@@ -356,7 +356,7 @@ async fn start_https(state: &Shared, c: &RemoteConfig) {
     *state.remote.server.lock().await = Some(handle.clone());
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], HTTPS_PORT));
     tokio::spawn(async move {
-        if let Err(e) = axum_server::bind(addr).acceptor(acceptor).handle(handle).serve(app.into_make_service()).await {
+        if let Err(e) = axum_server::bind(addr).acceptor(acceptor).handle(handle).serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await {
             tracing::error!("https listener failed: {e}");
         }
     });
