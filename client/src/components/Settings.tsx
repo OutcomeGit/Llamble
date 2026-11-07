@@ -427,6 +427,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "sessions", label: "Devices" },
         { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
         { id: "aimodel", label: "AI Model", hidden: !me.is_admin },
+        { id: "remote", label: "Remote Access", hidden: !me.is_admin },
         { id: "logout", label: "Log Out", danger: true },
       ]}
     >
@@ -436,6 +437,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "notifications" && <NotifSettings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
+      {tab === "remote" && <RemoteAccess />}
       {tab === "aimodel" && (
         <div>
           <h2>AI Model (on this server)</h2>
@@ -996,6 +998,171 @@ function GpuSharing() {
           {!pool.workers.some((w: any) => w.in_use) && pool.server_model?.state === "ready" && <span className="role-chip has">in use</span>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RemoteAccess() {
+  const [r, setR] = useState<any>(null);
+  const [domain, setDomain] = useState("");
+  const [pw, setPw] = useState("");
+  const [email, setEmail] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = () =>
+    api("/api/admin/remote").then((d) => {
+      setR(d);
+      return d;
+    });
+  useEffect(() => {
+    load().then((d) => {
+      setDomain(d.domain || "");
+      setEmail(d.email || "");
+      setEnabled(d.enabled);
+    });
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, []);
+  if (!r) return <div className="muted">Loading…</div>;
+  const nasIp = /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname) ? location.hostname : (() => {
+    try {
+      const h = new URL(localStorage.getItem("llamble.server") || "").hostname;
+      return /^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : "your NAS's IP";
+    } catch {
+      return "your NAS's IP";
+    }
+  })();
+  const save = async (on: boolean) => {
+    setBusy(true);
+    try {
+      await api("/api/admin/remote", { method: "PUT", body: { enabled: on, domain, ddns_password: pw || undefined, email } });
+      setEnabled(on);
+      setPw("");
+      toast(on ? "Saved, connecting…" : "Remote access turned off");
+      load();
+    } catch (e: any) {
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const st = r.status || {};
+  const dot = (state: string) => (state === "ok" || state === "ready" ? "ok" : state === "error" ? "err" : "off");
+  return (
+    <div className="remote">
+      <h2>Remote Access</h2>
+      <p className="muted small">
+        Lets people outside your home reach Llamble at your own address (like <b>chat.llamble.com</b>) with HTTPS. Llamble keeps the address pointed at your home when your internet provider changes your IP, and gets and renews the security certificate on its own.
+      </p>
+
+      <div className="remote-step">
+        <div className="step-num">1</div>
+        <div className="grow">
+          <div className="bold">In Namecheap: turn on Dynamic DNS</div>
+          <ol className="small">
+            <li>Domain List → <b>Manage</b> next to your domain → <b>Advanced DNS</b>.</li>
+            <li>Add New Record → <b>A + Dynamic DNS Record</b>. Host: <code>chat</code>, Value: <code>127.0.0.1</code> (Llamble replaces it) → ✓ save.</li>
+            <li>Further down, switch <b>Dynamic DNS</b> on and copy the <b>Dynamic DNS Password</b>.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div className="remote-step">
+        <div className="step-num">2</div>
+        <div className="grow">
+          <div className="bold">Tell Llamble</div>
+          <label>
+            Address people will use
+            <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="chat.llamble.com" />
+          </label>
+          <label>
+            Namecheap Dynamic DNS password {r.has_ddns_password && <span className="green">· saved</span>}
+            <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={r.has_ddns_password ? "(leave blank to keep the saved one)" : "paste it here"} />
+          </label>
+          <label>
+            Your email <span className="muted">(optional; Let's Encrypt emails you only if a certificate has problems)</span>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          <div className="row gap">
+            <button className="btn primary" disabled={busy || !domain} onClick={() => save(true)}>
+              {enabled ? "Save" : "Turn on remote access"}
+            </button>
+            {enabled && (
+              <button className="btn" disabled={busy} onClick={() => save(false)}>
+                Turn off
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="remote-step">
+        <div className="step-num">3</div>
+        <div className="grow">
+          <div className="bold">On your router: forward these ports to {nasIp}</div>
+          <p className="muted small">Usually under "Port Forwarding" or "Virtual Servers" in the router's settings page. Spectrum/Windstream app routers call it "Port forwarding" under Advanced.</p>
+          <table className="ports">
+            <thead>
+              <tr>
+                <th>Outside port</th>
+                <th>Protocol</th>
+                <th>To</th>
+                <th>For</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>443</td>
+                <td>TCP</td>
+                <td>
+                  {nasIp} : {r.https_port}
+                </td>
+                <td>Chat, files, web app, call setup, certificate</td>
+              </tr>
+              <tr>
+                <td>{r.voice_ports.tcp}</td>
+                <td>TCP</td>
+                <td>
+                  {nasIp} : {r.voice_ports.tcp}
+                </td>
+                <td>Voice/video fallback</td>
+              </tr>
+              <tr>
+                <td>{r.voice_ports.udp}</td>
+                <td>UDP</td>
+                <td>
+                  {nasIp} : {r.voice_ports.udp}
+                </td>
+                <td>Voice/video</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {enabled && (
+        <div className="remote-status">
+          <div className={"rs " + dot(st.ddns_state)}>
+            <b>Address</b>{" "}
+            {st.ddns_state === "ok" ? `${r.domain} → ${st.ddns_ip} (checked ${new Date(st.ddns_at).toLocaleTimeString()})` : st.ddns_state === "error" ? st.ddns_error : "not set up"}
+          </div>
+          <div className={"rs " + dot(st.tls_state)}>
+            <b>HTTPS certificate</b>{" "}
+            {st.tls_state === "ready"
+              ? "active, renews automatically"
+              : st.tls_state === "obtaining"
+                ? "requesting from Let's Encrypt…"
+                : st.tls_state === "error"
+                  ? "not yet: Let's Encrypt couldn't reach this server. Check that port 443 is forwarded (step 3). It retries automatically."
+                  : "off"}
+          </div>
+          {st.tls_state === "ready" && (
+            <p className="small">
+              ✅ People outside can now use <b>https://{r.domain}</b> in the app or a browser (Chromebooks too). New invites will use this address.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

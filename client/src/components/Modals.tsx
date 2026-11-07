@@ -240,8 +240,13 @@ function EditChannel({ channelId }: { channelId: string }) {
   );
 }
 
+export function serverAddress() {
+  const d = useStore.getState().config.public_domain;
+  return d ? `https://${d}` : session.server;
+}
+
 export function inviteLink(code: string) {
-  const host = session.server.replace(/^https?:\/\//, "");
+  const host = serverAddress().replace(/^https?:\/\//, "");
   return `llamble://invite/${code}@${host}`;
 }
 
@@ -281,7 +286,7 @@ function InviteModal({ guildId }: { guildId: string }) {
               Copy
             </button>
           </div>
-          <div className="muted small">Server address: {session.server}</div>
+          <div className="muted small">Server address: {serverAddress()}</div>
         </>
       )}
       <div className="row gap">

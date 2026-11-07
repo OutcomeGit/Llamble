@@ -53,7 +53,7 @@ pub async fn leave_voice(state: &Shared, user_id: &str) {
     }
 }
 
-pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>) -> ApiResult<Json<Value>> {
+pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, headers: axum::http::HeaderMap) -> ApiResult<Json<Value>> {
     if !state.cfg.voice_enabled() {
         return Err(AppError::bad("voice is not configured on this server (set LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET)"));
     }
@@ -89,7 +89,8 @@ pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
     };
     state.hub.voice.insert(auth.id.clone(), vs.clone());
     broadcast_voice(&state, &cid, serde_json::to_value(&vs).unwrap()).await;
-    Ok(Json(json!({ "url": state.cfg.livekit_url, "token": token, "room": cid, "can_speak": p & perms::SPEAK != 0, "can_video": p & perms::VIDEO != 0 })))
+    let url = crate::remote::livekit_url_for(&state, &headers).await;
+    Ok(Json(json!({ "url": url, "token": token, "room": cid, "can_speak": p & perms::SPEAK != 0, "can_video": p & perms::VIDEO != 0 })))
 }
 
 pub async fn leave(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {

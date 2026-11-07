@@ -6,6 +6,7 @@ export interface ServerConfig {
   voice_enabled: boolean;
   max_upload_bytes: number;
   guild_create: string;
+  public_domain?: string | null;
   bot?: { id: string; name: string; server_backend: boolean; worker_policy: string };
 }
 

@@ -14,7 +14,10 @@ services:
     pull_policy: always
     restart: unless-stopped
     ports:
-      - "8090:8080"
+      - "8090:8080"   # home network (http)
+      - "8443:8443"   # remote access (https) — router forwards outside 443 here
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets Llamble reach LiveKit for wss://…/livekit
     volumes:
       - llamble-data:/data
     environment:
@@ -39,8 +42,7 @@ services:
           tcp_port: 7881
           port_range_start: 50000
           port_range_end: 50100
-          node_ip: NAS_IP
-          use_external_ip: false
+          use_external_ip: true   # advertise your public IP so outside callers can connect
         keys:
           llamble: SECRET
         room:

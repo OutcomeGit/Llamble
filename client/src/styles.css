@@ -532,3 +532,16 @@ h1.md-h { font-size: 24px; } h2.md-h { font-size: 20px; } h3.md-h { font-size: 1
 .model-card.on { border-color: var(--green); opacity: 1; }
 .model-card:disabled:not(.on) { opacity: 0.6; }
 .model-card > * { text-align: left; }
+
+/* remote access */
+.remote-step { display: flex; gap: 14px; background: var(--bg-1); border-radius: 8px; padding: 14px 16px; margin: 12px 0; }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.remote-step ol { padding-left: 18px; line-height: 1.7; margin: 6px 0 0; }
+.remote-step code, .remote code { background: var(--bg-0); padding: 1px 5px; border-radius: 4px; }
+table.ports { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+table.ports th { text-align: left; font-size: 12px; text-transform: uppercase; color: var(--muted); padding: 6px; border-bottom: 1px solid var(--bg-3); }
+table.ports td { padding: 8px 6px; border-bottom: 1px solid var(--bg-3); }
+.remote-status { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rs { background: var(--bg-1); padding: 10px 12px; border-radius: 6px; border-left: 3px solid var(--faint); font-size: 14px; }
+.rs.ok { border-left-color: var(--green); }
+.rs.err { border-left-color: var(--red); }

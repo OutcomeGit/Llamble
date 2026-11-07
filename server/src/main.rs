@@ -7,6 +7,7 @@ mod error;
 mod gateway;
 mod models;
 mod perms;
+mod remote;
 mod state;
 
 use crate::error::{invite_code, now_ms};
@@ -53,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
         bot_id,
         bot: bot::BotRuntime::default(),
         ai: ai::AiManager::default(),
+        remote: remote::Remote::default(),
     });
 
     bootstrap(&state).await?;
@@ -71,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
+    remote::init(state.clone(), app.clone());
 
     tracing::info!(
         "Llamble listening on {} (public url {}, voice {}, server llama {})",

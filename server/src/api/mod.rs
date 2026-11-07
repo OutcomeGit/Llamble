@@ -21,6 +21,8 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/setup", post(setup))
         .route("/api/admin/ai", get(crate::ai::get_status).post(crate::ai::set_model).delete(crate::ai::disable))
         .route("/api/admin/ai/quants", get(crate::ai::get_quants))
+        .route("/api/admin/remote", get(crate::remote::get_remote).put(crate::remote::set_remote))
+        .route("/livekit/{*rest}", axum::routing::any(crate::remote::livekit_proxy))
         .route("/api/admin/gpu", get(crate::bot::get_gpu_pool).patch(crate::bot::set_gpu_policy))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login))

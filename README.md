@@ -66,11 +66,21 @@ GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`, pub
 
 **Updating the server:** push to `main`, wait for the Actions build, then **Update** the app in TrueNAS (`pull_policy: always`). Models and data survive updates.
 
-### Access from outside your house
+### Access from outside your house (Settings → Remote Access)
 
-- **Chat/API:** put Llamble behind HTTPS (Nginx Proxy Manager or Caddy on TrueNAS) at e.g. `https://chat.example.com` → `NAS:8090`. WebSockets must be allowed.
-- **Voice:** forward **7881/tcp** and **50000–50100/udp** to the NAS, and set `node_ip` (in the compose file's LIVEKIT_CONFIG) to your public IP. Expose the 7880 signaling port as `wss://voice.example.com` through the same reverse proxy, and set `LIVEKIT_URL` to that.
-- Cloudflare Tunnel works for chat but **not** for voice media (no UDP).
+Built in, with no reverse proxy to set up:
+1. **Namecheap:** add an **A + Dynamic DNS Record** for `chat`, then turn on **Dynamic DNS** and copy its password.
+2. **Llamble:** enter `chat.llamble.com` and that password, then click **Turn on**. Llamble:
+   - keeps the name pointed at your home IP (it re-checks every 10 minutes, since Spectrum/Windstream IPs change)
+   - gets and renews a **Let's Encrypt** HTTPS certificate
+   - serves everything, including call signaling (`wss://chat.llamble.com/livekit`), on one port
+3. **Router:** forward **443/tcp → NAS:8443**, **7881/tcp → NAS:7881**, and **50000–50100/udp → NAS**.
+
+People outside then use **https://chat.llamble.com** in the app or any browser, including Chromebooks (calls work there because it's HTTPS). New invites use that address automatically. At home, `http://NAS_IP:8090` keeps working.
+
+Notes:
+- LiveKit finds your public IP when it starts. If your ISP changes your IP, restart the app in TrueNAS so outside callers' media reaches the new address (chat is unaffected).
+- Your home IP is visible to anyone with the address, and the login page is reachable from the internet. Accounts are invite-only, passwords are hashed, and everything is HTTPS. Keep TrueNAS and Llamble updated.
 
 ## Desktop app (Windows)
 

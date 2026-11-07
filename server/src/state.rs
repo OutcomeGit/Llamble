@@ -21,6 +21,7 @@ pub struct AppState {
     pub bot_id: String,
     pub bot: crate::bot::BotRuntime,
     pub ai: crate::ai::AiManager,
+    pub remote: crate::remote::Remote,
 }
 
 #[derive(Serialize, Clone, Debug)]
