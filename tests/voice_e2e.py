@@ -49,9 +49,9 @@ with sync_playwright() as p:
     for pg in pages: pg.wait_for_function(hears, timeout=60000)
     print("two people connected and hearing each other")
     # match the process by its executable, not its command line (which would also match this shell)
-    kill = 'for p in /proc/[0-9]*; do [ "$(readlink $p/exe 2>/dev/null)" = /opt/livekit/livekit-server ] && kill ${p#/proc/}; done; true'
+    kill = 'for p in /proc/[0-9]*; do [ "$(readlink $p/exe 2>/dev/null)" = /opt/livekit/livekit-server ] && kill -9 ${p#/proc/}; done; true'
     subprocess.run(["docker", "exec", NAME, "sh", "-c", kill], check=True)
-    print("voice server killed mid-call")
+    print("voice server crashed mid-call (kill -9)")
     for pg in pages: pg.wait_for_function("() => window.llambleDebug.voice().status !== 'connected'", timeout=30000)
     for pg in pages: pg.wait_for_function(hears, timeout=120000)
     st = ok(requests.get(B + "/api/admin/settings", headers=TA))["voice"]
