@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, normalizeServer, session, setSession } from "../api";
 import { Setup } from "./Setup";
+import { useStore } from "../store";
 
 export function Login({ onDone }: { onDone: (token: string) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [server, setServer] = useState(session.server || "");
-  const [invite, setInvite] = useState("");
+  const linked = sessionStorage.getItem("llamble.invite");
+  const [mode, setMode] = useState<"login" | "register">(linked ? "register" : "login");
+  const [server, setServer] = useState(linked && !window.llambleNative ? location.origin : session.server || "");
+  const [invite, setInvite] = useState(linked || "");
   const [username, setUsername] = useState("");
   const [display, setDisplay] = useState("");
   const [password, setPassword] = useState("");
@@ -39,6 +41,10 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
     if (m) {
       setInvite(m[1]);
       if (m[2]) setServer(m[2]);
+      else {
+        const u = /^(https?:\/\/[^/]+)\/invite\//i.exec(invite);
+        if (u) setServer(u[1]);
+      }
     }
   }, [invite]);
 
@@ -76,6 +82,12 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
           ? await api("/api/auth/login", { server: srv, token: null, body: { username, password, device_name: device } })
           : await api("/api/auth/register", { server: srv, token: null, body: { invite, username, password, display_name: display || undefined, device_name: device } });
       setSession(srv, res.token);
+      sessionStorage.removeItem("llamble.invite");
+      // joined through a server invite: open that server first
+      if (mode === "register" && preview?.guild?.id) {
+        localStorage.setItem("llamble.lastGuild", preview.guild.id);
+        useStore.setState({ selectedGuild: preview.guild.id });
+      }
       onDone(res.token);
     } catch (err: any) {
       setError(err.status === 0 ? `Can't reach ${srv}. Check the address and that the server is running.` : err.message);

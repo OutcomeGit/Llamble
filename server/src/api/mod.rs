@@ -20,6 +20,8 @@ pub fn router(state: Shared) -> Router<Shared> {
     let upload_limit: usize = 20_000 * 1024 * 1024;
     Router::new()
         .route("/api/info", get(info))
+        // shared invite links open the web app's sign-up page
+        .route("/invite/{code}", get(invite_redirect))
         .route("/api/setup", post(setup))
         .route("/api/admin/ai", get(crate::ai::get_status).post(crate::ai::set_model).delete(crate::ai::disable))
         .route("/api/admin/ai/quants", get(crate::ai::get_quants))
@@ -129,6 +131,11 @@ async fn setup(State(state): State<Shared>, Json(req): Json<SetupReq>) -> ApiRes
     }
     let user = crate::models::get_user(&state.db, &id).await?;
     Ok(Json(json!({ "token": token, "user": user, "guild_id": guild_id })))
+}
+
+async fn invite_redirect(Path(code): Path<String>) -> axum::response::Redirect {
+    let code: String = code.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
+    axum::response::Redirect::to(&format!("/?invite={code}"))
 }
 
 async fn info(State(state): State<Shared>) -> Json<Value> {

@@ -10,8 +10,26 @@ import { toggleDeafen, toggleMute } from "./voice";
 import { sounds } from "./sounds";
 import type { Message } from "./types";
 
+// a shared invite link (https://server/invite/CODE) opened in a browser
+const webInvite = (() => {
+  if (window.llambleNative) return null;
+  const code = new URLSearchParams(location.search).get("invite");
+  if (!code) return null;
+  history.replaceState(null, "", location.pathname);
+  sessionStorage.setItem("llamble.invite", code);
+  return code;
+})();
+
 export default function App() {
   const [token, setToken] = useState(session.token);
+
+  // already signed in: offer to join right away
+  useEffect(() => {
+    if (webInvite && token) {
+      sessionStorage.removeItem("llamble.invite");
+      openModal({ kind: "joinInvite", code: webInvite });
+    }
+  }, []);
 
   useEffect(() => {
     const out = () => {

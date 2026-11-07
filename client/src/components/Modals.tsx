@@ -245,9 +245,9 @@ export function serverAddress() {
   return d ? `https://${d}` : session.server;
 }
 
+/** A normal web link: opens the sign-up page in any browser; also pasteable into the desktop app. */
 export function inviteLink(code: string) {
-  const host = serverAddress().replace(/^https?:\/\//, "");
-  return `llamble://invite/${code}@${host}`;
+  return `${serverAddress().replace(/\/+$/, "")}/invite/${code}`;
 }
 
 function InviteModal({ guildId }: { guildId: string }) {
@@ -269,24 +269,20 @@ function InviteModal({ guildId }: { guildId: string }) {
   return (
     <div className="modal">
       <h2>Invite people to {guild?.name}</h2>
-      <p className="muted small">New people paste the code into "Register" with your server address. People with the app can click the link.</p>
+      <p className="muted small">Send this link. It opens a sign-up page in any browser (phone, Chromebook, laptop). People with the desktop app can paste it into Register instead.</p>
       {inv && (
         <>
-          <label>Invite code</label>
-          <div className="copy-row">
-            <input readOnly value={inv.code} onFocus={(e) => e.target.select()} />
-            <button className="btn primary" onClick={() => copy(inv.code, "Invite code copied")}>
-              Copy
-            </button>
-          </div>
-          <label>Full invite (code + server)</label>
+          <label>Invite link</label>
           <div className="copy-row">
             <input readOnly value={inviteLink(inv.code)} onFocus={(e) => e.target.select()} />
-            <button className="btn" onClick={() => copy(inviteLink(inv.code), "Invite link copied")}>
+            <button className="btn primary" onClick={() => copy(inviteLink(inv.code), "Invite link copied")}>
               Copy
             </button>
           </div>
-          <div className="muted small">Server address: {serverAddress()}</div>
+          <div className="muted small">
+            Code <b>{inv.code}</b> · server <b>{serverAddress()}</b>
+            {!useStore.getState().config.public_domain && " · this home address only works on your network until Remote Access is on"}
+          </div>
         </>
       )}
       <div className="row gap">
