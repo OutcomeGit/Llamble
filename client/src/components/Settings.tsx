@@ -1238,9 +1238,9 @@ function RemoteAccess() {
               <div className="bold">At your domain registrar: turn on Dynamic DNS</div>
               <p className="muted small">Your internet provider changes your home IP now and then; Dynamic DNS keeps your address pointed at it. Steps for Namecheap:</p>
               <ol className="small">
-                <li>Domain List → <b>Manage</b> next to your domain → <b>Advanced DNS</b>.</li>
-                <li>Add New Record → <b>A + Dynamic DNS Record</b>. Host: <code>chat</code>, Value: <code>127.0.0.1</code> (Llamble replaces it) → ✓ save.</li>
-                <li>Further down, switch <b>Dynamic DNS</b> on and copy the <b>Dynamic DNS Password</b>.</li>
+                <li>Domain List → <b>Manage</b> next to your domain. Under Nameservers it should say <b>Namecheap BasicDNS</b> (the default).</li>
+                <li><b>Advanced DNS</b> tab → scroll to <b>Dynamic DNS</b> → switch it on and copy the <b>Dynamic DNS Password</b>.</li>
+                <li>Back up under Host Records → Add New Record → <b>A + Dynamic DNS Record</b>. Host: <code>chat</code>, Value: <code>127.0.0.1</code> (Llamble replaces it) → ✓ save.</li>
               </ol>
             </div>
           </div>
