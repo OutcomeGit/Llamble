@@ -58,10 +58,18 @@ jobs:
       - run: npm ci
       # every push gets its own version so installed apps auto-update to it
       - run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
+      # create the release up front (as a draft) so parallel uploads don't race to create it
+      - run: gh release create v0.1.${{ github.run_number }} --draft --title "Llamble 0.1.${{ github.run_number }}" --notes "Automatic build of ${{ github.sha }}" --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # publish it: becomes "latest", so the download link and auto-update pick it up
+      - run: gh release edit v0.1.${{ github.run_number }} --draft=false --latest --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: Llamble-Setup

@@ -24,7 +24,7 @@ services:
       LIVEKIT_API_KEY: "llamble"
       LIVEKIT_API_SECRET: "CHANGE_ME_long_random_secret_at_least_32_chars"
       LLAMBLE_BOT_NAME: "Llamble"
-      LLAMBLE_LLAMA_URL: "http://llama:8081"
+      LLAMBLE_LLAMA_URL: "http://llama:8080"
       LLAMBLE_BOT_WORKERS: "admins"
       RUST_LOG: "llamble_server=info"
 
@@ -54,7 +54,8 @@ services:
     environment:
       LLAMA_CACHE: /models
     # Downloads ~2.5 GB once, then runs on the NAS CPU (fallback when no GPU is lent).
-    command: ["-hf", "unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M", "-c", "8192", "--host", "0.0.0.0", "--port", "8081", "--jinja", "-t", "8"]
+    # listens on the image's default 0.0.0.0:8080 so its built-in health check passes
+    command: ["-hf", "unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M", "-c", "8192", "--jinja", "-t", "8"]
 
 volumes:
   llamble-data:

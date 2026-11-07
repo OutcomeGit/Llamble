@@ -50,7 +50,7 @@
         "provider": "github",
         "owner": "OutcomeGit",
         "repo": "Llamble",
-        "releaseType": "release"
+        "releaseType": "draft"
       }
     ]
   },
