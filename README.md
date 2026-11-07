@@ -54,11 +54,10 @@ GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`) and
 1. **Let TrueNAS pull the private image** (one time). Pick one:
    - **Registry login:** on the Apps screen, open the **Docker Registries** screen (from the Configuration menu) → **Add Registry** → *Other Registry*. Use URI `https://ghcr.io`, your GitHub username, and as the password a GitHub token (classic) with `read:packages`.
    - **Or make the image public** (the repo can stay private): GitHub → your profile → **Packages** → **llamble** → Package settings → Change visibility → Public. No login is needed then.
-2. **Create a dataset** for the app's data, e.g. `tank/apps/llamble` (preset **Apps**, so the `apps` user, 568, owns it).
+2. **Storage is automatic.** The YAML uses Docker volumes (`llamble-data`, `llama-models`), which TrueNAS creates on your apps pool on first start. There's no dataset to set up.
 3. **Apps → Discover Apps → ⋮ → Install via YAML.** Give it the name `llamble`, then paste `deploy/truenas-compose.yaml` after changing:
    - your NAS IP (3 places)
    - one long random secret (2 places, must match)
-   - the dataset path (`/mnt/tank/apps/llamble`)
 4. **Save.** TrueNAS starts three containers: **llamble** (chat server, port 8090), **livekit** (voice/video, host network), and **llama** (CPU fallback for the bot). On first start, llama downloads Qwen3-4B Q4_K_M (~2.5 GB) from Hugging Face; change the `-hf` line for a different model.
 5. Open the **llamble** container's logs for the **one-time admin invite code**.
 6. Install the desktop app: download **Llamble-Setup** from the latest run in the repo's Actions tab, or from Releases after you push a `v0.1.0` tag. Then register with server `http://NAS-IP:8090` and that code.
@@ -100,7 +99,7 @@ The installer registers the `llamble://` protocol, so invite links open the app.
 | `LLAMBLE_WEB_DIR` | `/app/web` in Docker | also serves the web client at `/` |
 | `LLAMBLE_BOOTSTRAP_INVITE` | random | fixed first admin invite code |
 
-**Backups:** snapshot the `data` dataset. Everything lives there (`llamble.db` is SQLite in WAL mode).
+**Backups:** everything lives in the `llamble-data` volume (`llamble.db` is SQLite in WAL mode), which sits inside the apps pool's `ix-apps` dataset. Snapshot that dataset.
 
 ## Tests
 

@@ -18,6 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=server /src/target/release/llamble-server /usr/local/bin/llamble-server
 COPY --from=web /web/dist /app/web
 ENV LLAMBLE_DATA=/data LLAMBLE_WEB_DIR=/app/web LLAMBLE_BIND=0.0.0.0:8080
+# Run as TrueNAS's "apps" user (568). The data dir is pre-owned by it, so a fresh
+# Docker-managed volume mounted at /data inherits that ownership automatically.
+RUN mkdir -p /data && chown 568:568 /data
+USER 568:568
 VOLUME /data
 EXPOSE 8080
 CMD ["llamble-server"]
