@@ -555,3 +555,5 @@ pre.cmd { background: #1e1f22; padding: 10px 12px; border-radius: 6px; white-spa
 input.switch { width: 40px; height: 22px; accent-color: var(--accent, #5865f2); }
 @media (max-width: 700px) { .mode-cards { grid-template-columns: 1fr; } }
 .login-logo { display: block; width: 220px; max-width: 70%; margin: -8px auto 12px; border-radius: 12px; }
+a.update-pill { text-decoration: none; }
+.update-pill.subtle { background: var(--bg-3, #3a3c42); color: var(--text-muted, #b5bac1); font-weight: 500; }

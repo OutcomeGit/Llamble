@@ -187,6 +187,8 @@ declare global {
       onInvite: (cb: (code: string) => void) => () => void;
       onUpdateReady: (cb: (version: string) => void) => () => void;
       installUpdate: () => void;
+      checkUpdate?: () => void;
+      onUpdateStatus?: (cb: (s: { state: string; percent?: number; message?: string }) => void) => () => void;
       pickFile: (opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       llm: {
         gpus: () => Promise<Gpu[]>;

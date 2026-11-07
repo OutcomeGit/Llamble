@@ -57,3 +57,13 @@ impl Config {
         self.data_dir.join("proxy_cache")
     }
 }
+
+/// Version of this server build (set by CI; the desktop app released with it has the same number).
+pub fn server_version() -> String {
+    std::env::var("LLAMBLE_VERSION").unwrap_or_else(|_| "0.0.0".into())
+}
+
+/// Where people get the Windows app (shown when their app is out of date).
+pub fn client_download_url() -> String {
+    std::env::var("LLAMBLE_CLIENT_DOWNLOAD").unwrap_or_else(|_| "https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe".into())
+}

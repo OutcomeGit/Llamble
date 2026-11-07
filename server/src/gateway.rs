@@ -75,6 +75,8 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
             "max_upload_bytes": state.s().max_upload_bytes(),
             "guild_create": state.s().guild_create,
             "public_domain": crate::remote::public_domain(state).await,
+            "version": crate::config::server_version(),
+            "client_download": crate::config::client_download_url(),
             "bot": { "id": state.bot_id, "name": state.s().bot_name, "server_backend": crate::ai::server_llama_url(state).await.is_some(), "worker_policy": crate::bot::gpu_policy(state).await },
         }
     }))

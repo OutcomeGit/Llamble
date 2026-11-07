@@ -20,7 +20,7 @@ export function Shell() {
   const selectedGuild = useStore((s) => s.selectedGuild);
   const ringing = useStore((s) => s.ringing);
   const [update, setUpdate] = useState<string | null>(null);
-  useEffect(() => window.llambleNative?.onUpdateReady((v) => setUpdate(v)), []);
+  useEffect(() => window.llambleNative?.onUpdateReady((v) => setUpdate(v ?? "")), []);
 
   useEffect(() => {
     if (!ringing) return;
@@ -43,10 +43,12 @@ export function Shell() {
       <div className="titlebar">
         <span className="titlebar-name">Llamble</span>
         {conn !== "open" && <span className="conn-warn">Reconnecting…</span>}
-        {update && (
+        {update !== null ? (
           <button className="update-pill" onClick={() => window.llambleNative?.installUpdate()} title="Restart to update">
             Update {update} ready — restart
           </button>
+        ) : (
+          <VersionNotice />
         )}
       </div>
       <div className="layout">
@@ -232,3 +234,73 @@ function Lightbox() {
   );
 }
 
+
+/** "1.2.10" > "1.2.9"; non-numeric parts count as 0 */
+export function newer(a?: string, b?: string) {
+  if (!a || !b) return false;
+  const pa = a.split(".").map((x) => parseInt(x) || 0);
+  const pb = b.split(".").map((x) => parseInt(x) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  }
+  return false;
+}
+
+/** The server announces its version; anyone on an older app (or an old cached web page) is told to update. */
+function VersionNotice() {
+  const config = useStore((s) => s.config);
+  const isAdmin = useStore((s) => !!s.me?.is_admin);
+  const [mine, setMine] = useState<string>(window.llambleNative ? "" : __APP_VERSION__);
+  const [status, setStatus] = useState<{ state: string; percent?: number; message?: string } | null>(null);
+  const [hidden, setHidden] = useState("");
+  useEffect(() => {
+    window.llambleNative?.version().then(setMine).catch(() => {});
+    return window.llambleNative?.onUpdateStatus?.(setStatus);
+  }, []);
+  const server = config.version;
+  if (!mine || !server || server === "0.0.0" || mine === "0.0.0" || hidden === server) return null;
+  if (newer(server, mine)) {
+    if (!window.llambleNative) {
+      // web: the server already has the new page, the browser just has an old copy
+      return (
+        <button
+          className="update-pill"
+          onClick={async () => {
+            try {
+              const regs = await navigator.serviceWorker?.getRegistrations();
+              await Promise.all((regs || []).map((r) => r.unregister()));
+              const keys = await caches?.keys();
+              await Promise.all((keys || []).map((k) => caches.delete(k)));
+            } catch {}
+            location.reload();
+          }}
+        >
+          New version {server} — reload
+        </button>
+      );
+    }
+    if (status?.state === "error") {
+      return (
+        <a className="update-pill" href={config.client_download} target="_blank" rel="noreferrer" title={status.message}>
+          Llamble {server} is out — download it
+        </a>
+      );
+    }
+    if (status?.state === "downloading" || status?.state === "checking") {
+      return <span className="update-pill">Updating to {server}… {status.percent ? `${status.percent}%` : ""}</span>;
+    }
+    return (
+      <button className="update-pill" onClick={() => window.llambleNative?.checkUpdate?.()}>
+        Llamble {server} is out — update now
+      </button>
+    );
+  }
+  if (isAdmin && newer(mine, server)) {
+    return (
+      <button className="update-pill subtle" title="Click to hide" onClick={() => setHidden(server)}>
+        Your server is on {server}; update the Llamble server to get {mine}
+      </button>
+    );
+  }
+  return null;
+}

@@ -40,6 +40,7 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: llamble:test
+          build-args: LLAMBLE_VERSION=0.1.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Real voice calls against the image (two browsers, voice server killed mid-call)
@@ -54,6 +55,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: LLAMBLE_VERSION=0.1.${{ github.run_number }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,11 +1,12 @@
 # Llamble server image: Rust API + web client + bundled llama.cpp (llama-server) + LiveKit (voice) + ffmpeg
 # The same image also runs as a relay on a VPS: `llamble-server relay`
 FROM node:22-bookworm-slim AS web
+ARG LLAMBLE_VERSION=0.0.0
 WORKDIR /web
 COPY client/package.json client/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY client/ ./
-RUN npm run build
+RUN npm version "$LLAMBLE_VERSION" --no-git-tag-version --allow-same-version >/dev/null && npm run build
 
 FROM rust:1-bookworm AS server
 WORKDIR /src
@@ -27,6 +28,8 @@ COPY --from=llama /app /opt/llama
 COPY --from=livekit /livekit-server /opt/livekit/livekit-server
 COPY --from=server /src/target/release/llamble-server /usr/local/bin/llamble-server
 COPY --from=web /web/dist /app/web
+ARG LLAMBLE_VERSION=0.0.0
+ENV LLAMBLE_VERSION=$LLAMBLE_VERSION
 ENV LD_LIBRARY_PATH=/opt/llama \
     LLAMBLE_LLAMA_BIN=/opt/llama/llama-server \
     LLAMBLE_DATA=/data LLAMBLE_WEB_DIR=/app/web LLAMBLE_BIND=0.0.0.0:8080

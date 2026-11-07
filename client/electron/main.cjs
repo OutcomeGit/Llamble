@@ -19,10 +19,21 @@ function setupAutoUpdate() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on("update-downloaded", (info) => {
-    updateReady = true;
+    updateReady = info.version || true;
     if (win && !win.isDestroyed()) win.webContents.send("update-ready", info.version);
   });
-  autoUpdater.on("error", (e) => console.warn("updater:", e && e.message));
+  const send = (ch, v) => win && !win.isDestroyed() && win.webContents.send(ch, v);
+  autoUpdater.on("download-progress", (p) => send("update-status", { state: "downloading", percent: Math.round(p.percent || 0) }));
+  autoUpdater.on("error", (e) => {
+    console.warn("updater:", e && e.message);
+    send("update-status", { state: "error", message: (e && e.message) || "update failed" });
+  });
+  // the server says a newer app exists: look now instead of waiting for the next timer
+  ipcMain.on("check-update", () => {
+    if (updateReady) return send("update-ready", typeof updateReady === "string" ? updateReady : "");
+    send("update-status", { state: "checking" });
+    autoUpdater.checkForUpdates().catch((e) => send("update-status", { state: "error", message: e.message }));
+  });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 10_000);
   setInterval(check, 4 * 60 * 60 * 1000);

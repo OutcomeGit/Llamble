@@ -144,6 +144,7 @@ async fn info(State(state): State<Shared>) -> Json<Value> {
         "name": "Llamble",
         "version": env!("CARGO_PKG_VERSION"),
         "voice_enabled": crate::voice_server::enabled(&state),
+        "version": crate::config::server_version(),
         "max_upload_bytes": state.s().max_upload_bytes(),
         "bot_name": state.s().bot_name,
     }))
