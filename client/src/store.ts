@@ -51,8 +51,8 @@ export const useStore = create<State>(() => ({
   presences: {},
   voiceStates: {},
   typing: {},
-  selectedGuild: localStorage.getItem("parley.lastGuild") || "@me",
-  lastChannel: JSON.parse(localStorage.getItem("parley.lastChannel") || "{}"),
+  selectedGuild: localStorage.getItem("llamble.lastGuild") || "@me",
+  lastChannel: JSON.parse(localStorage.getItem("llamble.lastChannel") || "{}"),
   memberListOpen: true,
   ringing: null,
 }));
@@ -65,8 +65,8 @@ const get = useStore.getState;
 export function selectChannel(guildId: string, channelId: string | null) {
   const lastChannel = { ...get().lastChannel };
   if (channelId) lastChannel[guildId] = channelId;
-  localStorage.setItem("parley.lastChannel", JSON.stringify(lastChannel));
-  localStorage.setItem("parley.lastGuild", guildId);
+  localStorage.setItem("llamble.lastChannel", JSON.stringify(lastChannel));
+  localStorage.setItem("llamble.lastGuild", guildId);
   set({ selectedGuild: guildId, lastChannel });
 }
 
@@ -208,7 +208,7 @@ export function handleEvent(t: string, d: any) {
       for (const r of d.read_states) readStates[r.channel_id] = r.last_read_id;
       const presences: Record<string, string> = {};
       for (const p of d.presences) presences[p.user_id] = p.status;
-      presences[d.user.id] = localStorage.getItem("parley.status") || "online";
+      presences[d.user.id] = localStorage.getItem("llamble.status") || "online";
       const voiceStates: Record<string, VoiceState> = {};
       for (const v of d.voice_states) voiceStates[v.user_id] = v;
       if (st.selectedGuild !== "@me" && !st.guilds[st.selectedGuild]) st.selectedGuild = st.guildOrder[0] || "@me";

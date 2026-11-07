@@ -1,5 +1,5 @@
 [package]
-name = "parley-server"
+name = "llamble-server"
 version = "0.1.0"
 edition = "2021"
 

@@ -35,7 +35,7 @@ export function searchEmoji(q: string, limit = 40): EmojiEntry[] {
 
 export function recentEmoji(): string[] {
   try {
-    return JSON.parse(localStorage.getItem("parley.recentEmoji") || "[]");
+    return JSON.parse(localStorage.getItem("llamble.recentEmoji") || "[]");
   } catch {
     return [];
   }
@@ -43,7 +43,7 @@ export function recentEmoji(): string[] {
 
 export function pushRecentEmoji(e: string) {
   const r = [e, ...recentEmoji().filter((x) => x !== e)].slice(0, 24);
-  localStorage.setItem("parley.recentEmoji", JSON.stringify(r));
+  localStorage.setItem("llamble.recentEmoji", JSON.stringify(r));
 }
 
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];

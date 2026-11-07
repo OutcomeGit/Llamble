@@ -35,7 +35,7 @@ function open() {
     useStore.setState({ conn: "open" });
     clearInterval(pingTimer);
     pingTimer = window.setInterval(() => sendGateway("ping"), 30000);
-    const status = localStorage.getItem("parley.status");
+    const status = localStorage.getItem("llamble.status");
     if (status && status !== "online") sendGateway("presence", { status });
   };
   sock.onmessage = (e) => {
@@ -53,7 +53,7 @@ function open() {
     useStore.setState({ conn: "closed" });
     if (stopped) return;
     if (e.code === 1008 || e.code === 4001) {
-      window.dispatchEvent(new Event("parley:unauthorized"));
+      window.dispatchEvent(new Event("llamble:unauthorized"));
       return;
     }
     if (attempt >= 2) api("/api/users/@me").catch(() => {}); // 401 here signs the user out

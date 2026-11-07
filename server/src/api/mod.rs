@@ -66,7 +66,7 @@ pub fn router(state: Shared) -> Router<Shared> {
 
 async fn info(State(state): State<Shared>) -> Json<Value> {
     Json(json!({
-        "name": "Parley",
+        "name": "Llamble",
         "version": env!("CARGO_PKG_VERSION"),
         "voice_enabled": state.cfg.voice_enabled(),
         "max_upload_bytes": state.cfg.max_upload_bytes,

@@ -1182,6 +1182,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
+name = "llamble-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "base64 0.22.1",
+ "dashmap",
+ "futures",
+ "hex",
+ "hmac",
+ "image",
+ "jsonwebtoken",
+ "mime",
+ "once_cell",
+ "percent-encoding",
+ "rand 0.8.8",
+ "regex",
+ "reqwest",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "ulid",
+ "url",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1442,41 +1477,6 @@ dependencies = [
  "redox_syscall 0.5.18",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "parley-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "base64 0.22.1",
- "dashmap",
- "futures",
- "hex",
- "hmac",
- "image",
- "jsonwebtoken",
- "mime",
- "once_cell",
- "percent-encoding",
- "rand 0.8.8",
- "regex",
- "reqwest",
- "scraper",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "tokio",
- "tokio-util",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "ulid",
- "url",
 ]
 
 [[package]]

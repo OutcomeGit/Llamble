@@ -24,8 +24,8 @@ export interface VoiceUI {
 export const useVoice = create<VoiceUI>(() => ({
   channelId: null,
   status: "idle",
-  muted: localStorage.getItem("parley.muted") === "1",
-  deafened: localStorage.getItem("parley.deafened") === "1",
+  muted: localStorage.getItem("llamble.muted") === "1",
+  deafened: localStorage.getItem("llamble.deafened") === "1",
   camera: false,
   screen: false,
   speaking: [],
@@ -53,13 +53,13 @@ export function getRoom() {
 
 export const prefs = {
   get(k: string, d = ""): string {
-    return localStorage.getItem("parley." + k) ?? d;
+    return localStorage.getItem("llamble." + k) ?? d;
   },
   set(k: string, v: string) {
-    localStorage.setItem("parley." + k, v);
+    localStorage.setItem("llamble." + k, v);
   },
   bool(k: string, d = true): boolean {
-    const v = localStorage.getItem("parley." + k);
+    const v = localStorage.getItem("llamble." + k);
     return v === null ? d : v === "1";
   },
 };
@@ -217,8 +217,8 @@ export async function toggleMute() {
   let deafened = s.deafened;
   if (!muted && deafened) deafened = false; // unmuting also undeafens, like Discord
   vset({ muted, deafened });
-  localStorage.setItem("parley.muted", muted ? "1" : "0");
-  localStorage.setItem("parley.deafened", deafened ? "1" : "0");
+  localStorage.setItem("llamble.muted", muted ? "1" : "0");
+  localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   muted ? sounds.mute() : sounds.unmute();
   if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!muted, audioCapture()).catch(() => {});
@@ -230,7 +230,7 @@ export async function toggleDeafen() {
   const s = vget();
   const deafened = !s.deafened;
   vset({ deafened });
-  localStorage.setItem("parley.deafened", deafened ? "1" : "0");
+  localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   deafened ? sounds.mute() : sounds.unmute();
   if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!deafened && !s.muted, audioCapture()).catch(() => {});
@@ -255,7 +255,7 @@ export type ShareQuality = "720p30" | "1080p30" | "1080p60" | "1440p30";
 
 export async function startScreenShare(sourceId: string, audio: boolean, quality: ShareQuality) {
   if (!room) return;
-  await window.parleyNative?.setScreenSource({ id: sourceId, audio });
+  await window.llambleNative?.setScreenSource({ id: sourceId, audio });
   const preset = {
     "720p30": ScreenSharePresets.h720fps30,
     "1080p30": ScreenSharePresets.h1080fps30,

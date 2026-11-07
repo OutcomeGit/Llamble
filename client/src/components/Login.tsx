@@ -12,7 +12,7 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<any>(null);
 
-  // accept a pasted full invite link: parley://invite/CODE@server or https://server/invite/CODE
+  // accept a pasted full invite link: llamble://invite/CODE@server or https://server/invite/CODE
   useEffect(() => {
     const m = /invite\/([^@/?#\s]+)(?:@([^\s]+))?/i.exec(invite);
     if (m) {
@@ -22,7 +22,7 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
   }, [invite]);
 
   useEffect(() => {
-    return window.parleyNative?.onInvite((v) => {
+    return window.llambleNative?.onInvite((v) => {
       const [code, srv] = v.split("@");
       setMode("register");
       setInvite(code);
@@ -49,7 +49,7 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
     setBusy(true);
     try {
       await api("/api/info", { server: srv, token: null });
-      const device = window.parleyNative ? `Parley Desktop (${window.parleyNative.platform})` : "Browser";
+      const device = window.llambleNative ? `Llamble Desktop (${window.llambleNative.platform})` : "Browser";
       const res =
         mode === "login"
           ? await api("/api/auth/login", { server: srv, token: null, body: { username, password, device_name: device } })
@@ -68,7 +68,7 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
       <div className="titlebar-drag" />
       <form className="login-card" onSubmit={submit}>
         <h1>{mode === "login" ? "Welcome back!" : "Create your account"}</h1>
-        <p className="muted">{mode === "login" ? "Sign in to your Parley server." : "You'll need an invite from the server owner."}</p>
+        <p className="muted">{mode === "login" ? "Sign in to your Llamble server." : "You'll need an invite from the server owner."}</p>
         <label>
           Server address
           <input value={server} onChange={(e) => setServer(e.target.value)} placeholder="chat.example.com or 192.168.1.20:8080" autoFocus={!server} />

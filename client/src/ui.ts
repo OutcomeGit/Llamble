@@ -48,7 +48,7 @@ export const useUI = create<UI>(() => ({
   replyTo: {},
   editing: null,
   toasts: [],
-  collapsed: JSON.parse(localStorage.getItem("parley.collapsed") || "{}"),
+  collapsed: JSON.parse(localStorage.getItem("llamble.collapsed") || "{}"),
   jumpTo: null,
 }));
 
@@ -78,7 +78,7 @@ export function setReply(channelId: string, m: Message | undefined) {
 export function toggleCollapsed(id: string) {
   useUI.setState((s) => {
     const collapsed = { ...s.collapsed, [id]: !s.collapsed[id] };
-    localStorage.setItem("parley.collapsed", JSON.stringify(collapsed));
+    localStorage.setItem("llamble.collapsed", JSON.stringify(collapsed));
     return { collapsed };
   });
 }

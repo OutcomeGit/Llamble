@@ -7,7 +7,7 @@ function ac() {
 }
 
 function tone(freqs: number[], dur = 0.09, gap = 0.07, vol = 0.12, type: OscillatorType = "sine") {
-  if (localStorage.getItem("parley.sounds") === "off") return;
+  if (localStorage.getItem("llamble.sounds") === "off") return;
   try {
     const c = ac();
     freqs.forEach((f, i) => {

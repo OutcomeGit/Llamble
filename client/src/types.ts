@@ -172,7 +172,7 @@ export const PERM_LABELS: [number, string, string][] = [
 
 declare global {
   interface Window {
-    parleyNative?: {
+    llambleNative?: {
       platform: string;
       getScreenSources: () => Promise<{ id: string; name: string; kind: "screen" | "window"; thumbnail: string | null; icon: string | null }[]>;
       setScreenSource: (c: { id: string; audio: boolean }) => Promise<boolean>;

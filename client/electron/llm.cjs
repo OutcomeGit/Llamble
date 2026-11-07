@@ -1,5 +1,5 @@
 // Local llama.cpp manager: detects GPUs, runs llama-server pinned to the chosen card,
-// and streams chat completions for jobs the Parley server hands to this PC.
+// and streams chat completions for jobs the Llamble server hands to this PC.
 const { execFile, spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");

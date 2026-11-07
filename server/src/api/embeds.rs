@@ -21,7 +21,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use url::Url;
 
-const UA: &str = "Mozilla/5.0 (compatible; ParleyBot/0.1; +link-preview)";
+const UA: &str = "Mozilla/5.0 (compatible; LlambleBot/0.1; +link-preview)";
 const HTML_MAX: usize = 2 * 1024 * 1024;
 const MEDIA_MAX: usize = 60 * 1024 * 1024;
 const CACHE_TTL_MS: i64 = 24 * 3600 * 1000;

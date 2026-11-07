@@ -1,7 +1,7 @@
 import type { FileObj } from "./types";
 
-const LS_SERVER = "parley.server";
-const LS_TOKEN = "parley.token";
+const LS_SERVER = "llamble.server";
+const LS_TOKEN = "llamble.token";
 
 export const session = {
   server: (localStorage.getItem(LS_SERVER) || (location.protocol.startsWith("http") && !location.port.startsWith("517") ? location.origin : "")).replace(/\/+$/, ""),
@@ -55,7 +55,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     data = null;
   }
   if (!res.ok) {
-    if (res.status === 401 && path !== "/api/auth/login") window.dispatchEvent(new Event("parley:unauthorized"));
+    if (res.status === 401 && path !== "/api/auth/login") window.dispatchEvent(new Event("llamble:unauthorized"));
     throw new ApiError(res.status, data?.error || `Request failed (${res.status})`);
   }
   return data as T;

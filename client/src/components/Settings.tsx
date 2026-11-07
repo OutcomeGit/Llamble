@@ -396,7 +396,7 @@ function BotSettings({ guildId }: { guildId: string }) {
             </div>
           ))}
           <div className={"backend " + (status.server_backend ? "ok" : "off")}>
-            <Icon name="cpu" size={16} /> Server llama.cpp {status.server_backend ? "(fallback, configured)" : "— not configured (set PARLEY_LLAMA_URL)"}
+            <Icon name="cpu" size={16} /> Server llama.cpp {status.server_backend ? "(fallback, configured)" : "— not configured (set LLAMBLE_LLAMA_URL)"}
           </div>
           {!backends && <div className="form-error">No model available right now. Lend a GPU from User Settings → AI &amp; GPU, or configure the server model.</div>}
           <p className="muted small">
@@ -421,7 +421,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       tabs={[
         { id: "account", label: "My Account" },
         { id: "voice", label: "Voice & Video" },
-        { id: "ai", label: "AI & GPU", hidden: !window.parleyNative },
+        { id: "ai", label: "AI & GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
         { id: "sessions", label: "Devices" },
         { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
@@ -624,7 +624,7 @@ function AiSettings() {
   const set = (patch: Partial<AiConfig>) => saveAiConfig({ ...c, ...patch });
   const gpu = chosenGpu(ai);
   const pick = async (key: "serverPath" | "modelPath") => {
-    const p = await window.parleyNative?.pickFile(
+    const p = await window.llambleNative?.pickFile(
       key === "serverPath"
         ? { title: "Select llama-server.exe", filters: [{ name: "llama-server", extensions: ["exe", ""] }] }
         : { title: "Select a GGUF model", filters: [{ name: "GGUF model", extensions: ["gguf"] }] },
@@ -640,10 +640,10 @@ function AiSettings() {
         <div className="consent-box">
           <h3>Lend this PC's graphics card to the server's AI bot?</h3>
           <ul>
-            <li>Parley will run <b>llama.cpp</b> on your best GPU{gpu ? ` (${gpu.name}${gpu.vram_mb ? `, ${(gpu.vram_mb / 1024).toFixed(0)} GB` : ""})` : ""} using a model file you choose.</li>
+            <li>Llamble will run <b>llama.cpp</b> on your best GPU{gpu ? ` (${gpu.name}${gpu.vram_mb ? `, ${(gpu.vram_mb / 1024).toFixed(0)} GB` : ""})` : ""} using a model file you choose.</li>
             <li>When someone talks to the bot, the server sends the recent conversation to <b>this PC</b> to write the reply. Only conversations from channels you can already read are sent here.</li>
             <li>It uses VRAM, power and some GPU time while answering. Games may stutter if a reply is generating.</li>
-            <li>Nothing leaves your network except through your own Parley server. You can turn it off anytime.</li>
+            <li>Nothing leaves your network except through your own Llamble server. You can turn it off anytime.</li>
           </ul>
           <div className="row gap">
             <button className="btn primary" onClick={() => set({ consent: true })}>
@@ -677,7 +677,7 @@ function AiSettings() {
             <input type="radio" checked={c.mode === m} onChange={() => set({ mode: m })} />
             <Icon name={m === "managed" ? "cpu" : "link"} size={20} />
             <div>
-              <b>{m === "managed" ? "Parley runs llama-server" : "Use my running llama-server"}</b>
+              <b>{m === "managed" ? "Llamble runs llama-server" : "Use my running llama-server"}</b>
               <div className="muted small">{m === "managed" ? "Pick the exe + model; pinned to your best GPU" : "Point at a server you already run (LM setups, custom flags)"}</div>
             </div>
           </label>
@@ -786,9 +786,9 @@ function NotifSettings() {
         <div className="muted small">{desc}</div>
       </div>
       <Toggle
-        on={localStorage.getItem("parley." + k) !== "off"}
+        on={localStorage.getItem("llamble." + k) !== "off"}
         onChange={(v) => {
-          localStorage.setItem("parley." + k, v ? "on" : "off");
+          localStorage.setItem("llamble." + k, v ? "on" : "off");
           force((x) => x + 1);
         }}
       />
@@ -800,16 +800,16 @@ function NotifSettings() {
       {flag("notifications", "Desktop notifications", "For direct messages and @mentions when you're not looking at that channel")}
       {flag("sounds", "Sounds", "Message, join/leave, and mute sounds")}
       <p className="muted small">Set your status to Do Not Disturb (click your avatar) to silence everything.</p>
-      {window.parleyNative && (
+      {window.llambleNative && (
         <div className="perm-row">
           <div>
-            <div className="bold">Open Parley when Windows starts</div>
+            <div className="bold">Open Llamble when Windows starts</div>
           </div>
           <Toggle
-            on={localStorage.getItem("parley.autostart") === "1"}
+            on={localStorage.getItem("llamble.autostart") === "1"}
             onChange={(v) => {
-              localStorage.setItem("parley.autostart", v ? "1" : "0");
-              window.parleyNative!.setAutostart(v);
+              localStorage.setItem("llamble.autostart", v ? "1" : "0");
+              window.llambleNative!.setAutostart(v);
               force((x) => x + 1);
             }}
           />

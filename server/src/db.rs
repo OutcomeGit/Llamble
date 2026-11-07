@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS read_states (
 "#;
 
 pub async fn connect(data_dir: &Path) -> anyhow::Result<SqlitePool> {
-    let path = data_dir.join("parley.db");
+    let path = data_dir.join("llamble.db");
     let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)

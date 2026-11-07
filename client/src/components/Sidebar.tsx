@@ -212,7 +212,7 @@ export function userMenu(e: React.MouseEvent, userId: string, guildId: string | 
   }
   const inVoice = useVoice.getState().channelId && s.voiceStates[userId]?.channel_id === useVoice.getState().channelId;
   if (inVoice && userId !== me.id) {
-    const vol = Number(localStorage.getItem("parley.vol." + userId) || "1");
+    const vol = Number(localStorage.getItem("llamble.vol." + userId) || "1");
     items.push({
       label: "",
       render: () => <VolumeSlider userId={userId} initial={vol} />,
@@ -346,7 +346,7 @@ function VoicePanel() {
         <button
           className={"vbtn" + (v.screen ? " on" : "")}
           disabled={!v.canVideo}
-          onClick={() => (v.screen ? stopScreenShare() : window.parleyNative ? openModal({ kind: "screenPicker" }) : import("../voice").then((m) => m.startScreenShare("", true, "1080p30")))}
+          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : import("../voice").then((m) => m.startScreenShare("", true, "1080p30")))}
           title="Share your screen"
         >
           <Icon name="screen" size={18} /> {v.screen ? "Stop" : "Screen"}
@@ -365,7 +365,7 @@ function UserPanel() {
       (["online", "idle", "dnd", "invisible"] as const).map((st) => ({
         label: { online: "🟢 Online", idle: "🌙 Idle", dnd: "⛔ Do Not Disturb", invisible: "⚪ Invisible" }[st],
         onClick: () => {
-          localStorage.setItem("parley.status", st);
+          localStorage.setItem("llamble.status", st);
           sendGateway("presence", { status: st });
           useStore.setState((s) => ({ presences: { ...s.presences, [me!.id]: st === "invisible" ? "offline" : st } }));
         },

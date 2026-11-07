@@ -15,7 +15,7 @@ for _ in range(30):
     time.sleep(0.3); l=last()
     if l["author"]["id"]==bot and l["content"].endswith("server!"): break
 assert l["content"]=="Hello from the server!", l["content"]; assert l["reply_to"]["id"]==m["id"]; assert l["author"]["is_bot"]
-prompt=json.load(open("/tmp/last_prompt.json")); assert "pirate" in prompt["messages"][0]["content"]; assert prompt["messages"][-1]["content"].endswith("bran: @Parley hi!"), prompt["messages"][-1]
+prompt=json.load(open("/tmp/last_prompt.json")); assert "pirate" in prompt["messages"][0]["content"]; assert prompt["messages"][-1]["content"].endswith("bran: @Llamble hi!"), prompt["messages"][-1]
 print("server backend OK")
 # GPU worker
 ws=websocket.create_connection(B.replace("http","ws")+"/api/gateway?access_token="+a["token"]); json.loads(ws.recv())
@@ -31,7 +31,7 @@ def worker():
             ws.send(json.dumps({"op":"job_done","job_id":j})); return
 th=threading.Thread(target=worker,daemon=True); th.start(); time.sleep(0.5)
 assert ok(requests.get(B+"/api/bot",headers=T))["workers"][0]["gpu"]=="RTX 4090"
-ok(requests.post(B+f"/api/channels/{text}/messages",headers=T,json={"content":"hey parley, use the gpu"}))
+ok(requests.post(B+f"/api/channels/{text}/messages",headers=T,json={"content":"hey llamble, use the gpu"}))
 for _ in range(30):
     time.sleep(0.3); l=last()
     if l["author"]["id"]==bot and l["content"].endswith("."): break

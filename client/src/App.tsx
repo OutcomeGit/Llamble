@@ -20,8 +20,8 @@ export default function App() {
       setToken("");
       useStore.setState({ ready: false, me: null });
     };
-    window.addEventListener("parley:unauthorized", out);
-    return () => window.removeEventListener("parley:unauthorized", out);
+    window.addEventListener("llamble:unauthorized", out);
+    return () => window.removeEventListener("llamble:unauthorized", out);
   }, []);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function App() {
 
   // desktop integration: hotkeys, invite links
   useEffect(() => {
-    const n = window.parleyNative;
+    const n = window.llambleNative;
     if (!n) return;
     const a = n.onHotkey((k) => (k === "mute" ? toggleMute() : k === "deafen" ? toggleDeafen() : null));
     const b = n.onInvite((code) => openModal({ kind: "joinInvite", code }));
@@ -44,7 +44,7 @@ export default function App() {
   }, []);
 
   // unread badge
-  useEffect(() => useStore.subscribe((s) => window.parleyNative?.setUnread(totalUnreadBadge(s))), []);
+  useEffect(() => useStore.subscribe((s) => window.llambleNative?.setUnread(totalUnreadBadge(s))), []);
 
   // notifications for mentions + DMs
   useEffect(
@@ -52,7 +52,7 @@ export default function App() {
       onEvent(async (t, d) => {
         if (t === "CALL_RING") {
           sounds.ring();
-          window.parleyNative?.flash();
+          window.llambleNative?.flash();
           return;
         }
         if (t !== "MESSAGE_CREATE") return;
@@ -61,19 +61,19 @@ export default function App() {
         if (!s.me || msg.author.id === s.me.id) return;
         const ch = s.channels[msg.channel_id];
         if (!ch) return;
-        const focused = window.parleyNative ? await window.parleyNative.isFocused() : document.hasFocus();
+        const focused = window.llambleNative ? await window.llambleNative.isFocused() : document.hasFocus();
         const viewing = focused && currentChannelId() === ch.id;
         const important = ch.kind === "dm" || mentionsMe(msg.content, s.me);
         if (viewing || !important) return;
-        if (localStorage.getItem("parley.status") === "dnd") return;
+        if (localStorage.getItem("llamble.status") === "dnd") return;
         sounds.message();
-        window.parleyNative?.flash();
-        if (localStorage.getItem("parley.notifications") !== "off" && "Notification" in window) {
+        window.llambleNative?.flash();
+        if (localStorage.getItem("llamble.notifications") !== "off" && "Notification" in window) {
           const where = ch.kind === "dm" ? "" : ` (#${ch.name}, ${s.guilds[ch.guild_id!]?.name ?? ""})`;
           const body = msg.content || (msg.attachments.length ? `📎 ${msg.attachments[0].filename}` : "");
           const notif = new Notification(memberName(ch.guild_id, msg.author) + where, { body: body.slice(0, 180), silent: true });
           notif.onclick = () => {
-            window.parleyNative?.focus();
+            window.llambleNative?.focus();
             selectChannel(ch.guild_id || "@me", ch.id);
           };
         }
@@ -89,5 +89,5 @@ export async function logout() {
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch {}
-  window.dispatchEvent(new Event("parley:unauthorized"));
+  window.dispatchEvent(new Event("llamble:unauthorized"));
 }

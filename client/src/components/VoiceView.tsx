@@ -74,7 +74,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
         <button
           className={"call-btn" + (v.screen ? " on" : "")}
           disabled={!v.canVideo}
-          onClick={() => (v.screen ? stopScreenShare() : window.parleyNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, "1080p30"))}
+          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, "1080p30"))}
           title="Share screen"
         >
           <Icon name="screen" size={22} />
@@ -143,14 +143,14 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
 }
 
 export function ScreenPicker({ onClose }: { onClose: () => void }) {
-  const [sources, setSources] = useState<Awaited<ReturnType<NonNullable<typeof window.parleyNative>["getScreenSources"]>> | null>(null);
+  const [sources, setSources] = useState<Awaited<ReturnType<NonNullable<typeof window.llambleNative>["getScreenSources"]>> | null>(null);
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [picked, setPicked] = useState<string | null>(null);
   const [audio, setAudio] = useState(true);
-  const [quality, setQuality] = useState<ShareQuality>((localStorage.getItem("parley.shareQuality") as ShareQuality) || "1080p30");
+  const [quality, setQuality] = useState<ShareQuality>((localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30");
 
   useEffect(() => {
-    window.parleyNative?.getScreenSources().then((s) => {
+    window.llambleNative?.getScreenSources().then((s) => {
       setSources(s);
       setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
     });
@@ -158,7 +158,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
 
   const go = async () => {
     if (!picked) return;
-    localStorage.setItem("parley.shareQuality", quality);
+    localStorage.setItem("llamble.shareQuality", quality);
     onClose();
     await startScreenShare(picked, audio, quality);
   };

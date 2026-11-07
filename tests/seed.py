@@ -17,7 +17,7 @@ f=requests.post(B+"/api/files",headers=T2,files={"file":("mockup.png",bio,"image
 m=requests.post(B+f"/api/channels/{text}/messages",headers=T2,json={"content":"Here's the latest mockup 👀","attachments":[{"id":f["id"]}]}).json()
 requests.put(B+f"/api/messages/{m['id']}/reactions/%F0%9F%94%A5",headers=T)
 requests.put(B+f"/api/messages/{m['id']}/reactions/%F0%9F%91%8D",headers=T2)
-requests.post(B+f"/api/channels/{text}/messages",headers=T2,json={"content":"@Parley can you summarize?".replace("@Parley",f"<@{requests.get(B+'/api/bot',headers=T).json()['bot_user_id']}>"),"reply_to":m["id"]})
+requests.post(B+f"/api/channels/{text}/messages",headers=T2,json={"content":"@Llamble can you summarize?".replace("@Llamble",f"<@{requests.get(B+'/api/bot',headers=T).json()['bot_user_id']}>"),"reply_to":m["id"]})
 time.sleep(3)
 open("/tmp/token.txt","w").write(a["token"])
 print("seeded")

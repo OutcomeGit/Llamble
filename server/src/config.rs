@@ -12,7 +12,7 @@ pub struct Config {
     /// "admin" (only instance admins can create guilds) or "all"
     pub guild_create: String,
     pub unfurl_links: bool,
-    /// OpenAI-compatible llama.cpp server running next to Parley (fallback backend)
+    /// OpenAI-compatible llama.cpp server running next to Llamble (fallback backend)
     pub llama_url: Option<String>,
     pub bot_name: String,
     /// who may lend a GPU: "admins" (default) or "members"
@@ -27,10 +27,10 @@ fn env(k: &str) -> Option<String> {
 impl Config {
     pub fn from_env() -> Self {
         Config {
-            bind: env("PARLEY_BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
-            data_dir: PathBuf::from(env("PARLEY_DATA").unwrap_or_else(|| "./data".into())),
-            public_url: env("PARLEY_PUBLIC_URL").unwrap_or_else(|| "http://localhost:8080".into()),
-            max_upload_bytes: env("PARLEY_MAX_UPLOAD_MB")
+            bind: env("LLAMBLE_BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
+            data_dir: PathBuf::from(env("LLAMBLE_DATA").unwrap_or_else(|| "./data".into())),
+            public_url: env("LLAMBLE_PUBLIC_URL").unwrap_or_else(|| "http://localhost:8080".into()),
+            max_upload_bytes: env("LLAMBLE_MAX_UPLOAD_MB")
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(500)
                 * 1024
@@ -38,12 +38,12 @@ impl Config {
             livekit_url: env("LIVEKIT_URL"),
             livekit_key: env("LIVEKIT_API_KEY"),
             livekit_secret: env("LIVEKIT_API_SECRET"),
-            guild_create: env("PARLEY_GUILD_CREATE").unwrap_or_else(|| "admin".into()),
-            unfurl_links: env("PARLEY_UNFURL").map(|v| v != "0" && v != "false").unwrap_or(true),
-            llama_url: env("PARLEY_LLAMA_URL").map(|u| u.trim_end_matches('/').to_string()),
-            bot_name: env("PARLEY_BOT_NAME").unwrap_or_else(|| "Parley".into()),
-            bot_workers: env("PARLEY_BOT_WORKERS").unwrap_or_else(|| "admins".into()),
-            bot_max_tokens: env("PARLEY_BOT_MAX_TOKENS").and_then(|v| v.parse().ok()).unwrap_or(1024),
+            guild_create: env("LLAMBLE_GUILD_CREATE").unwrap_or_else(|| "admin".into()),
+            unfurl_links: env("LLAMBLE_UNFURL").map(|v| v != "0" && v != "false").unwrap_or(true),
+            llama_url: env("LLAMBLE_LLAMA_URL").map(|u| u.trim_end_matches('/').to_string()),
+            bot_name: env("LLAMBLE_BOT_NAME").unwrap_or_else(|| "Llamble".into()),
+            bot_workers: env("LLAMBLE_BOT_WORKERS").unwrap_or_else(|| "admins".into()),
+            bot_max_tokens: env("LLAMBLE_BOT_MAX_TOKENS").and_then(|v| v.parse().ok()).unwrap_or(1024),
         }
     }
 

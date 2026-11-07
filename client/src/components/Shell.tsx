@@ -39,7 +39,7 @@ export function Shell() {
   return (
     <div className="shell">
       <div className="titlebar">
-        <span className="titlebar-name">Parley</span>
+        <span className="titlebar-name">Llamble</span>
         {conn !== "open" && <span className="conn-warn">Reconnecting…</span>}
       </div>
       <div className="layout">

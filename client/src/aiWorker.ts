@@ -1,4 +1,4 @@
-// Lends this PC's GPU to the Parley bot (opt-in). Runs llama.cpp locally via the
+// Lends this PC's GPU to the Llamble bot (opt-in). Runs llama.cpp locally via the
 // Electron main process and answers BOT_JOBs the server sends over the gateway.
 import { create } from "zustand";
 import { sendGateway } from "./gateway";
@@ -37,14 +37,14 @@ const DEFAULTS: AiConfig = {
 
 export function loadAiConfig(): AiConfig {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("parley.ai") || "{}") };
+    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem("llamble.ai") || "{}") };
   } catch {
     return DEFAULTS;
   }
 }
 
 export function saveAiConfig(c: AiConfig) {
-  localStorage.setItem("parley.ai", JSON.stringify(c));
+  localStorage.setItem("llamble.ai", JSON.stringify(c));
   useAi.setState({ config: c });
 }
 
@@ -61,7 +61,7 @@ interface AiState {
 }
 
 export const useAi = create<AiState>(() => ({
-  available: !!window.parleyNative?.llm,
+  available: !!window.llambleNative?.llm,
   config: loadAiConfig(),
   gpus: [],
   status: { state: "off", error: null, port: null, url: null, model: null },
@@ -96,14 +96,14 @@ function unregister() {
 }
 
 export async function refreshGpus() {
-  const llm = window.parleyNative?.llm;
+  const llm = window.llambleNative?.llm;
   if (!llm) return;
   const gpus = await llm.gpus();
   useAi.setState({ gpus });
 }
 
 export async function startLocalModel() {
-  const llm = window.parleyNative?.llm;
+  const llm = window.llambleNative?.llm;
   if (!llm) return;
   const s = useAi.getState();
   if (!s.gpus.length && s.config.mode === "managed") await refreshGpus();
@@ -112,7 +112,7 @@ export async function startLocalModel() {
 
 export async function stopLocalModel() {
   unregister();
-  await window.parleyNative?.llm.stop();
+  await window.llambleNative?.llm.stop();
 }
 
 export async function setLending(on: boolean) {
@@ -128,7 +128,7 @@ export async function setLending(on: boolean) {
 
 let started = false;
 export function initAiWorker() {
-  const llm = window.parleyNative?.llm;
+  const llm = window.llambleNative?.llm;
   if (!llm || started) return;
   started = true;
 

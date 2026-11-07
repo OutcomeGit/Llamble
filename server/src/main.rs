@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "parley_server=info,tower_http=warn".into()),
+                .unwrap_or_else(|_| "llamble_server=info,tower_http=warn".into()),
         )
         .init();
 
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(janitor(state.clone()));
 
     let mut app = api::router(state.clone());
-    if let Ok(web) = std::env::var("PARLEY_WEB_DIR") {
+    if let Ok(web) = std::env::var("LLAMBLE_WEB_DIR") {
         let index = std::path::Path::new(&web).join("index.html");
         if index.exists() {
             tracing::info!("serving web client from {web}");
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone());
 
     tracing::info!(
-        "Parley listening on {} (public url {}, voice {}, server llama {})",
+        "Llamble listening on {} (public url {}, voice {}, server llama {})",
         cfg.bind,
         cfg.public_url,
         if cfg.voice_enabled() { "enabled" } else { "disabled" },
@@ -106,7 +106,7 @@ async fn bootstrap(state: &Shared) -> anyhow::Result<()> {
     let code = match existing {
         Some(c) => c,
         None => {
-            let c = std::env::var("PARLEY_BOOTSTRAP_INVITE").ok().filter(|s| s.len() >= 6).unwrap_or_else(invite_code);
+            let c = std::env::var("LLAMBLE_BOOTSTRAP_INVITE").ok().filter(|s| s.len() >= 6).unwrap_or_else(invite_code);
             sqlx::query("INSERT INTO invites (code, guild_id, creator_id, max_uses, grants_admin, created_at) VALUES (?, NULL, NULL, 1, 1, ?)")
                 .bind(&c)
                 .bind(now_ms())

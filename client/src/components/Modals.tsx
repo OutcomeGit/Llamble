@@ -242,7 +242,7 @@ function EditChannel({ channelId }: { channelId: string }) {
 
 export function inviteLink(code: string) {
   const host = session.server.replace(/^https?:\/\//, "");
-  return `parley://invite/${code}@${host}`;
+  return `llamble://invite/${code}@${host}`;
 }
 
 function InviteModal({ guildId }: { guildId: string }) {

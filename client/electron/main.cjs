@@ -1,4 +1,4 @@
-// Parley desktop shell (Electron main process)
+// Llamble desktop shell (Electron main process)
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, desktopCapturer, session,
   shell, globalShortcut, nativeImage, Notification,
@@ -6,7 +6,7 @@ const {
 const path = require("path");
 const llm = require("./llm.cjs");
 
-const DEV = !!process.env.PARLEY_DEV;
+const DEV = !!process.env.LLAMBLE_DEV;
 let win = null;
 let tray = null;
 let quitting = false;
@@ -14,26 +14,26 @@ let pendingInvite = null;
 let chosenScreen = null; // { id, audio }
 
 if (process.defaultApp) {
-  app.setAsDefaultProtocolClient("parley", process.execPath, [path.resolve(process.argv[1] || ".")]);
+  app.setAsDefaultProtocolClient("llamble", process.execPath, [path.resolve(process.argv[1] || ".")]);
 } else {
-  app.setAsDefaultProtocolClient("parley");
+  app.setAsDefaultProtocolClient("llamble");
 }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", (_e, argv) => {
-    const link = argv.find((a) => a.startsWith("parley://"));
+    const link = argv.find((a) => a.startsWith("llamble://"));
     if (link) handleLink(link);
     showWindow();
   });
 }
 
-app.setAppUserModelId("chat.parley.desktop");
+app.setAppUserModelId("chat.llamble.desktop");
 
 function handleLink(link) {
-  // parley://invite/<code>  or  parley://invite/<code>@<server>
-  const m = /^parley:\/\/invite\/([^/?#]+)/i.exec(link);
+  // llamble://invite/<code>  or  llamble://invite/<code>@<server>
+  const m = /^llamble:\/\/invite\/([^/?#]+)/i.exec(link);
   if (!m) return;
   const value = decodeURIComponent(m[1]);
   if (win && !win.webContents.isLoading()) win.webContents.send("invite", value);
@@ -58,7 +58,7 @@ function createWindow() {
     minWidth: 940,
     minHeight: 560,
     backgroundColor: "#313338",
-    title: "Parley",
+    title: "Llamble",
     icon: iconPath(),
     titleBarStyle: "hidden",
     titleBarOverlay: { color: "#1e1f22", symbolColor: "#b5bac1", height: 30 },
@@ -129,15 +129,15 @@ function createWindow() {
 function createTray() {
   const img = nativeImage.createFromPath(iconPath()).resize({ width: 16, height: 16 });
   tray = new Tray(img);
-  tray.setToolTip("Parley");
+  tray.setToolTip("Llamble");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Open Parley", click: showWindow },
+      { label: "Open Llamble", click: showWindow },
       { type: "separator" },
       { label: "Toggle Mute", click: () => win && win.webContents.send("hotkey", "mute") },
       { label: "Toggle Deafen", click: () => win && win.webContents.send("hotkey", "deafen") },
       { type: "separator" },
-      { label: "Quit Parley", click: () => { quitting = true; app.quit(); } },
+      { label: "Quit Llamble", click: () => { quitting = true; app.quit(); } },
     ])
   );
   tray.on("click", showWindow);
@@ -170,7 +170,7 @@ app.whenReady().then(() => {
   globalShortcut.register("CommandOrControl+Shift+M", () => win && win.webContents.send("hotkey", "mute"));
   globalShortcut.register("CommandOrControl+Shift+D", () => win && win.webContents.send("hotkey", "deafen"));
 
-  const link = process.argv.find((a) => a.startsWith("parley://"));
+  const link = process.argv.find((a) => a.startsWith("llamble://"));
   if (link) handleLink(link);
 });
 
@@ -198,9 +198,9 @@ ipcMain.handle("set-screen-source", (_e, choice) => { chosenScreen = choice; ret
 ipcMain.on("flash", () => { if (win && !win.isFocused()) win.flashFrame(true); });
 ipcMain.on("unread", (_e, count) => {
   if (!win) return;
-  win.setTitle(count > 0 ? `(${count}) Parley` : "Parley");
+  win.setTitle(count > 0 ? `(${count}) Llamble` : "Llamble");
   if (process.platform !== "win32") app.setBadgeCount(count);
-  if (tray) tray.setToolTip(count > 0 ? `Parley — ${count} unread` : "Parley");
+  if (tray) tray.setToolTip(count > 0 ? `Llamble — ${count} unread` : "Llamble");
 });
 ipcMain.on("focus", showWindow);
 ipcMain.handle("is-focused", () => !!(win && win.isFocused() && win.isVisible()));

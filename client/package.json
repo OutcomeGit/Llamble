@@ -1,20 +1,20 @@
 {
-  "name": "parley",
-  "productName": "Parley",
+  "name": "llamble",
+  "productName": "Llamble",
   "version": "0.1.0",
-  "description": "Parley desktop client",
+  "description": "Llamble desktop client",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env PARLEY_DEV=1 electron .\"",
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env LLAMBLE_DEV=1 electron .\"",
     "build": "tsc --noEmit && vite build",
     "start": "electron .",
     "dist": "npm run build && electron-builder --win",
     "dist:dir": "npm run build && electron-builder --win --dir"
   },
   "build": {
-    "appId": "chat.parley.desktop",
-    "productName": "Parley",
+    "appId": "chat.llamble.desktop",
+    "productName": "Llamble",
     "files": [
       "dist/**",
       "electron/**",
@@ -25,9 +25,9 @@
     },
     "protocols": [
       {
-        "name": "Parley invite",
+        "name": "Llamble invite",
         "schemes": [
-          "parley"
+          "llamble"
         ]
       }
     ],
