@@ -1,6 +1,8 @@
 # Builds everything in the cloud so nothing has to be copied to the NAS:
 #  - Server image  -> ghcr.io/<owner>/llamble:latest   (TrueNAS pulls this)
-#  - Windows app   -> artifact on every push; attached to a GitHub Release on v* tags
+#  - Windows app   -> published as a GitHub Release on every push to main
+#                     download: https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe
+#                     installed apps update themselves from these releases
 name: build
 on:
   push:
@@ -54,14 +56,13 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
-      - run: npm run dist
+      # every push gets its own version so installed apps auto-update to it
+      - run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
+      - run: npm run release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
         with:
           name: Llamble-Setup
           path: client/release/*.exe
-      - if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: client/release/*.exe

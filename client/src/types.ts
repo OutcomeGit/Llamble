@@ -185,6 +185,8 @@ declare global {
       quit: () => void;
       onHotkey: (cb: (k: string) => void) => () => void;
       onInvite: (cb: (code: string) => void) => () => void;
+      onUpdateReady: (cb: (version: string) => void) => () => void;
+      installUpdate: () => void;
       pickFile: (opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       llm: {
         gpus: () => Promise<Gpu[]>;

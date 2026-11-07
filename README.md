@@ -60,7 +60,7 @@ GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`) and
    - one long random secret (2 places, must match)
 4. **Save.** TrueNAS starts three containers: **llamble** (chat server, port 8090), **livekit** (voice/video, host network), and **llama** (CPU fallback for the bot). On first start, llama downloads Qwen3-4B Q4_K_M (~2.5 GB) from Hugging Face; change the `-hf` line for a different model.
 5. Open the **llamble** container's logs for the **one-time admin invite code**.
-6. Install the desktop app: download **Llamble-Setup** from the latest run in the repo's Actions tab, or from Releases after you push a `v0.1.0` tag. Then register with server `http://NAS-IP:8090` and that code.
+6. Install the desktop app from **https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe**, then register with server `http://NAS-IP:8090` and that code. Installed apps update themselves: when a new build is out, a green "Update ready, restart" button appears in the title bar.
 
 **Updating:** push to `main`, wait for the Actions build, then **Update** the app in TrueNAS (or stop and start it). `pull_policy: always` fetches the new image.
 
@@ -76,7 +76,7 @@ GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`) and
 cd client
 npm install
 npm run dev        # dev mode (Vite + Electron)
-npm run dist       # builds release/Llamble Setup x.y.z.exe
+npm run dist       # builds release/Llamble-Setup.exe locally (CI publishes releases automatically)
 ```
 
 The installer registers the `llamble://` protocol, so invite links open the app.

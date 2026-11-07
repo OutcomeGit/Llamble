@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
 import { can, currentChannelId, isUnread, selectChannel, useStore } from "../store";
 import { P } from "../types";
@@ -19,6 +19,8 @@ export function Shell() {
   const memberListOpen = useStore((s) => s.memberListOpen);
   const selectedGuild = useStore((s) => s.selectedGuild);
   const ringing = useStore((s) => s.ringing);
+  const [update, setUpdate] = useState<string | null>(null);
+  useEffect(() => window.llambleNative?.onUpdateReady((v) => setUpdate(v)), []);
 
   useEffect(() => {
     if (!ringing) return;
@@ -41,6 +43,11 @@ export function Shell() {
       <div className="titlebar">
         <span className="titlebar-name">Llamble</span>
         {conn !== "open" && <span className="conn-warn">Reconnecting…</span>}
+        {update && (
+          <button className="update-pill" onClick={() => window.llambleNative?.installUpdate()} title="Restart to update">
+            Update {update} ready — restart
+          </button>
+        )}
       </div>
       <div className="layout">
         <GuildBar />

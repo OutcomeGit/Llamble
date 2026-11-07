@@ -9,8 +9,9 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env LLAMBLE_DEV=1 electron .\"",
     "build": "tsc --noEmit && vite build",
     "start": "electron .",
-    "dist": "npm run build && electron-builder --win",
-    "dist:dir": "npm run build && electron-builder --win --dir"
+    "dist": "npm run build && electron-builder --win --publish never",
+    "dist:dir": "npm run build && electron-builder --win --dir",
+    "release": "npm run build && electron-builder --win --publish always"
   },
   "build": {
     "appId": "chat.llamble.desktop",
@@ -35,15 +36,26 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "artifactName": "Llamble-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
-    }
+      "perMachine": false,
+      "artifactName": "Llamble-Setup.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "OutcomeGit",
+        "repo": "Llamble",
+        "releaseType": "release"
+      }
+    ]
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "livekit-client": "^2.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

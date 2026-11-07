@@ -6,6 +6,33 @@ const {
 const path = require("path");
 const llm = require("./llm.cjs");
 
+// ---- auto-update from GitHub Releases ----
+let updateReady = false;
+function setupAutoUpdate() {
+  if (DEV) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require("electron-updater"));
+  } catch {
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("update-downloaded", (info) => {
+    updateReady = true;
+    if (win && !win.isDestroyed()) win.webContents.send("update-ready", info.version);
+  });
+  autoUpdater.on("error", (e) => console.warn("updater:", e && e.message));
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 10_000);
+  setInterval(check, 4 * 60 * 60 * 1000);
+  ipcMain.on("install-update", () => {
+    if (!updateReady) return;
+    quitting = true;
+    autoUpdater.quitAndInstall(false, true);
+  });
+}
+
 const DEV = !!process.env.LLAMBLE_DEV;
 let win = null;
 let tray = null;
@@ -167,6 +194,7 @@ app.whenReady().then(() => {
   createTray();
   llm.init((channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); });
 
+  setupAutoUpdate();
   globalShortcut.register("CommandOrControl+Shift+M", () => win && win.webContents.send("hotkey", "mute"));
   globalShortcut.register("CommandOrControl+Shift+D", () => win && win.webContents.send("hotkey", "deafen"));
 

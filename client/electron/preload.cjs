@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld("llambleNative", {
       };
     },
   },
+  onUpdateReady: (cb) => {
+    const h = (_e, v) => cb(v);
+    ipcRenderer.on("update-ready", h);
+    return () => ipcRenderer.removeListener("update-ready", h);
+  },
+  installUpdate: () => ipcRenderer.send("install-update"),
   pickFile: (opts) => ipcRenderer.invoke("pick-file", opts),
   onInvite: (cb) => {
     const h = (_e, code) => cb(code);
