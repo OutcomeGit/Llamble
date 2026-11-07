@@ -4,7 +4,7 @@ import json, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 a = sys.argv; port = int(a[a.index("--port")+1]); model = a[a.index("-m")+1]
 assert open(model,"rb").read(4) == b"GGUF", "bad model file"
-print(f"fake llama-server loading {model}", flush=True); time.sleep(1)
+print(f"fake llama-server loading {model}", flush=True); time.sleep(float(os.environ.get("FAKE_LLAMA_LOAD_SECS", "1")))
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200 if self.path=="/health" else 404); self.end_headers(); self.wfile.write(b'{"status":"ok"}')

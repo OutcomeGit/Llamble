@@ -25,7 +25,7 @@ run() { # name, extra env..., -- test args...
 LK=(LIVEKIT_URL=ws://NASIP:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret)
 run smoke "${LK[@]}" -- smoke.py http://127.0.0.1:8099 @INV@
 run bot LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 -- bot_test.py http://127.0.0.1:8099 @INV@
-run setup LLAMBLE_HF_ENDPOINT=http://127.0.0.1:8097 LLAMBLE_LLAMA_BIN=$T/fake_llama_server.py -- setup_test.py http://127.0.0.1:8099
+run setup FAKE_LLAMA_LOAD_SECS=4 LLAMBLE_HF_ENDPOINT=http://127.0.0.1:8097 LLAMBLE_LLAMA_BIN=$T/fake_llama_server.py -- setup_test.py http://127.0.0.1:8099
 run gpu_pool LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 -- gpu_pool_test.py http://127.0.0.1:8099
 run remote "${LK[@]}" LLAMBLE_DDNS_ENDPOINT=http://127.0.0.1:8096 LLAMBLE_CLOUDFLARE_API=http://127.0.0.1:8096/client/v4 LLAMBLE_DUCKDNS_ENDPOINT=http://127.0.0.1:8096/duck LLAMBLE_IP_ECHO=http://127.0.0.1:8096/trace LIVEKIT_INTERNAL_URL=http://127.0.0.1:8095 -- remote_test.py http://127.0.0.1:8099
 run relay LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk.yaml -- relay_test.py http://127.0.0.1:8099 "$BIN"

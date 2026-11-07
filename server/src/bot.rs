@@ -291,6 +291,22 @@ fn name_call_re(name: &str) -> Regex {
     Regex::new(&format!(r"(?i)^\s*(?:(?:hey|hi|yo|ok|okay|hello)[\s,]+)?@?{}\b", regex::escape(name))).unwrap()
 }
 
+/// Plain-language reason the server's own model can't answer right now.
+async fn server_model_problem(state: &Shared) -> String {
+    let st = state.ai.status.read().await.clone();
+    let pct = if st.total_bytes > 0 { st.downloaded_bytes * 100 / st.total_bytes } else { 0 };
+    match st.state.as_str() {
+        "none" => "no AI model is set up on the server yet (an admin can pick one in Settings → AI Model)".into(),
+        "downloading" => format!("the server is still downloading its AI model ({pct}%)"),
+        "resolving" | "starting" => "the server's AI model is still loading; try again in a minute".into(),
+        "error" => format!(
+            "the server's AI model isn't running ({}). An admin can see details in Settings → AI Model",
+            st.error.unwrap_or_else(|| "unknown error".into()).chars().take(200).collect::<String>()
+        ),
+        _ => "the server's AI model isn't available right now".into(),
+    }
+}
+
 pub async fn maybe_respond(state: &Shared, ch: &Channel, row_id: &str, author_id: &str, content: &str, reply_to: Option<&str>) {
     if author_id == state.bot_id {
         return;
@@ -731,6 +747,17 @@ async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<
         }
     }
     if result.is_none() {
+        // right after a restart or update the server's model takes a minute to load: wait for it
+        // (typing indicator keeps showing) instead of answering "no model"
+        let mut waited = 0;
+        while crate::ai::server_llama_url(&state).await.is_none() && waited < 180 {
+            let st = state.ai.status.read().await.state.clone();
+            if !matches!(st.as_str(), "resolving" | "downloading" | "starting") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            waited += 2;
+        }
         if let Some(url) = crate::ai::server_llama_url(&state).await {
             result = Some(run_on_server(&state, &url, &messages, &mut w).await);
         }
@@ -746,7 +773,7 @@ async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<
         }
         other => {
             let why = match other {
-                None => "no GPU is lent right now and no server model is configured".to_string(),
+                None => server_model_problem(&state).await,
                 Some(Outcome::FailedClean(e)) => e,
                 _ => "the model returned an empty reply".to_string(),
             };

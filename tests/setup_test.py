@@ -33,6 +33,19 @@ for _ in range(30):
     time.sleep(0.4); last=ok(requests.get(B+f"/api/channels/{cid}/messages?limit=1",headers=T))[0]
     if last["author"]["is_bot"] and last["content"].endswith("."): break
 assert last["content"]=="Built-in model says hi.", last["content"]; print("bot answered from built-in model")
+def ask(text, want_end, tries=60):
+    ok(requests.post(B+f"/api/channels/{cid}/messages",headers=T,json={"content":text}))
+    for _ in range(tries):
+        time.sleep(0.5); m=ok(requests.get(B+f"/api/channels/{cid}/messages?limit=1",headers=T))[0]
+        if m["author"]["is_bot"] and m["content"].endswith(want_end): return m["content"]
+    return m["content"]
+# a restart reloads the model: a question asked meanwhile waits for it instead of failing
+ok(requests.post(B+"/api/admin/ai",headers=T,json={"repo":"tiny/Test-GGUF","quant":"q4_k_m","ctx":4096})); time.sleep(0.3)
+assert ok(requests.get(B+"/api/admin/ai",headers=T))["status"]["state"]!="ready"
+got=ask("llamble, still there?", "says hi.")
+assert got=="Built-in model says hi.", got; print("question asked while the model was loading got answered")
 # disable
-ok(requests.delete(B+"/api/admin/ai",headers=T)); assert ok(requests.get(B+"/api/admin/ai",headers=T))["status"]["state"]=="none"
+ok(requests.delete(B+"/api/admin/ai",headers=T))
+got=ask("llamble, hello again?", ".*")
+assert "no AI model is set up" in got, got; print("no model ->", got); assert ok(requests.get(B+"/api/admin/ai",headers=T))["status"]["state"]=="none"
 print("ALL SETUP OK")
