@@ -48,7 +48,8 @@ with sync_playwright() as p:
       const ps = [...r.remoteParticipants.values()]; return ps.length === 1 && ps[0].audioTrackPublications.size > 0 && [...ps[0].audioTrackPublications.values()].some(t => t.isSubscribed); }"""
     for pg in pages: pg.wait_for_function(hears, timeout=60000)
     print("two people connected and hearing each other")
-    kill = 'for p in /proc/[0-9]*; do grep -q livekit-server $p/cmdline 2>/dev/null && kill ${p#/proc/}; done; true'
+    # match the process by its executable, not its command line (which would also match this shell)
+    kill = 'for p in /proc/[0-9]*; do [ "$(readlink $p/exe 2>/dev/null)" = /opt/livekit/livekit-server ] && kill ${p#/proc/}; done; true'
     subprocess.run(["docker", "exec", NAME, "sh", "-c", kill], check=True)
     print("voice server killed mid-call")
     for pg in pages: pg.wait_for_function("() => window.llambleDebug.voice().status !== 'connected'", timeout=30000)
