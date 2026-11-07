@@ -40,6 +40,13 @@ async fn main() -> anyhow::Result<()> {
     }
     let pool = db::connect(&cfg.data_dir).await?;
 
+    // recovery from the container's shell (TrueNAS: Apps → llamble → Shell):
+    //   llamble-server reset-password            lists accounts
+    //   llamble-server reset-password <username> sets a temporary password
+    if std::env::args().nth(1).as_deref() == Some("reset-password") {
+        return reset_password_cli(&pool, std::env::args().nth(2)).await;
+    }
+
     let secret_path = cfg.data_dir.join("secret.key");
     let secret = match std::fs::read(&secret_path) {
         Ok(s) if s.len() >= 32 => s,
@@ -107,6 +114,30 @@ async fn shutdown() {
     }
     #[cfg(not(unix))]
     let _ = ctrl_c.await;
+}
+
+async fn reset_password_cli(pool: &sqlx::SqlitePool, username: Option<String>) -> anyhow::Result<()> {
+    let Some(name) = username else {
+        let rows: Vec<(String, bool)> = sqlx::query_as("SELECT username, is_admin FROM users WHERE is_bot = 0 ORDER BY is_admin DESC, username").fetch_all(pool).await?;
+        println!("Accounts on this server:");
+        for (u, admin) in rows {
+            println!("  {u}{}", if admin { "  (admin)" } else { "" });
+        }
+        println!("\nTo set a new temporary password:  llamble-server reset-password <username>");
+        return Ok(());
+    };
+    let id: Option<String> = sqlx::query_scalar("SELECT id FROM users WHERE username = ? AND is_bot = 0").bind(&name).fetch_optional(pool).await?;
+    let Some(id) = id else {
+        anyhow::bail!("no account named {name:?}. Run `llamble-server reset-password` to list them.");
+    };
+    let temp = error::random_token(9);
+    let hash = api::auth::hash_password(temp.clone()).await.map_err(|e| anyhow::anyhow!("{}", e.1))?;
+    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?").bind(hash).bind(&id).execute(pool).await?;
+    sqlx::query("DELETE FROM sessions WHERE user_id = ?").bind(&id).execute(pool).await?;
+    println!("\nNew temporary password for {name}:  {temp}\n");
+    println!("Sign in with it, then change it in Settings → My Account.");
+    println!("(Every device signed in as {name} has been signed out.)");
+    Ok(())
 }
 
 /// On a fresh install, create a one-time admin invite so the owner can sign up.
