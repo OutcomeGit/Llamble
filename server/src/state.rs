@@ -20,6 +20,7 @@ pub struct AppState {
     pub secret: Vec<u8>,
     pub bot_id: String,
     pub bot: crate::bot::BotRuntime,
+    pub ai: crate::ai::AiManager,
 }
 
 #[derive(Serialize, Clone, Debug)]

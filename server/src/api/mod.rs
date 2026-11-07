@@ -18,6 +18,9 @@ pub fn router(state: Shared) -> Router<Shared> {
     let upload_limit = state.cfg.max_upload_bytes as usize + 1024 * 1024;
     Router::new()
         .route("/api/info", get(info))
+        .route("/api/setup", post(setup))
+        .route("/api/admin/ai", get(crate::ai::get_status).post(crate::ai::set_model).delete(crate::ai::disable))
+        .route("/api/admin/ai/quants", get(crate::ai::get_quants))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
@@ -64,8 +67,66 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/guilds/{gid}/bot", get(crate::bot::get_settings).patch(crate::bot::update_settings))
 }
 
+async fn setup_required(state: &Shared) -> bool {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE is_bot = 0")
+        .fetch_one(&state.db)
+        .await
+        .map(|n| n == 0)
+        .unwrap_or(false)
+}
+
+#[derive(serde::Deserialize)]
+struct SetupReq {
+    username: String,
+    password: String,
+    display_name: Option<String>,
+    server_name: Option<String>,
+    device_name: Option<String>,
+}
+
+/// First-run setup: creates the instance admin (only while no accounts exist),
+/// optionally the first server with the AI bot enabled, and signs in.
+async fn setup(State(state): State<Shared>, Json(req): Json<SetupReq>) -> ApiResult<Json<Value>> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _g = LOCK.lock().await;
+    if !setup_required(&state).await {
+        return Err(AppError::conflict("setup is already complete — sign in instead"));
+    }
+    let username = req.username.trim().to_string();
+    if !auth::valid_username(&username) {
+        return Err(AppError::bad("username must be 2-32 chars: letters, numbers, _ . -"));
+    }
+    if req.password.len() < 8 {
+        return Err(AppError::bad("password must be at least 8 characters"));
+    }
+    let id = crate::error::new_id();
+    let display: String = req.display_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(&username).chars().take(32).collect();
+    let hash = auth::hash_password(req.password.clone()).await?;
+    sqlx::query("INSERT INTO users (id, username, display_name, password_hash, is_admin, created_at) VALUES (?,?,?,?,1,?)")
+        .bind(&id).bind(&username).bind(&display).bind(&hash).bind(crate::error::now_ms())
+        .execute(&state.db).await?;
+    // the bootstrap invite is no longer needed
+    sqlx::query("DELETE FROM invites WHERE grants_admin = 1 AND guild_id IS NULL").execute(&state.db).await?;
+    let _ = std::fs::remove_file(state.cfg.data_dir.join("ADMIN_INVITE.txt"));
+    let token = auth::create_session(&state, &id, req.device_name.as_deref().unwrap_or("")).await?;
+
+    let mut guild_id = None;
+    if let Some(name) = req.server_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let auth_user = AuthUser { id: id.clone(), is_admin: true, token_hash: String::new() };
+        let g = guilds::create_guild(State(state.clone()), auth_user, Json(guilds::CreateGuild { name: name.to_string() })).await?;
+        let gid = g.0["guild"]["id"].as_str().unwrap_or_default().to_string();
+        sqlx::query("INSERT OR REPLACE INTO bot_settings (guild_id, enabled, system_prompt, always_channels) VALUES (?,1,'','[]')")
+            .bind(&gid).execute(&state.db).await?;
+        guilds::add_member(&state, &gid, &state.bot_id).await?;
+        guild_id = Some(gid);
+    }
+    let user = crate::models::get_user(&state.db, &id).await?;
+    Ok(Json(json!({ "token": token, "user": user, "guild_id": guild_id })))
+}
+
 async fn info(State(state): State<Shared>) -> Json<Value> {
     Json(json!({
+        "setup_required": setup_required(&state).await,
         "name": "Llamble",
         "version": env!("CARGO_PKG_VERSION"),
         "voice_enabled": state.cfg.voice_enabled(),

@@ -147,7 +147,8 @@ pub async fn status(State(state): State<Shared>, _auth: AuthUser) -> ApiResult<J
     Ok(Json(json!({
         "bot_user_id": state.bot_id,
         "bot_name": state.cfg.bot_name,
-        "server_backend": state.cfg.llama_url.is_some(),
+        "server_backend": crate::ai::server_llama_url(&state).await.is_some(),
+        "server_model": state.ai.snapshot().await,
         "worker_policy": state.cfg.bot_workers,
         "workers": workers,
     })))
@@ -639,7 +640,7 @@ async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<
         }
     }
     if result.is_none() {
-        if let Some(url) = state.cfg.llama_url.clone() {
+        if let Some(url) = crate::ai::server_llama_url(&state).await {
             result = Some(run_on_server(&state, &url, &messages, &mut w).await);
         }
     }

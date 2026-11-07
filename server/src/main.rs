@@ -1,3 +1,4 @@
+mod ai;
 mod api;
 mod bot;
 mod config;
@@ -51,10 +52,12 @@ async fn main() -> anyhow::Result<()> {
         secret,
         bot_id,
         bot: bot::BotRuntime::default(),
+        ai: ai::AiManager::default(),
     });
 
     bootstrap(&state).await?;
     tokio::spawn(janitor(state.clone()));
+    tokio::spawn(ai::boot(state.clone()));
 
     let mut app = api::router(state.clone());
     if let Ok(web) = std::env::var("LLAMBLE_WEB_DIR") {
@@ -74,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.bind,
         cfg.public_url,
         if cfg.voice_enabled() { "enabled" } else { "disabled" },
-        cfg.llama_url.as_deref().unwrap_or("off")
+        cfg.llama_url.as_deref().unwrap_or("built-in")
     );
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
@@ -117,7 +120,8 @@ async fn bootstrap(state: &Shared) -> anyhow::Result<()> {
     };
     std::fs::write(state.cfg.data_dir.join("ADMIN_INVITE.txt"), format!("{code}\n"))?;
     tracing::warn!("================================================================");
-    tracing::warn!(" No accounts yet. Create the admin account with invite code:");
+    tracing::warn!(" No accounts yet. Open {} in a browser or the Llamble app to run setup,", state.cfg.public_url);
+    tracing::warn!(" or register with this one-time admin invite code:");
     tracing::warn!("     {code}");
     tracing::warn!(" (also saved to {}/ADMIN_INVITE.txt)", state.cfg.data_dir.display());
     tracing::warn!("================================================================");

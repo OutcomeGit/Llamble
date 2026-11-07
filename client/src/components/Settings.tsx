@@ -9,6 +9,7 @@ import { applyDevicePrefs, prefs } from "../voice";
 import { Avatar, BotTag, GuildIcon, Icon, Toggle } from "./common";
 import { inviteLink } from "./Modals";
 import { logout } from "../App";
+import { ModelPicker } from "./ModelPicker";
 
 function SettingsFrame({ tabs, tab, setTab, children, title }: { tabs: { id: string; label: string; hidden?: boolean; danger?: boolean }[]; tab: string; setTab: (t: string) => void; children: React.ReactNode; title: string }) {
   return (
@@ -425,6 +426,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "notifications", label: "Notifications" },
         { id: "sessions", label: "Devices" },
         { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
+        { id: "aimodel", label: "AI Model", hidden: !me.is_admin },
         { id: "logout", label: "Log Out", danger: true },
       ]}
     >
@@ -434,6 +436,13 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "notifications" && <NotifSettings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
+      {tab === "aimodel" && (
+        <div>
+          <h2>AI Model (on this server)</h2>
+          <p className="muted small">Runs on the NAS whenever nobody is lending a GPU. Downloads come from Hugging Face once, then everything runs locally.</p>
+          <ModelPicker />
+        </div>
+      )}
       {tab === "logout" && (
         <div>
           <h2>Log out</h2>

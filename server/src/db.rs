@@ -147,6 +147,10 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     system_prompt TEXT NOT NULL DEFAULT '',
     always_channels TEXT NOT NULL DEFAULT '[]'
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS read_states (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,

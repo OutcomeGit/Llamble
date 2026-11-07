@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, normalizeServer, session, setSession } from "../api";
+import { Setup } from "./Setup";
 
 export function Login({ onDone }: { onDone: (token: string) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -11,6 +12,26 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<any>(null);
+  const [needsSetup, setNeedsSetup] = useState<string | null>(null);
+  const [inSetup, setInSetup] = useState(false);
+
+  // detect a brand-new server that still needs first-run setup
+  useEffect(() => {
+    setNeedsSetup(null);
+    const srv = normalizeServer(server);
+    if (!srv || srv.length < 10) return;
+    const t = setTimeout(() => {
+      api("/api/info", { server: srv, token: null })
+        .then((i) => {
+          if (i.setup_required) {
+            setNeedsSetup(srv);
+            if (srv === session.server || location.origin === srv) setInSetup(true);
+          }
+        })
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [server]);
 
   // accept a pasted full invite link: llamble://invite/CODE@server or https://server/invite/CODE
   useEffect(() => {
@@ -63,6 +84,10 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
     }
   };
 
+  if (inSetup && needsSetup) {
+    return <Setup server={needsSetup} onDone={onDone} onCancel={() => setInSetup(false)} />;
+  }
+
   return (
     <div className="login-bg">
       <div className="titlebar-drag" />
@@ -73,6 +98,14 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
           Server address
           <input value={server} onChange={(e) => setServer(e.target.value)} placeholder="chat.example.com or 192.168.1.20:8080" autoFocus={!server} />
         </label>
+        {needsSetup && (
+          <div className="invite-preview setup-banner">
+            This server is brand new and hasn't been set up yet.
+            <button type="button" className="btn primary small" onClick={() => setInSetup(true)}>
+              Set it up
+            </button>
+          </div>
+        )}
         {mode === "register" && (
           <>
             <label>

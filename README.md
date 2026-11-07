@@ -49,20 +49,19 @@ Recommended for your 4090: a Qwen3-14B or Gemma-3-27B class instruct GGUF at Q4_
 
 ## Deploy on TrueNAS SCALE (Install via YAML)
 
-GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`) and the Windows installer on every push to `main`. TrueNAS pulls the image; nothing is copied to the NAS.
+GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`, public) and the Windows installer on every push to `main`. TrueNAS pulls the image, so nothing is copied to the NAS and no registry login is needed.
 
-1. **Let TrueNAS pull the private image** (one time). Pick one:
-   - **Registry login:** on the Apps screen, open the **Docker Registries** screen (from the Configuration menu) → **Add Registry** → *Other Registry*. Use URI `https://ghcr.io`, your GitHub username, and as the password a GitHub token (classic) with `read:packages`.
-   - **Or make the image public** (the repo can stay private): GitHub → your profile → **Packages** → **llamble** → Package settings → Change visibility → Public. No login is needed then.
-2. **Storage is automatic.** The YAML uses Docker volumes (`llamble-data`, `llama-models`), which TrueNAS creates on your apps pool on first start. There's no dataset to set up.
-3. **Apps → Discover Apps → ⋮ → Install via YAML.** Give it the name `llamble`, then paste `deploy/truenas-compose.yaml` after changing:
-   - your NAS IP (3 places)
-   - one long random secret (2 places, must match)
-4. **Save.** TrueNAS starts three containers: **llamble** (chat server, port 8090), **livekit** (voice/video, host network), and **llama** (CPU fallback for the bot). On first start, llama downloads Qwen3-4B Q4_K_M (~2.5 GB) from Hugging Face; change the `-hf` line for a different model.
-5. Open the **llamble** container's logs for the **one-time admin invite code**.
-6. Install the desktop app from **https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe**, then register with server `http://NAS-IP:8090` and that code. Installed apps update themselves: when a new build is out, a green "Update ready, restart" button appears in the title bar.
+1. **Apps → Discover Apps → ⋮ → Install via YAML.** Name it `llamble` and paste `deploy/truenas-compose.yaml` after replacing:
+   - `NAS_IP`: your NAS's LAN IP
+   - `SECRET`: one long random string, in both places
+   Storage (`llamble-data`) is created automatically on your apps pool.
+2. **Run setup:** open `http://NAS_IP:8090` in a browser, or enter that address in the Llamble app. A fresh server shows the setup wizard:
+   - **Admin account:** creates the owner. Setup locks once it exists.
+   - **First server name:** optional; the AI bot is switched on in it.
+   - **AI model:** pick from the list (sizes and RAM needs shown) or paste any Hugging Face GGUF repo and choose a quantization. It downloads in the background with progress, then `llama-server` (bundled in the image) runs it on the NAS. Change it later under **Settings → AI Model**.
+3. **Desktop app:** **https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe**. It updates itself.
 
-**Updating:** push to `main`, wait for the Actions build, then **Update** the app in TrueNAS (or stop and start it). `pull_policy: always` fetches the new image.
+**Updating the server:** push to `main`, wait for the Actions build, then **Update** the app in TrueNAS (`pull_policy: always`). Models and data survive updates.
 
 ### Access from outside your house
 
@@ -92,7 +91,8 @@ The installer registers the `llamble://` protocol, so invite links open the app.
 | `LLAMBLE_GUILD_CREATE` | `admin` | `all` = anyone can create servers |
 | `LLAMBLE_UNFURL` | `1` | link previews on/off |
 | `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | — | voice off if unset |
-| `LLAMBLE_LLAMA_URL` | — | NAS llama.cpp fallback (OpenAI-compatible) |
+| `LLAMBLE_LLAMA_URL` | — | optional: use an external llama-server instead of the built-in one |
+| `HF_TOKEN` | — | optional: Hugging Face token for gated models |
 | `LLAMBLE_BOT_NAME` | `Llamble` | |
 | `LLAMBLE_BOT_WORKERS` | `admins` | who may lend a GPU: `admins` / `members` |
 | `LLAMBLE_BOT_MAX_TOKENS` | `1024` | |

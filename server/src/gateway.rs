@@ -74,7 +74,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
             "voice_enabled": state.cfg.voice_enabled(),
             "max_upload_bytes": state.cfg.max_upload_bytes,
             "guild_create": state.cfg.guild_create,
-            "bot": { "id": state.bot_id, "name": state.cfg.bot_name, "server_backend": state.cfg.llama_url.is_some(), "worker_policy": state.cfg.bot_workers },
+            "bot": { "id": state.bot_id, "name": state.cfg.bot_name, "server_backend": crate::ai::server_llama_url(state).await.is_some(), "worker_policy": state.cfg.bot_workers },
         }
     }))
 }
