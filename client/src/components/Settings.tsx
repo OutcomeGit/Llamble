@@ -1286,21 +1286,20 @@ function RouterSteps({ router, nasIp, ports }: { router: string; nasIp: string; 
             , then click <b>+ / Add</b>.
           </li>
           <li>
-            Fill in the first rule from the table:
+            Fill in the first rule from the table. Anything not mentioned here: leave it as it is.
             <ul>
-              <li><b>Interface:</b> WAN · <b>TCP/IP version:</b> IPv4</li>
-              <li><b>Protocol:</b> TCP (UDP for the voice rule)</li>
-              <li><b>Source:</b> any (leave source port as any)</li>
-              <li><b>Destination:</b> WAN address · <b>Destination port:</b> the outside port (443)</li>
-              <li><b>Redirect target IP</b>{opn ? " (Target)" : ""}: {nasIp} · <b>Redirect target port</b>{opn ? " (Local port)" : ""}: the inside port ({ports.https})</li>
-              <li><b>Description:</b> the rule name, e.g. "Llamble web"</li>
-              <li><b>Filter rule association:</b> Add associated filter rule (this also opens the firewall for it)</li>
+              <li><b>Description:</b> any name for you, e.g. "Llamble web" (Disabled, Sequence and Categories: leave alone)</li>
+              <li><b>Interface:</b> WAN · <b>TCP/IP version:</b> IPv4 · <b>Protocol:</b> TCP (UDP for the voice rule)</li>
+              <li><b>Source:</b> any, not inverted · <b>Source port:</b> any</li>
+              <li><b>Destination:</b> WAN address, not inverted · <b>Destination port:</b> the outside port (443; pick "other" and type it if it's not in the list)</li>
+              <li><b>Redirect target IP:</b> {nasIp} · <b>Redirect target port:</b> the inside port ({ports.https} for the first rule)</li>
+              <li>{opn ? <><b>NAT reflection:</b> Use system default · <b>Firewall rule:</b> Register rule</> : <><b>NAT reflection:</b> Use system default · <b>Filter rule association:</b> Add associated filter rule</>} (this opens the firewall for it)</li>
             </ul>
           </li>
           <li>Save, then add the other two rules the same way.</li>
           <li>Click <b>Apply changes</b>.</li>
           <li>
-            So it also works from inside your house: <b>Firewall → Settings → Advanced</b>, tick <b>Reflection for port forwards</b> and <b>Automatic outbound NAT for Reflection</b>, then Save.
+            So it also works from inside your house: <b>Firewall → Settings → Advanced</b>, tick <b>Reflection for Destination NAT (Port Forwards)</b> (older: "Reflection for port forwards") and <b>Automatic Source NAT (Outbound) for Reflection</b> (older: "Automatic outbound NAT for Reflection"), then Save.
           </li>
           <li>
             Check: the WAN IP on the {opn ? "OPNsense" : "pfSense"} dashboard should be a public address (not 192.168.x.x, 10.x.x.x or 100.64–127.x.x). If it isn't, your
