@@ -13,6 +13,7 @@ mod relay;
 mod remote;
 mod settings;
 mod shows;
+mod soundboard;
 mod state;
 mod voice_server;
 
@@ -78,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     shows::migrate(&state.db).await?;
+    soundboard::migrate(&state.db).await?;
     settings::load_into_cache(&state).await;
     // once: give servers made before role presets existed the standard roles
     let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'presets_v1'").fetch_optional(&state.db).await?;
@@ -199,7 +201,8 @@ async fn janitor(state: Shared) {
              AND NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.file_id = f.id)
              AND NOT EXISTS (SELECT 1 FROM gifs g WHERE g.file_id = f.id)
              AND NOT EXISTS (SELECT 1 FROM users u WHERE u.avatar_file_id = f.id)
-             AND NOT EXISTS (SELECT 1 FROM guilds g2 WHERE g2.icon_file_id = f.id)",
+             AND NOT EXISTS (SELECT 1 FROM guilds g2 WHERE g2.icon_file_id = f.id)
+             AND NOT EXISTS (SELECT 1 FROM sounds s WHERE s.file_id = f.id)",
         )
         .bind(cutoff)
         .fetch_all(&state.db)

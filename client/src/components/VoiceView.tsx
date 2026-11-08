@@ -6,6 +6,8 @@ import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPr
 import { openModal, toast } from "../ui";
 import { shareAllowed, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
+import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
+import { CameraFxPicker } from "./CameraFx";
 import { userMenu } from "./Sidebar";
 
 interface TileSpec {
@@ -19,6 +21,8 @@ export function VoiceView({ channel }: { channel: Channel }) {
   const inThis = v.channelId === channel.id;
   const others = useStore((s) => Object.values(s.voiceStates).filter((x) => x.channel_id === channel.id).length);
   const [focus, setFocus] = useState<string | null>(null);
+  const [board, setBoard] = useState(false);
+  const [fxOpen, setFxOpen] = useState(false);
 
   if (!inThis) {
     return (
@@ -89,10 +93,28 @@ export function VoiceView({ channel }: { channel: Channel }) {
           ))}
         </div>
       )}
+      <SoundboardTicker guildId={channel.guild_id} />
       <div className="call-controls">
+        {board && <SoundboardPanel guildId={channel.guild_id} onClose={() => setBoard(false)} />}
+        {fxOpen && (
+          <div className="camfx-pop">
+            <div className="sb-head">
+              <b>Camera effects</b>
+              <button className="btn small" onClick={() => setFxOpen(false)}>
+                Close
+              </button>
+            </div>
+            <CameraFxPicker />
+          </div>
+        )}
         <button className={"call-btn" + (v.camera ? " on" : "")} onClick={toggleCamera} disabled={!v.canVideo} title="Camera">
           <Icon name={v.camera ? "video" : "videoOff"} size={22} />
         </button>
+        {v.canVideo && (
+          <button className={"call-btn" + (fxOpen ? " on" : "")} onClick={() => (setFxOpen((o) => !o), setBoard(false))} title="Camera effects and face filters">
+            <span style={{ fontSize: 20 }}>✨</span>
+          </button>
+        )}
         <button
           className={"call-btn" + (v.screen ? " on" : "")}
           disabled={!v.canVideo}
@@ -102,6 +124,11 @@ export function VoiceView({ channel }: { channel: Channel }) {
           <Icon name={v.screen ? "x" : "screen"} size={22} />
         </button>
         <OverlayButton />
+        {v.canSpeak && (
+          <button className={"call-btn" + (board ? " on" : "")} onClick={() => setBoard((b) => !b)} title="Soundboard">
+            <span style={{ fontSize: 20 }}>🎶</span>
+          </button>
+        )}
         <button className={"call-btn" + (v.muted ? " off" : "")} onClick={toggleMute} title="Mute">
           <Icon name={v.muted ? "micOff" : "mic"} size={22} />
         </button>

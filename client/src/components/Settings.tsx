@@ -13,6 +13,7 @@ import { logout } from "../App";
 import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
+import { CameraFxPicker } from "./CameraFx";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
 class PageGuard extends React.Component<{ children: React.ReactNode; page: string }, { err: Error | null }> {
@@ -703,6 +704,8 @@ function VoiceSettings() {
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}
       <p className="muted small">Changes to processing apply the next time you join voice. Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
+      <div className="profile-section">Camera effects</div>
+      <CameraFxPicker preview />
     </div>
   );
 }
@@ -933,6 +936,8 @@ function NotifSettings() {
       <h2>Notifications</h2>
       {flag("notifications", "Desktop notifications", "For direct messages and @mentions when you're not looking at that channel")}
       {flag("sounds", "Sounds", "Message, join/leave, and mute sounds")}
+      {flag("effects", "Screen effects", "Confetti, fireworks and the like when someone sends /confetti, /fireworks...")}
+      {flag("autoEffects", "Effects from words", "\"Happy birthday\" and \"congrats\" set off confetti by themselves")}
       <p className="muted small">Set your status to Do Not Disturb (click your avatar) to silence everything.</p>
       {window.llambleNative && (
         <div className="perm-row">

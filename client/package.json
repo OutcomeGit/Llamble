@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env LLAMBLE_DEV=1 electron .\"",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/copy-mediapipe.cjs && tsc --noEmit && vite build",
     "start": "electron .",
     "dist": "npm run build && electron-builder --win --publish never",
     "dist:dir": "npm run build && electron-builder --win --dir",
@@ -55,13 +55,17 @@
     ]
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.2.2",
+    "canvas-confetti": "^1.9.4",
     "electron-updater": "^6.8.11",
+    "fireworks-js": "^2.10.8",
     "livekit-client": "^2.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.2.1",

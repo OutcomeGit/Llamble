@@ -9,6 +9,7 @@ import { currentChannelId, memberName, mentionsMe, onEvent, selectChannel, total
 import { openModal } from "./ui";
 import { toggleDeafen, toggleMute } from "./voice";
 import { sounds } from "./sounds";
+import { autoEffect, playEffect } from "./effects";
 import { pushOverlayAlert, startOverlayFeed } from "./overlay";
 import { avatarUrl } from "./api";
 import type { Message } from "./types";
@@ -91,12 +92,16 @@ export default function App() {
         }
         if (t !== "MESSAGE_CREATE") return;
         const s = useStore.getState();
-        const msg = d as Message;
+        const msg = d as Message & { effect?: string };
         if (!s.me || msg.author.id === s.me.id) return;
         const ch = s.channels[msg.channel_id];
         if (!ch) return;
         const focused = window.llambleNative ? await window.llambleNative.isFocused() : document.hasFocus();
         const viewing = focused && currentChannelId() === ch.id;
+        if (currentChannelId() === ch.id && document.visibilityState === "visible") {
+          const fx = msg.effect || autoEffect(msg.content);
+          if (fx) playEffect(fx);
+        }
         const important = ch.kind === "dm" || mentionsMe(msg.content, s.me);
         if (viewing || !important) return;
         pushOverlayAlert(

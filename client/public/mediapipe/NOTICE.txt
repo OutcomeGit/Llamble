@@ -1,0 +1,3 @@
+face_landmarker.task, selfie_segmenter.tflite and the wasm/ runtime are from Google MediaPipe
+(https://github.com/google-ai-edge/mediapipe), licensed under the Apache License 2.0:
+https://www.apache.org/licenses/LICENSE-2.0

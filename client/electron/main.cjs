@@ -340,5 +340,14 @@ ipcMain.on("overlay-update", (_e, snap) => {
   if (overlay && !overlay.isDestroyed()) overlay.webContents.send("overlay-snapshot", snap);
 });
 ipcMain.on("overlay-edit", (_e, on) => setOverlayEdit(on));
+
+// Camera-effect models + runtime ship in dist/mediapipe. Chromium can't fetch() file://
+// URLs, so the app reads them here (only from that folder) and hands over the bytes.
+ipcMain.handle("read-asset", async (_e, name) => {
+  const base = path.join(__dirname, "..", "dist", "mediapipe");
+  const full = path.normalize(path.join(base, String(name)));
+  if (!full.startsWith(base + path.sep)) throw new Error("not allowed");
+  return require("fs").promises.readFile(full);
+});
 app.on("browser-window-focus", syncOverlay);
 app.on("browser-window-blur", () => setTimeout(syncOverlay, 50));

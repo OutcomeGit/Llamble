@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld("llambleNative", {
       return () => ipcRenderer.removeListener("overlay-edit", h);
     },
   },
+  readAsset: (name) => ipcRenderer.invoke("read-asset", name),
   pickFile: (opts) => ipcRenderer.invoke("pick-file", opts),
   onInvite: (cb) => {
     const h = (_e, code) => cb(code);

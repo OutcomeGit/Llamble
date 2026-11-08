@@ -1,3 +1,4 @@
+import { EFFECTS, autoEffect, parseEffectCommand, playEffect } from "../effects";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api, formatBytes, upload } from "../api";
 import { searchEmoji } from "../emoji";
@@ -18,7 +19,7 @@ interface Draft {
   spoiler: boolean;
 }
 
-type Suggest = { kind: "user"; items: User[] } | { kind: "emoji"; items: { e: string; n: string }[] };
+type Suggest = { kind: "user"; items: User[] } | { kind: "emoji"; items: { e: string; n: string }[] } | { kind: "command"; items: { e: string; n: string; desc: string }[] };
 
 const drafts: Record<string, string> = {};
 
@@ -97,6 +98,15 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
       setSel(0);
       return;
     }
+    const c = /^\/(\w*)$/.exec(before);
+    if (c) {
+      const q = c[1].toLowerCase();
+      // already typed a whole command: let Enter send it
+      const items = EFFECTS.some((x) => x.name === q) ? [] : EFFECTS.filter((x) => x.name.startsWith(q)).map((x) => ({ e: x.emoji, n: x.name, desc: x.desc }));
+      setSuggest(items.length ? { kind: "command", items } : null);
+      setSel(0);
+      return;
+    }
     const e = /(^|\s):([a-z0-9_+-]{2,})$/i.exec(before);
     if (e) {
       const items = searchEmoji(e[2], 8);
@@ -121,6 +131,9 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
       mentionMap.current[name] = u.id;
       start = before.lastIndexOf("@");
       insert = name + " ";
+    } else if (suggest.kind === "command") {
+      start = 0;
+      insert = "/" + suggest.items[i].n + " ";
     } else {
       start = before.lastIndexOf(":");
       insert = suggest.items[i].e + " ";
@@ -151,7 +164,11 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
   };
 
   const send = async (override?: { attachments: { id: string }[] }) => {
-    const content = encodeMentions(text).trim();
+    let content = encodeMentions(text).trim();
+    const cmd = parseEffectCommand(content);
+    const effect = cmd?.effect ?? autoEffect(content) ?? undefined;
+    if (cmd) content = cmd.text;
+    if (effect) playEffect(effect);
     const toUpload = override ? [] : files;
     if (!content && !toUpload.length && !override) return;
     const me = useStore.getState().me!;
@@ -191,7 +208,7 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
         if (d.preview) URL.revokeObjectURL(d.preview);
       }
       await api(`/api/channels/${channel.id}/messages`, {
-        body: { content, nonce, reply_to: reply?.id, attachments: override ? override.attachments : uploaded },
+        body: { content, nonce, reply_to: reply?.id, attachments: override ? override.attachments : uploaded, effect: cmd?.effect },
       });
     } catch (e: any) {
       patchPending(channel.id, nonce, { failed: true, localFiles: [] });
@@ -233,8 +250,16 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
     <div className="composer">
       {suggest && (
         <div className="suggest">
-          <div className="suggest-head">{suggest.kind === "user" ? "Members" : "Emoji matching"}</div>
-          {suggest.kind === "user"
+          <div className="suggest-head">{suggest.kind === "user" ? "Members" : suggest.kind === "command" ? "Screen effects" : "Emoji matching"}</div>
+          {suggest.kind === "command"
+            ? suggest.items.map((x, i) => (
+                <div key={x.n} className={"suggest-row" + (i === sel ? " sel" : "")} onMouseEnter={() => setSel(i)} onMouseDown={(e) => (e.preventDefault(), applySuggest(i))}>
+                  <span className="suggest-emoji">{x.e}</span>
+                  <span>/{x.n}</span>
+                  <span className="muted small">{x.desc}</span>
+                </div>
+              ))
+            : suggest.kind === "user"
             ? suggest.items.map((u, i) => (
                 <div key={u.id} className={"suggest-row" + (i === sel ? " sel" : "")} onMouseEnter={() => setSel(i)} onMouseDown={(e) => (e.preventDefault(), applySuggest(i))}>
                   <Avatar user={u} size={24} />

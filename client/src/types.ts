@@ -205,6 +205,7 @@ declare global {
         onSnapshot: (cb: (s: any) => void) => () => void;
         onEdit: (cb: (on: boolean) => void) => () => void;
       };
+      readAsset?: (name: string) => Promise<Uint8Array>;
       pickFile: (opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       llm: {
         gpus: () => Promise<Gpu[]>;

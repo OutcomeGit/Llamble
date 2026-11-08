@@ -66,7 +66,12 @@ pub struct CreateMsg {
     #[serde(default)]
     pub attachments: Vec<AttachRef>,
     pub nonce: Option<String>,
+    /// a screen effect to play for everyone watching (confetti, fireworks...)
+    pub effect: Option<String>,
 }
+
+/// screen effects a message can carry
+pub const EFFECTS: &[&str] = &["confetti", "fireworks", "snow", "hearts", "shake", "balloons", "lasers"];
 
 pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, Json(req): Json<CreateMsg>) -> ApiResult<Json<Value>> {
     let ch = load_channel(&state.db, &cid).await?;
@@ -135,6 +140,9 @@ pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(ci
     let mut payload = serde_json::to_value(&msg).unwrap();
     if let Some(n) = req.nonce {
         payload["nonce"] = json!(n);
+    }
+    if let Some(e) = req.effect.as_deref().filter(|e| EFFECTS.contains(e)) {
+        payload["effect"] = json!(e);
     }
     payload["guild_id"] = json!(ch.guild_id);
     state.emit_channel(&ch, "MESSAGE_CREATE", &payload).await;

@@ -1,6 +1,6 @@
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
-  Room, RoomEvent, ScreenSharePresets, Track, VideoPresets,
+  Room, RoomEvent, ScreenSharePresets, Track, VideoPresets, type LocalVideoTrack,
 } from "livekit-client";
 import { create } from "zustand";
 import { api } from "./api";
@@ -316,6 +316,7 @@ export async function toggleCamera() {
   try {
     await room.localParticipant.setCameraEnabled(on, { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() });
     vset({ camera: on });
+    if (on) syncCameraFx();
   } catch (e: any) {
     vset({ error: "Camera unavailable: " + e.message });
   }
@@ -513,3 +514,25 @@ onEvent((t, d) => {
       .catch(() => {});
   }
 });
+
+// ---------------------------------------------------------------- camera effects
+// Effects run only while one is picked; switching everything off drops the processor.
+let fxBusy = false;
+async function syncCameraFx() {
+  if (fxBusy || !room) return;
+  const track = room.localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined;
+  if (!track) return;
+  fxBusy = true;
+  try {
+    const fx = await import("./camerafx");
+    const want = fx.fxActive();
+    const has = track.getProcessor()?.name === "llamble-camerafx";
+    if (want && !has) await track.setProcessor(new fx.CameraFxProcessor());
+    else if (!want && has) await track.stopProcessor();
+  } catch (e: any) {
+    vset({ error: "Camera effects failed to start: " + (e?.message || e) });
+  } finally {
+    fxBusy = false;
+  }
+}
+import("./camerafx").then((fx) => fx.useFx.subscribe(() => syncCameraFx()));
