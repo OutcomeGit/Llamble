@@ -204,7 +204,19 @@ pub fn ensure_models(state: Shared) {
             (!tts_ready(&state)).then(|| format!("tts-models/{TTS_MODEL}.tar.bz2")),
         ];
         for job in jobs.into_iter().flatten() {
-            if let Err(e) = fetch_and_unpack(&state, &job).await {
+            // GitHub's download servers sometimes answer 502/503/504 for a while: try a few times
+            let mut result = fetch_and_unpack(&state, &job).await;
+            for wait in [5u64, 20, 60, 180] {
+                match &result {
+                    Err(e) if transient(e) => {
+                        tracing::info!("voice model download hiccup ({e:#}); retrying in {wait}s");
+                        tokio::time::sleep(Duration::from_secs(wait)).await;
+                        result = fetch_and_unpack(&state, &job).await;
+                    }
+                    _ => break,
+                }
+            }
+            if let Err(e) = result {
                 tracing::warn!("voice model download failed: {e:#}");
                 let mut st = STATUS.write().await;
                 st.downloading = None;
@@ -220,6 +232,14 @@ pub fn ensure_models(state: Shared) {
         refresh_status(&state).await;
         crate::voicebot::announce_config(&state).await;
     });
+}
+
+/** Worth trying again: server-side 5xx, 429, timeouts and dropped connections. */
+fn transient(e: &anyhow::Error) -> bool {
+    match e.downcast_ref::<reqwest::Error>() {
+        Some(r) => r.is_timeout() || r.is_connect() || r.is_body() || r.is_request() || r.status().is_some_and(|s| s.is_server_error() || s.as_u16() == 429),
+        None => false,
+    }
 }
 
 async fn fetch_and_unpack(state: &Shared, job: &str) -> anyhow::Result<()> {

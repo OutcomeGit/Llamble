@@ -80,7 +80,25 @@ jobs:
       - run: gh release create v0.1.${{ github.run_number }} --draft --title "Llamble 0.1.${{ github.run_number }}" --notes "Automatic build of ${{ github.sha }}" --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: npm run release
+      # Electron and electron-builder's tools come from GitHub release downloads, which
+      # sometimes 504 for hours: keep them between builds and retry on hiccups
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
+      - name: npm run release (retries GitHub download hiccups)
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 4; $i++) {
+            npm run release
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "attempt $i failed; retrying in $(60 * $i)s"
+            Start-Sleep -Seconds (60 * $i)
+          }
+          exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
