@@ -21,17 +21,23 @@ export function useUnreadNotes(): number {
   return useStore((s) => notesForMe(s).filter((n) => !n.read).length);
 }
 
-type BoardStyle = "cork" | "chalkboard" | "plain";
-const STYLES: [BoardStyle, string][] = [
-  ["cork", "Cork"],
-  ["chalkboard", "Chalkboard"],
-  ["plain", "Plain"],
-];
+// Board looks. Felt boards borrow cork's paper labels and only swap the color.
+const STYLES = [
+  { id: "cork", label: "Cork", swatch: "#b9895a", cls: "hb-cork" },
+  { id: "spit", label: "Llama green", swatch: "#7fc458", cls: "hb-cork hb-felt hb-felt-spit" },
+  { id: "sky", label: "Sky", swatch: "#8ec9f0", cls: "hb-cork hb-felt hb-felt-sky" },
+  { id: "lavender", label: "Lavender", swatch: "#b7a2ea", cls: "hb-cork hb-felt hb-felt-lavender" },
+  { id: "sunset", label: "Sunset", swatch: "#f2a25b", cls: "hb-cork hb-felt hb-felt-sunset" },
+  { id: "midnight", label: "Midnight", swatch: "#22335c", cls: "hb-cork hb-felt hb-felt-midnight" },
+  { id: "chalkboard", label: "Chalkboard", swatch: "#233229", cls: "hb-chalkboard" },
+  { id: "plain", label: "Plain", swatch: "var(--bg-2, #2b2d31)", cls: "hb-plain" },
+] as const;
+type BoardStyle = (typeof STYLES)[number]["id"];
 
 function savedStyle(): BoardStyle {
   try {
     const v = localStorage.getItem("llamble.homeBoard");
-    if (v === "cork" || v === "chalkboard" || v === "plain") return v;
+    if (STYLES.some((x) => x.id === v)) return v as BoardStyle;
   } catch {}
   return "cork";
 }
@@ -49,8 +55,8 @@ export function Board({ scope }: { scope: Scope }) {
   const guild = useStore((s) => (home ? undefined : s.guilds[scope]));
   const section = useStore((s) => s.boardSection);
   const scroller = useRef<HTMLDivElement>(null);
-  // what the board shows: everything, or just one kind (News joins this list when it exists)
-  const [show, setShow] = useState<"all" | "notes" | "highlights">("all");
+  // what the board shows: picked in the left column (Board / Notes / Highlights)
+  const show = useStore((s) => s.boardFilter[scope] ?? "all");
   const pick = (v: BoardStyle) => {
     setStyle(v);
     try {
@@ -63,12 +69,9 @@ export function Board({ scope }: { scope: Scope }) {
     loadBoard(scope).catch(() => {});
     loadHighlights(scope).catch(() => {});
   }, [scope, home]);
-  // a different board starts on "Everything" (the effect below may then narrow it)
-  useEffect(() => setShow("all"), [scope]);
   // openGuildView(g, "notes" | "highlights") scrolls to that section
   useEffect(() => {
     if (!section) return;
-    if (section === "notes" || section === "highlights") setShow(section);
     const t = window.setTimeout(() => {
       scroller.current?.querySelector(`[data-hb-section="${section}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
       useStore.setState({ boardSection: null });
@@ -76,38 +79,34 @@ export function Board({ scope }: { scope: Scope }) {
     return () => clearTimeout(t);
   }, [section]);
   return (
-    <div ref={scroller} className={"hb-board hb-" + style}>
+    <div ref={scroller} className={"hb-board " + (STYLES.find((x) => x.id === style)?.cls ?? "hb-cork")}>
       <div className="hb-frame">
         <header className="hb-header">
           <div>
-            <h1 className="hb-title">{home ? "Home" : `${guild?.name ?? ""} · ${BOARD_NAME}`}</h1>
+            <h1 className="hb-title">
+              {home ? "Home" : `${guild?.name ?? ""} · ${BOARD_NAME}`}
+              {show !== "all" && <span className="hb-title-sub"> · {show === "notes" ? "Notes" : "Highlights"}</span>}
+            </h1>
             <div className="hb-greet">
               {greeting()}
               {name ? `, ${name}` : ""}
             </div>
           </div>
-          <div className="hb-style" role="radiogroup" aria-label="Board style">
-            {STYLES.map(([v, label]) => (
-              <button key={v} role="radio" aria-checked={style === v} className={"hb-style-btn" + (style === v ? " on" : "")} onClick={() => pick(v)}>
-                {label}
-              </button>
+          <div className="hb-style" role="radiogroup" aria-label="Board color">
+            {STYLES.map((x) => (
+              <button
+                key={x.id}
+                role="radio"
+                aria-checked={style === x.id}
+                aria-label={x.label}
+                title={x.label}
+                className={"hb-swatch" + (style === x.id ? " on" : "")}
+                style={{ background: x.swatch }}
+                onClick={() => pick(x.id)}
+              />
             ))}
           </div>
         </header>
-
-        <div className="hb-filter" role="tablist" aria-label="Show">
-          {(
-            [
-              ["all", "Everything"],
-              ["notes", "Notes"],
-              ["highlights", "Highlights"],
-            ] as const
-          ).map(([v, label]) => (
-            <button key={v} role="tab" aria-selected={show === v} className={"hb-filter-btn" + (show === v ? " on" : "")} onClick={() => setShow(v)}>
-              {label}
-            </button>
-          ))}
-        </div>
 
         {show === "all" && (
           <div className="hb-top">

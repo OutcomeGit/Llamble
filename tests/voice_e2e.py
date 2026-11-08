@@ -106,12 +106,13 @@ with sync_playwright() as p:
     # screenshots of the Home board in each style (uploaded by CI as "home-screenshots")
     ok(requests.post(B + f"/api/guilds/{gid}/notes", headers=TA, json={"content": "Pizza night Friday? Bring the good controller.", "color": "yellow"}))
     pages[1].set_viewport_size({"width": 1400, "height": 900})
-    for style in ("cork", "chalkboard", "plain"):
+    cls = {"cork": "hb-cork", "spit": "hb-felt-spit", "sky": "hb-felt-sky", "midnight": "hb-felt-midnight", "chalkboard": "hb-chalkboard", "plain": "hb-plain"}
+    for style in ("cork", "spit", "sky", "midnight", "chalkboard", "plain"):
         pages[1].evaluate("s => localStorage.setItem('llamble.homeBoard', s)", style)
         pages[1].evaluate("([g]) => window.llambleDebug.openGuildView(g, 'notes')", [gid])
         pages[1].wait_for_timeout(300)
         pages[1].evaluate("() => window.llambleDebug.openHome()")
-        pages[1].wait_for_function("s => document.querySelector('.hb-board.hb-' + s)", arg=style, timeout=10000)
+        pages[1].wait_for_function("c => document.querySelector('.hb-board.' + c)", arg=cls[style], timeout=10000)
         pages[1].wait_for_timeout(800)
         pages[1].screenshot(path="/tmp/home.png" if style == "cork" else f"/tmp/home-{style}.png", full_page=True)
         assert not pages[1].evaluate(crashed), f"Home ({style}) crashed"
@@ -122,7 +123,7 @@ with sync_playwright() as p:
     pages[1].screenshot(path="/tmp/home-server.png", full_page=True)
     assert not pages[1].evaluate(crashed), "server board crashed"
     pages[1].evaluate("() => window.llambleDebug.openHome()")
-    print("Board screenshots saved (Home: cork, chalkboard, plain; server board)")
+    print("Board screenshots saved (Home in 6 colors; server board)")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

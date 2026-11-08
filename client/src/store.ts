@@ -41,6 +41,8 @@ interface State {
   guildView: Record<string, "board" | undefined>;
   /** board section to scroll to once it opens */
   boardSection: "notes" | "highlights" | null;
+  /** what each board shows ("@home" or a server id): everything, or one kind */
+  boardFilter: Record<string, BoardFilter>;
   /** notes I can see (Home's "For you" and boards I've opened) */
   notes: Record<string, Note>;
   highlights: Record<string, Highlight>;
@@ -72,6 +74,7 @@ export const useStore = create<State>(() => ({
   selectedGuild: "@home",
   guildView: {},
   boardSection: null,
+  boardFilter: {},
   notes: {},
   highlights: {},
   lastChannel: JSON.parse(localStorage.getItem("llamble.lastChannel") || "{}"),
@@ -94,15 +97,18 @@ export function selectChannel(guildId: string, channelId: string | null) {
   set({ selectedGuild: guildId, lastChannel, guildView });
 }
 
-export function openHome() {
+export type BoardFilter = "all" | "notes" | "highlights";
+
+export function openHome(filter: BoardFilter = "all") {
   localStorage.setItem("llamble.lastGuild", "@home");
-  set({ selectedGuild: "@home" });
+  set({ selectedGuild: "@home", boardFilter: { ...get().boardFilter, "@home": filter } });
 }
 
-/** Open a server's board in the main area ("notes"/"highlights" scroll to that section). */
+/** Open a server's board in the main area, showing everything or just notes / highlights. */
 export function openGuildView(guildId: string, view: "board" | "notes" | "highlights" = "board") {
   localStorage.setItem("llamble.lastGuild", guildId);
-  set({ selectedGuild: guildId, guildView: { ...get().guildView, [guildId]: "board" }, boardSection: view === "board" ? null : view });
+  const filter: BoardFilter = view === "board" ? "all" : view;
+  set({ selectedGuild: guildId, guildView: { ...get().guildView, [guildId]: "board" }, boardSection: null, boardFilter: { ...get().boardFilter, [guildId]: filter } });
 }
 
 /** Notes addressed to me that are still up (Home's "For you"). */

@@ -995,3 +995,37 @@ body.pop-body > .pop { height: 100vh; }
 .hb-plain .hb-filter { background: var(--bg-2); }
 .hb-plain .hb-filter-btn { color: var(--text); }
 .hb-plain .hb-filter-btn.on { background: var(--brand); color: #fff; }
+
+/* Felt boards: cork's paper labels on a colored felt, wooden frame */
+.hb-felt .hb-frame {
+  background-color: var(--felt);
+  background-image: var(--hb-grain),
+    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.10) 0 1px, transparent 1.5px),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.22), transparent 60%),
+    radial-gradient(ellipse at 50% 120%, rgba(0, 0, 0, 0.25), transparent 60%);
+  background-size: 220px 220px, 19px 19px, 100% 100%, 100% 100%;
+  box-shadow: inset 0 0 0 10px #7a4e28, inset 0 0 0 12px #4a2d14, inset 0 0 40px rgba(0, 0, 0, 0.35), 0 8px 30px rgba(0, 0, 0, 0.45);
+  color: var(--felt-ink);
+}
+.hb-felt .hb-title { color: var(--felt-ink); text-shadow: none; }
+.hb-felt .hb-greet { color: var(--felt-ink); }
+.hb-felt-spit { --felt: #7fc458; --felt-ink: #1f3d12; }
+.hb-felt-sky { --felt: #8ec9f0; --felt-ink: #13324a; }
+.hb-felt-lavender { --felt: #b7a2ea; --felt-ink: #2e1f57; }
+.hb-felt-sunset { --felt: #f2a25b; --felt-ink: #4a2208; }
+.hb-felt-midnight { --felt: #22335c; --felt-ink: #eef2ff; }
+.hb-felt-midnight .hb-frame { box-shadow: inset 0 0 0 10px #3b4a70, inset 0 0 0 12px #1a2440, inset 0 0 40px rgba(0, 0, 0, 0.5), 0 8px 30px rgba(0, 0, 0, 0.45); }
+
+/* board color swatches */
+.hb-style { gap: 6px; padding: 5px 7px; align-items: center; }
+.hb-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.85); cursor: pointer; padding: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+.hb-swatch:hover { transform: scale(1.12); }
+.hb-swatch.on { outline: 3px solid #fff; outline-offset: 2px; }
+.hb-title-sub { font-weight: 600; opacity: 0.75; }
+
+/* Board sub-entries in the left column */
+.channel.sub { padding-left: 34px; font-size: 14px; }
+.channel.soon { opacity: 0.55; cursor: default; }
+.channel.soon:hover { background: none; }
+.soon-tag { margin-left: auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 6px; background: var(--bg-3, rgba(127, 127, 127, 0.25)); }
+.sidebar-sep { height: 1px; background: var(--border, rgba(127, 127, 127, 0.25)); margin: 10px 8px; }

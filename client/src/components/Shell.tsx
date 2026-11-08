@@ -183,7 +183,7 @@ function GuildBar() {
     <nav className="guildbar">
       <div className="guild-wrap">
         <span className={"guild-pill" + (selected === "@home" ? " active" : "")} />
-        <button className={"guild-logo" + (selected === "@home" ? " active" : "")} title="Home: notes for you, who's around, highlights" onClick={openHome}>
+        <button className={"guild-logo" + (selected === "@home" ? " active" : "")} title="Home: notes for you, who's around, highlights" onClick={() => openHome()}>
           <img src="./icon-192.png" alt="Llamble" draggable={false} />
           {unreadNotes ? <span className="badge">{unreadNotes}</span> : null}
         </button>

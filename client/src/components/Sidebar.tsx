@@ -2,7 +2,7 @@ import { listeningIn, useListen } from "../listen";
 import { useShows } from "../show";
 import { api } from "../api";
 import { sendGateway } from "../gateway";
-import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, selectChannel, useStore } from "../store";
+import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, openHome, selectChannel, useStore } from "../store";
 import { P, type Channel } from "../types";
 import { copy, openMenu, openModal, toggleCollapsed, toast, useUI } from "../ui";
 import { joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
@@ -123,13 +123,20 @@ function ChannelList({ guildId }: { guildId: string }) {
 /** The server's board, at the top of its channel list. */
 function BoardRows({ guildId }: { guildId: string }) {
   const open = useStore((s) => s.selectedGuild === guildId && !!s.guildView[guildId]);
+  const filter = useStore((s) => s.boardFilter[guildId] ?? "all");
   const unread = useStore((s) => notesForMe(s).filter((n) => n.guild_id === guildId && !n.read).length);
   return (
     <div className="board-rows">
-      <div className={"channel" + (open ? " active" : "") + (unread ? " unread" : "")} onClick={() => openGuildView(guildId)}>
+      <div className={"channel" + (open && filter === "all" ? " active" : "")} onClick={() => openGuildView(guildId)}>
         <span className="channel-emoji">📌</span>
         <span className="ellipsis">{BOARD_NAME}</span>
+      </div>
+      <div className={"channel sub" + (open && filter === "notes" ? " active" : "") + (unread ? " unread" : "")} onClick={() => openGuildView(guildId, "notes")}>
+        <span className="ellipsis">Notes</span>
         {unread > 0 && <span className="badge inline">{unread}</span>}
+      </div>
+      <div className={"channel sub" + (open && filter === "highlights" ? " active" : "")} onClick={() => openGuildView(guildId, "highlights")}>
+        <span className="ellipsis">Highlights</span>
       </div>
     </div>
   );
@@ -293,8 +300,41 @@ function VolumeSlider({ userId, initial }: { userId: string; initial: number }) 
 }
 
 /** Sidebar while Home is open: nothing in the list area, just the bottom panel. */
+/** Home's left column: the board and its parts, then things coming to Home. */
 function HomeSidebar() {
-  return <div className="channel-scroll" />;
+  const filter = useStore((s) => s.boardFilter["@home"] ?? "all");
+  const unread = useStore((s) => notesForMe(s).filter((n) => !n.read).length);
+  const soon = (emoji: string, label: string, what: string) => (
+    <div className="channel soon" title={what + " (coming soon)"}>
+      <span className="channel-emoji">{emoji}</span>
+      <span className="ellipsis">{label}</span>
+      <span className="soon-tag">soon</span>
+    </div>
+  );
+  return (
+    <>
+      <div className="sidebar-header static">Home</div>
+      <div className="channel-scroll">
+        <div className="board-rows">
+          <div className={"channel" + (filter === "all" ? " active" : "")} onClick={() => openHome("all")}>
+            <span className="channel-emoji">📌</span>
+            <span className="ellipsis">{BOARD_NAME}</span>
+          </div>
+          <div className={"channel sub" + (filter === "notes" ? " active" : "") + (unread ? " unread" : "")} onClick={() => openHome("notes")}>
+            <span className="ellipsis">Notes</span>
+            {unread > 0 && <span className="badge inline">{unread}</span>}
+          </div>
+          <div className={"channel sub" + (filter === "highlights" ? " active" : "")} onClick={() => openHome("highlights")}>
+            <span className="ellipsis">Highlights</span>
+          </div>
+        </div>
+        <div className="sidebar-sep" />
+        {soon("📢", "Instance news", "News from whoever runs this Llamble")}
+        {soon("🦙", "Llamble news", "What's new in Llamble")}
+        {soon("🛍️", "Store", "Games and add-ons")}
+      </div>
+    </>
+  );
 }
 
 function DmList() {
