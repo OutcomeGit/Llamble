@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { Track } from "livekit-client";
 import { api, media } from "../api";
@@ -7,6 +8,7 @@ import { participants, useVoice } from "../voice";
 import { Compositor, showApi, useRecorder, useShows, type RecRes, type Show, type Streams } from "../show";
 
 const NONE: Streams = { voice: false, camera: false, screen: false };
+const ALL: Streams = { voice: true, camera: true, screen: true };
 const label = (s: Streams) => [s.voice && "voice", s.camera && "camera", s.screen && "screen"].filter(Boolean).join(", ") || "nothing";
 
 function useName() {
@@ -27,9 +29,10 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
   const me = useStore((s) => s.me)!;
   const name = useName();
   useVoice((s) => s.version);
-  const inCall = useStore((s) => Object.values(s.voiceStates).filter((v) => v.channel_id === channelId).map((v) => v.user_id));
+  const inCall = useStore(useShallow((s) => Object.values(s.voiceStates).filter((v) => v.channel_id === channelId).map((v) => v.user_id)));
   const [title, setTitle] = useState("");
-  const [picks, setPicks] = useState<Record<string, Streams>>(() => Object.fromEntries(inCall.map((u) => [u, { voice: true, camera: true, screen: true }])));
+  // everyone starts ticked; people who join while this is open too
+  const [picks, setPicks] = useState<Record<string, Streams>>({});
   const [recorder, setRecorder] = useState(me.id);
   const [director, setDirector] = useState(me.id);
   const [res, setRes] = useState<RecRes>((localStorage.getItem("llamble.showRes") as RecRes) || "1080p");
@@ -37,14 +40,14 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
   const bot = useStore((s) => s.config.bot?.id);
   const people = inCall.filter((u) => u !== bot);
 
-  const toggle = (u: string, k: keyof Streams) => setPicks((p) => ({ ...p, [u]: { ...(p[u] || NONE), [k]: !(p[u] || NONE)[k] } }));
+  const toggle = (u: string, k: keyof Streams) => setPicks((p) => ({ ...p, [u]: { ...(p[u] || ALL), [k]: !(p[u] || ALL)[k] } }));
   const go = async () => {
     setBusy(true);
     localStorage.setItem("llamble.showRes", res);
     try {
       await showApi.create(channelId, {
         title,
-        people: people.map((u) => ({ user_id: u, ...(picks[u] || NONE) })),
+        people: people.map((u) => ({ user_id: u, ...(picks[u] || ALL) })),
         recorder_id: recorder,
         director_id: director,
       });
@@ -75,7 +78,7 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
               {(["voice", "camera", "screen"] as const).map((k) => (
                 <td key={k}>
                   <label className="check">
-                    <input type="checkbox" checked={!!picks[u]?.[k]} onChange={() => toggle(u, k)} /> {k}
+                    <input type="checkbox" checked={(picks[u] || ALL)[k]} onChange={() => toggle(u, k)} /> {k}
                   </label>
                 </td>
               ))}
