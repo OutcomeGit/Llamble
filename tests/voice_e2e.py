@@ -59,7 +59,7 @@ with sync_playwright() as p:
             time.sleep(0.3)
         raise SystemExit(f"mic chain: expected {want} ({what}); got {pg.evaluate(proc)}, error: {pg.evaluate('() => window.llambleDebug.voice().error')}")
     assert pages[0].evaluate("() => window.llambleDebug.micSound().noise") == "rnnoise"
-    assert pages[0].evaluate("() => window.llambleDebug.micSound().bitrate") == 448000
+    assert pages[0].evaluate("() => window.llambleDebug.micSound().bitrate") == 128000, "follows the server default (128 kbps)"
     for pg in pages: wait_proc(pg, "llamble-mic", "default preset: RNNoise")
     pages[0].evaluate("() => window.llambleDebug.setMicSound({ ...window.llambleDebug.micSound(), noise: 'gtcrn', gateDb: -50, lowCut: true, compressor: true, bassDb: 3 })")
     time.sleep(1.5)
@@ -73,6 +73,15 @@ with sync_playwright() as p:
     wait_proc(pages[0], "llamble-mic", "back to default")
     for pg in pages: pg.wait_for_function(hears, timeout=30000, polling=500)
     print("mic sound: AI noise suppression on by default; GTCRN/gate/EQ, raw and back again mid-call, still hearing each other")
+    # the admin's default and maximum reach everyone right away
+    ok(requests.put(B + "/api/admin/settings", headers=TA, json={"mic_default_kbps": 64, "mic_max_kbps": 96}))
+    pages[1].wait_for_function("() => window.llambleDebug.micSound().bitrate === 64000", timeout=10000)
+    r = requests.put(B + "/api/admin/settings", headers=TA, json={"mic_default_kbps": 128, "mic_max_kbps": 96})
+    assert r.status_code == 400, "default above maximum must be refused"
+    ok(requests.put(B + "/api/admin/settings", headers=TA, json={"mic_default_kbps": 128, "mic_max_kbps": 510}))
+    pages[1].wait_for_function("() => window.llambleDebug.micSound().bitrate === 128000", timeout=10000)
+    for pg in pages: pg.wait_for_function(hears, timeout=30000, polling=500)
+    print("server mic default/maximum: pushed live, default above maximum refused")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

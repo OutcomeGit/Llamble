@@ -29,7 +29,7 @@ export interface MicSound {
 
 const SHAPING = { gainDb: 0, gateDb: null, lowCut: false, compressor: false, bassDb: 0, midDb: 0, trebleDb: 0 } as const;
 
-const helpers = (bitrate: number): MicSound => ({
+export const helpers = (bitrate: number): MicSound => ({
   bitrate,
   stereo: false,
   noise: "rnnoise",
@@ -77,8 +77,6 @@ export const PRESETS: { id: string; level: Level; raw: boolean; sound: MicSound 
   { id: l.id + "-raw", level: l, raw: true, sound: raw(l.bitrate) },
 ]);
 
-export const DEFAULT_PRESET = "high";
-export const DEFAULT_SOUND: MicSound = helpers(448000);
 
 /** The main Opus bitrates. */
 export const BITRATES = [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 510].map((k) => k * 1000);

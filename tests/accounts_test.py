@@ -247,12 +247,14 @@ print("ALL ACCOUNTS OK")
 
 # ---- server-wide voice/video limits reach every client
 wsMom = create_connection(B.replace("http", "ws") + "/api/gateway?access_token=" + MOM); wsMom.recv(); wsMom.settimeout(2)
-call("PUT", "/api/admin/settings", M, json={"max_share": "1080p30", "max_camera": "360p"})
+call("PUT", "/api/admin/settings", M, json={"max_share": "1080p30", "max_camera": "360p", "mic_default_kbps": 96, "mic_max_kbps": 256})
 for _ in range(20):
     ev = json.loads(wsMom.recv())
     if ev["t"] == "CONFIG_UPDATE": break
 assert ev["t"] == "CONFIG_UPDATE" and ev["d"]["media"]["max_share"] == "1080p30", ev
 wsMom.close()
 call("PUT", "/api/admin/settings", M, expect=400, json={"max_share": "4k"})
-assert ready(MOM)["config"]["media"] == {"max_share": "1080p30", "max_camera": "360p"}
+call("PUT", "/api/admin/settings", M, expect=400, json={"mic_default_kbps": 384})  # above the maximum
+call("PUT", "/api/admin/settings", M, expect=400, json={"mic_max_kbps": 300})  # not an offered bitrate
+assert ready(MOM)["config"]["media"] == {"max_share": "1080p30", "max_camera": "360p", "mic_default_kbps": 96, "mic_max_kbps": 256}
 print("voice/video limits set by the Master reach clients")

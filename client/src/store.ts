@@ -10,7 +10,7 @@ export interface ServerConfig {
   version?: string;
   client_download?: string;
   /** server-wide limits set by the Master Admin */
-  media?: { max_share: string; max_camera: string };
+  media?: { max_share: string; max_camera: string; mic_default_kbps?: number; mic_max_kbps?: number };
   bot?: { id: string; name: string; server_backend: boolean; worker_policy: string };
 }
 

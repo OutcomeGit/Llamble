@@ -14,7 +14,8 @@ import {
   type NoiseMode,
   type PushToTalk,
 } from "../micsound";
-import { micSound, prefs, pushToTalk, setMicSound, setPushToTalk } from "../voice";
+import { followsServerDefault, micLimits, micSound, prefs, pushToTalk, setMicSound, setPushToTalk, useServerDefault } from "../voice";
+import { useStore } from "../store";
 import { Toggle } from "./common";
 
 const NOISE: [NoiseMode, string, string][] = [
@@ -27,11 +28,21 @@ const NOISE: [NoiseMode, string, string][] = [
 /** Settings → Voice & Video → Mic sound: presets on the left, every setting on the right. */
 export function MicSoundPanel() {
   const [m, setM] = useState<MicSound>(micSound());
-  const preset = presetFor(m);
+  const [following, setFollowing] = useState(followsServerDefault());
+  const media = useStore((s) => s.config.media);
+  const limits = micLimits(media);
+  // while following, show the server's current default (it can change while this is open)
+  useEffect(() => {
+    if (following) setM(micSound());
+  }, [media?.mic_default_kbps, media?.mic_max_kbps]);
+  const preset = following ? undefined : presetFor(m);
   const apply = (next: MicSound) => {
     setM(next);
+    setFollowing(false);
     setMicSound(next);
   };
+  const kbps = (b: number) => Math.round(b / 1000);
+  const title = following ? `Server default · with helpers (${kbps(limits.def)} kbps)` : presetLabel(m);
   const set = <K extends keyof MicSound>(k: K, v: MicSound[K]) => apply({ ...m, [k]: v });
   const sw = (k: "stereo" | "echoCancellation" | "autoGainControl" | "trimSilence" | "repairPackets" | "lowCut" | "compressor", label: string, desc: string) => (
     <div className="perm-row">
@@ -56,7 +67,26 @@ export function MicSoundPanel() {
       <div className="profile-section">Mic sound</div>
       <div className="mic-grid">
         <div className="mic-presets">
-          <div className="muted small">Lowest to highest fidelity</div>
+          <div className={"mic-level" + (following ? " on" : "")}>
+            <div className="mic-level-head">
+              <span className="bold">Server default</span>
+              <span className="muted small">{kbps(limits.def)} kbps</span>
+            </div>
+            <div className="muted small">With helpers, at the bitrate this server's admin chose. Follows it if they change it.</div>
+            <div className="mic-level-btns">
+              <button
+                className={"btn small" + (following ? " primary" : "")}
+                onClick={() => {
+                  useServerDefault();
+                  setFollowing(true);
+                  setM(micSound());
+                }}
+              >
+                Use server default
+              </button>
+            </div>
+          </div>
+          <div className="muted small">Lowest to highest fidelity · this server allows up to {kbps(limits.max)} kbps</div>
           {LEVELS.map((l) => (
             <div key={l.id} className={"mic-level" + (preset?.level.id === l.id ? " on" : "")}>
               <div className="mic-level-head">
@@ -66,9 +96,14 @@ export function MicSoundPanel() {
               <div className="muted small">{l.about}</div>
               <div className="mic-level-btns">
                 {PRESETS.filter((p) => p.level.id === l.id).map((p) => (
-                  <button key={p.id} className={"btn small" + (preset?.id === p.id ? " primary" : "")} onClick={() => apply({ ...p.sound })}>
+                  <button
+                    key={p.id}
+                    className={"btn small" + (preset?.id === p.id ? " primary" : "")}
+                    disabled={l.bitrate > limits.max}
+                    title={l.bitrate > limits.max ? `Above this server's limit (${kbps(limits.max)} kbps)` : undefined}
+                    onClick={() => apply({ ...p.sound })}
+                  >
                     {p.raw ? "Raw" : "With helpers"}
-                    {p.id === "high" ? " (default)" : ""}
                   </button>
                 ))}
               </div>
@@ -79,15 +114,20 @@ export function MicSoundPanel() {
         </div>
 
         <div className="mic-settings">
-          <div className="mic-current">{presetLabel(m)}</div>
+          <div className="mic-current">{title}</div>
+          {m.bitrate > limits.max && (
+            <div className="mic-warn">This server's limit is {kbps(limits.max)} kbps, so you're sent at {kbps(limits.max)} kbps for now.</div>
+          )}
           <p className="muted small">Change anything here and it becomes Custom. Changes apply right away, even mid-call.</p>
           <label>
             Bitrate
             <select value={m.bitrate} onChange={(e) => set("bitrate", Number(e.target.value))}>
               {BITRATES.map((b) => (
-                <option key={b} value={b}>
+                <option key={b} value={b} disabled={b > limits.max}>
                   {b / 1000} kbps
+                  {b === limits.def ? " (server default)" : ""}
                   {b === 64000 ? " (Discord's normal)" : b === 384000 ? " (Discord's maximum)" : b === 510000 ? " (Opus maximum)" : ""}
+                  {b > limits.max ? " (above server limit)" : ""}
                 </option>
               ))}
             </select>

@@ -5,7 +5,7 @@ import {
 import { create } from "zustand";
 import { api } from "./api";
 import { sounds } from "./sounds";
-import { DEFAULT_SOUND, needsChain, virtualKey, type MicSound, type PushToTalk } from "./micsound";
+import { helpers, needsChain, virtualKey, type MicSound, type PushToTalk } from "./micsound";
 import { MicProcessor, micContext } from "./micfx";
 import { needsBackup, pickCodec, useEncoder, verifyEncoder, type VideoKind } from "./encoder";
 import { onEvent, useStore } from "./store";
@@ -89,15 +89,27 @@ async function refreshDevices() {
 }
 
 // ---- mic sound (see micsound.ts for presets, micfx.ts for the audio chain) ----
+/** The server's mic bitrates (Settings → Llamble Server → Settings & Updates). */
+export function micLimits(media = useStore.getState().config.media): { def: number; max: number } {
+  const max = (media?.mic_max_kbps ?? 510) * 1000;
+  return { def: Math.min((media?.mic_default_kbps ?? 128) * 1000, max), max };
+}
+
+/** True while this person hasn't picked their own mic sound: they get the server's default. */
+export function followsServerDefault(): boolean {
+  micSound(); // settles older settings first
+  return !prefs.get("micSound");
+}
+
 export function micSound(): MicSound {
   const saved = prefs.get("micSound");
   if (saved) {
     try {
-      return { ...DEFAULT_SOUND, ...JSON.parse(saved) };
+      return { ...helpers(micLimits().def), ...JSON.parse(saved) };
     } catch {}
   }
-  // Older versions kept separate keys. Anyone who never changed them gets the new default;
-  // anyone who did keeps their choices.
+  // Older versions kept separate keys. Anyone who never changed them follows the server's
+  // default; anyone who did keeps their choices.
   const old = ["audioBitrate", "noiseSuppression", "echoCancellation", "autoGainControl", "micStereo", "trimSilence", "repairPackets", "studioMic"];
   const touched =
     old.some((k) => prefs.get(k) !== "") &&
@@ -111,10 +123,10 @@ export function micSound(): MicSound {
       prefs.bool("repairPackets", true) &&
       prefs.get("studioMic") !== "1"
     );
-  if (!touched) return { ...DEFAULT_SOUND };
+  if (!touched) return helpers(micLimits().def);
   const studio = prefs.get("studioMic") === "1";
-  return {
-    ...DEFAULT_SOUND,
+  const m: MicSound = {
+    ...helpers(micLimits().def),
     bitrate: Number(prefs.get("audioBitrate", "96000")) || 96000,
     stereo: studio || prefs.bool("micStereo", false),
     noise: prefs.bool("noiseSuppression") && !studio ? "browser" : "off",
@@ -123,7 +135,33 @@ export function micSound(): MicSound {
     trimSilence: !studio && prefs.bool("trimSilence", true),
     repairPackets: !studio && prefs.bool("repairPackets", true),
   };
+  for (const k of old) prefs.set(k, "");
+  prefs.set("micSound", JSON.stringify(m));
+  return m;
 }
+
+/** Go back to following the server's default. */
+export function useServerDefault() {
+  const before = micSound();
+  prefs.set("micSound", "");
+  reapplyMic(before, micSound());
+}
+
+/** What actually gets sent: your bitrate, capped at the server's maximum. */
+function sentBitrate(m = micSound()) {
+  return Math.min(m.bitrate, micLimits().max);
+}
+
+// the admin changed the default or maximum: anyone whose sent bitrate changes gets it right away
+useStore.subscribe((st, prev) => {
+  const a = st.config.media;
+  const b = prev.config.media;
+  if (a?.mic_default_kbps === b?.mic_default_kbps && a?.mic_max_kbps === b?.mic_max_kbps) return;
+  const chosen = (media: typeof a) => (prefs.get("micSound") ? micSound().bitrate : micLimits(media).def);
+  const now = Math.min(chosen(a), micLimits(a).max);
+  const was = Math.min(chosen(b), micLimits(b).max);
+  if (now !== was) reapplyMic({ ...micSound(), bitrate: -1 }, micSound());
+});
 
 let applyTimer: number | undefined;
 let applyFrom: MicSound | null = null;
@@ -197,7 +235,7 @@ function audioCapture() {
 /** How the mic is sent (see MicSound). */
 function micPublish() {
   const m = micSound();
-  return { forceStereo: m.stereo, dtx: m.trimSilence, red: m.repairPackets, audioPreset: { maxBitrate: m.bitrate } };
+  return { forceStereo: m.stereo, dtx: m.trimSilence, red: m.repairPackets, audioPreset: { maxBitrate: sentBitrate(m) } };
 }
 
 /** Turn the mic on/off, with our audio chain and push-to-talk applied. */
@@ -385,7 +423,7 @@ async function connect(channelId: string, rejoining: boolean) {
     audioCaptureDefaults: audioCapture(),
     videoCaptureDefaults: { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() },
     publishDefaults: {
-      audioPreset: { maxBitrate: micSound().bitrate },
+      audioPreset: { maxBitrate: sentBitrate() },
       dtx: micSound().trimSilence,
       red: micSound().repairPackets,
       videoCodec: "vp9",

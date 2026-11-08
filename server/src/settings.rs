@@ -23,7 +23,14 @@ pub struct ServerSettings {
     pub max_share: String,
     /// highest camera quality: 360p | 720p | 1080p | 2160p
     pub max_camera: String,
+    /// mic bitrate (kbps) for everyone who hasn't picked their own
+    pub mic_default_kbps: u32,
+    /// highest mic bitrate (kbps) anyone may send
+    pub mic_max_kbps: u32,
 }
+
+/// Opus bitrates offered in the apps (kbps).
+pub const MIC_KBPS: [u32; 20] = [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 510];
 
 impl ServerSettings {
     pub fn defaults(cfg: &crate::config::Config) -> Self {
@@ -36,6 +43,8 @@ impl ServerSettings {
             allow_server_recording: false,
             max_share: "native".into(),
             max_camera: "2160p".into(),
+            mic_default_kbps: 128,
+            mic_max_kbps: 510,
         }
     }
     pub fn max_upload_bytes(&self) -> u64 {
@@ -133,6 +142,12 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
     if !["360p", "720p", "1080p", "2160p"].contains(&s.max_camera.as_str()) {
         return Err(AppError::bad("max_camera must be 360p, 720p, 1080p or 2160p"));
     }
+    if !MIC_KBPS.contains(&s.mic_default_kbps) || !MIC_KBPS.contains(&s.mic_max_kbps) {
+        return Err(AppError::bad("mic bitrates must be one of 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 510"));
+    }
+    if s.mic_default_kbps > s.mic_max_kbps {
+        return Err(AppError::bad("the default mic bitrate can't be above the highest allowed"));
+    }
     s.bot_name = s.bot_name.trim().chars().take(32).collect();
     if s.bot_name.is_empty() {
         s.bot_name = "Llamble".into();
@@ -165,7 +180,7 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
         &json!({
             "max_upload_bytes": s.max_upload_bytes(),
             "guild_create": s.guild_create,
-            "media": { "max_share": s.max_share, "max_camera": s.max_camera },
+            "media": { "max_share": s.max_share, "max_camera": s.max_camera, "mic_default_kbps": s.mic_default_kbps, "mic_max_kbps": s.mic_max_kbps },
         }),
     );
     Ok(Json(json!({ "settings": s })))

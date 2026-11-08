@@ -1459,6 +1459,40 @@ function ServerConfig() {
         </select>
       </div>
 
+      <div className="perm-row">
+        <div>
+          <div className="bold">Voice, default bitrate</div>
+          <div className="muted small">What everyone's mic uses until they pick their own (Settings → Voice &amp; Video). Changes apply right away, even mid-call.</div>
+        </div>
+        <select value={f.mic_default_kbps ?? 128} onChange={(e) => set("mic_default_kbps", Number(e.target.value))} style={{ width: 200 }}>
+          {BITRATES.map((b) => b / 1000).map((k) => (
+            <option key={k} value={k} disabled={k > (f.mic_max_kbps ?? 510)}>
+              {k} kbps{k === 64 ? " (Discord's normal)" : k === 384 ? " (Discord's maximum)" : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Voice, highest bitrate</div>
+          <div className="muted small">Nobody's mic sends more than this, whatever they pick. Each talking person costs every listener about this much (twice that with repair packets on).</div>
+        </div>
+        <select
+          value={f.mic_max_kbps ?? 510}
+          onChange={(e) => {
+            const max = Number(e.target.value);
+            setF({ ...f, mic_max_kbps: max, mic_default_kbps: Math.min(f.mic_default_kbps ?? 128, max) });
+          }}
+          style={{ width: 200 }}
+        >
+          {BITRATES.map((b) => b / 1000).map((k) => (
+            <option key={k} value={k}>
+              {k} kbps{k === 510 ? " (Opus maximum, no limit)" : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="profile-section">AI bot</div>
       <label>
         Bot name
