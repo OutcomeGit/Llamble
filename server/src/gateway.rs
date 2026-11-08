@@ -51,7 +51,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
     let presences: Vec<Value> = related
         .iter()
         .filter(|u| state.hub.is_online(u) && status_of(state, u) != "invisible")
-        .map(|u| json!({ "user_id": u, "status": status_of(state, u) }))
+        .map(|u| json!({ "user_id": u, "status": status_of(state, u), "game": game_of(u) }))
         .collect();
     let voice: Vec<Value> = state
         .hub
@@ -87,6 +87,23 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
 }
 
 static STATUSES: once_cell::sync::Lazy<dashmap::DashMap<String, String>> = once_cell::sync::Lazy::new(Default::default);
+
+/// What each person is playing right now (Windows app game detection), shown as "Playing X".
+static GAMES: once_cell::sync::Lazy<dashmap::DashMap<String, String>> = once_cell::sync::Lazy::new(Default::default);
+
+fn game_of(uid: &str) -> Option<String> {
+    GAMES.get(uid).map(|g| g.clone())
+}
+
+async fn set_game(state: &Shared, uid: &str, game: Option<String>) {
+    let changed = match &game {
+        Some(g) => GAMES.insert(uid.to_string(), g.clone()).as_ref() != Some(g),
+        None => GAMES.remove(uid).is_some(),
+    };
+    if changed {
+        state.emit_related(uid, "ACTIVITY_UPDATE", &json!({ "user_id": uid, "game": game })).await;
+    }
+}
 
 fn status_of(_state: &Shared, uid: &str) -> String {
     STATUSES.get(uid).map(|s| s.clone()).unwrap_or_else(|| "online".into())
@@ -143,8 +160,20 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
                                 if ["online", "idle", "dnd", "invisible"].contains(&st) {
                                     STATUSES.insert(auth.id.clone(), st.to_string());
                                     let shown = if st == "invisible" { "offline" } else { st };
+                                    if st == "invisible" {
+                                        set_game(&state, &auth.id, None).await;
+                                    }
                                     state.emit_related(&auth.id, "PRESENCE_UPDATE", &json!({ "user_id": auth.id, "status": shown })).await;
                                 }
+                            }
+                            Some("activity") => {
+                                let game: Option<String> = v["game"]
+                                    .as_str()
+                                    .map(|g| g.trim().chars().filter(|c| !c.is_control()).take(80).collect::<String>())
+                                    .filter(|g| !g.is_empty());
+                                // invisible people don't announce what they're playing either
+                                let game = if status_of(&state, &auth.id) == "invisible" { None } else { game };
+                                set_game(&state, &auth.id, game).await;
                             }
                             Some("worker_register") => {
                                 if crate::bot::worker_eligible(&state, &auth.id).await {
@@ -200,6 +229,7 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(8)).await;
             if !st.hub.is_online(&uid) {
+                set_game(&st, &uid, None).await;
                 crate::api::voice::leave_voice(&st, &uid).await;
                 st.emit_related(&uid, "PRESENCE_UPDATE", &json!({ "user_id": uid, "status": "offline" })).await;
             }

@@ -13,6 +13,7 @@ import { useShows } from "../show";
 import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
+import { refreshGames, useGames } from "../games";
 
 interface TileSpec {
   key: string;
@@ -135,6 +136,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
         >
           <Icon name={v.screen ? "x" : "screen"} size={22} />
         </button>
+        <StreamGameButton />
         <OverlayButton />
         <button
           className={"call-btn" + (liveShow?.status === "recording" ? " rec" : showPanel ? " on" : "")}
@@ -279,10 +281,21 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const [quality, setQuality] = useState<ShareQuality>((localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30");
   useStore((s) => s.config.media); // re-check the server's limits when they change
 
+  const games = useGames((g) => g.list);
+  const gameIds = new Set(games.map((g) => g.sourceId).filter(Boolean) as string[]);
+
   useEffect(() => {
-    window.llambleNative?.getScreenSources().then((s) => {
+    Promise.all([window.llambleNative!.getScreenSources(), refreshGames()]).then(([s, gs]) => {
       setSources(s);
-      setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
+      // a game is open: start on its window, at 60 fps if the server allows
+      const game = gs.find((g) => g.sourceId && s.some((x) => x.id === g.sourceId));
+      if (game) {
+        setTab("window");
+        setPicked(game.sourceId);
+        setQuality((q) => gameQuality(q));
+      } else {
+        setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
+      }
     });
   }, []);
 
@@ -307,8 +320,10 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         {sources === null && <div className="muted">Loading…</div>}
         {sources
           ?.filter((s) => s.kind === tab)
+          .sort((a, b) => Number(gameIds.has(b.id)) - Number(gameIds.has(a.id)))
           .map((s) => (
             <div key={s.id} className={"source" + (picked === s.id ? " picked" : "")} onClick={() => setPicked(s.id)} onDoubleClick={go}>
+              {gameIds.has(s.id) && <span className="source-game">🎮 Game</span>}
               {s.thumbnail ? <img src={s.thumbnail} alt="" /> : <div className="source-blank" />}
               <div className="source-name ellipsis">
                 {s.icon && <img src={s.icon} alt="" width={16} />} {s.name}
@@ -340,6 +355,35 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** Games look best at 60 fps: keep the chosen size, raise the frame rate if the server allows it. */
+function gameQuality(q: ShareQuality): ShareQuality {
+  if (q === "native" || q.endsWith("p60")) return q;
+  const sixty = (q.replace("p30", "p60") as ShareQuality);
+  if (SHARE_ORDER.includes(sixty) && shareAllowed(sixty)) return sixty;
+  return shareAllowed("1080p60") ? "1080p60" : q;
+}
+
+/** One click: "Stream Roblox" — shares the game's window with its sound at 60 fps. */
+function StreamGameButton() {
+  const games = useGames((g) => g.list);
+  const v = useVoice();
+  const game = games.find((g) => g.sourceId);
+  if (!game || v.screen || !v.canVideo) return null;
+  return (
+    <button
+      className="call-btn stream-game"
+      title={`Stream ${game.name} (its window and sound, 60 fps)`}
+      onClick={() => {
+        const q = gameQuality((localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30");
+        startScreenShare(game.sourceId!, true, q);
+      }}
+    >
+      <Icon name="gamepad" size={20} />
+      <span className="ellipsis">Stream {game.name}</span>
+    </button>
   );
 }
 

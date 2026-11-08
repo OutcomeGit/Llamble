@@ -30,6 +30,8 @@ interface State {
   readStates: Record<string, string>;
   mentions: Record<string, number>;
   presences: Record<string, string>;
+  /** what each person is playing ("Playing X"), from the Windows app's game detection */
+  games: Record<string, string>;
   voiceStates: Record<string, VoiceState>;
   typing: Record<string, Record<string, number>>;
   selectedGuild: string; // guild id or "@me"
@@ -54,6 +56,7 @@ export const useStore = create<State>(() => ({
   readStates: {},
   mentions: {},
   presences: {},
+  games: {},
   voiceStates: {},
   typing: {},
   selectedGuild: localStorage.getItem("llamble.lastGuild") || "@me",
@@ -212,12 +215,16 @@ export function handleEvent(t: string, d: any) {
       const readStates: Record<string, string> = {};
       for (const r of d.read_states) readStates[r.channel_id] = r.last_read_id;
       const presences: Record<string, string> = {};
-      for (const p of d.presences) presences[p.user_id] = p.status;
+      const games: Record<string, string> = {};
+      for (const p of d.presences) {
+        presences[p.user_id] = p.status;
+        if (p.game) games[p.user_id] = p.game;
+      }
       presences[d.user.id] = localStorage.getItem("llamble.status") || "online";
       const voiceStates: Record<string, VoiceState> = {};
       for (const v of d.voice_states) voiceStates[v.user_id] = v;
       if (st.selectedGuild !== "@me" && !st.guilds[st.selectedGuild]) st.selectedGuild = st.guildOrder[0] || "@me";
-      set({ ...st, me: d.user, ready: true, readStates, presences, voiceStates, config: d.config, messages: {}, hasMore: {} });
+      set({ ...st, me: d.user, ready: true, readStates, presences, games, voiceStates, config: d.config, messages: {}, hasMore: {} });
       break;
     }
     case "GUILD_CREATE": {
@@ -370,9 +377,19 @@ export function handleEvent(t: string, d: any) {
     case "CONFIG_UPDATE":
       set({ config: { ...s.config, ...d } });
       break;
-    case "PRESENCE_UPDATE":
-      set({ presences: { ...s.presences, [d.user_id]: d.status } });
+    case "PRESENCE_UPDATE": {
+      const games = { ...s.games };
+      if (d.status === "offline") delete games[d.user_id];
+      set({ presences: { ...s.presences, [d.user_id]: d.status }, games });
       break;
+    }
+    case "ACTIVITY_UPDATE": {
+      const games = { ...s.games };
+      if (d.game) games[d.user_id] = d.game;
+      else delete games[d.user_id];
+      set({ games });
+      break;
+    }
     case "VOICE_STATE_UPDATE": {
       const v = { ...s.voiceStates };
       if (d.channel_id) v[d.user_id] = d;

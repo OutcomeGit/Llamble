@@ -172,8 +172,24 @@ function GuildBar() {
 
   return (
     <nav className="guildbar">
+      <button
+        className="guild-logo"
+        title={cfg.bot ? `Chat with ${cfg.bot.name}` : "Llamble"}
+        onClick={async () => {
+          if (!cfg.bot) return selectChannel("@me", null);
+          try {
+            const dm = await api("/api/bot/dm", { method: "POST" });
+            selectChannel("@me", dm.id);
+          } catch {
+            selectChannel("@me", null);
+          }
+        }}
+      >
+        <img src="./icon-192.png" alt="Llamble" draggable={false} />
+      </button>
+      <div className="guild-sep" />
       <button className={"guild-btn home" + (selected === "@me" ? " active" : "")} onClick={() => selectChannel("@me", null)} title="Direct Messages">
-        <Icon name="home" size={24} />
+        <Icon name="chat" size={22} />
         {unread["@me"]?.mentions ? <span className="badge">{unread["@me"].mentions}</span> : null}
       </button>
       <div className="guild-sep" />

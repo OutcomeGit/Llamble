@@ -41,5 +41,6 @@ run import LLAMBLE_IMPORT_DIR=$IMP LLAMBLE_LLAMA_BIN=$T/fake_llama_server.py -- 
 run voicebot LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk4.yaml LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 LLAMBLE_VOICE_MODELS_URL=http://127.0.0.1:8094 LLAMBLE_STT_BIN=$T/fake_stt.py LLAMBLE_TTS_BIN=$T/fake_tts.py FAKE_STT_MAP=/tmp/fake_stt_map.json -- voicebot_test.py http://127.0.0.1:8099
 run images LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 LLAMBLE_HF_ENDPOINT=http://127.0.0.1:8093 LLAMBLE_SD_BIN=$T/fake_sd.py -- images_test.py http://127.0.0.1:8099
 run presence_race -- presence_race_test.py http://127.0.0.1:8099
+run activity -- activity_test.py http://127.0.0.1:8099
 run login_guard LLAMBLE_BIND=0.0.0.0:8099 -- login_guard_test.py http://${LAN_IP:-127.0.0.1}:8099
 exit $FAIL

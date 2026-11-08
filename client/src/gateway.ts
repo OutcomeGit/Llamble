@@ -37,6 +37,7 @@ function open() {
     pingTimer = window.setInterval(() => sendGateway("ping"), 30000);
     const status = localStorage.getItem("llamble.status");
     if (status && status !== "online") sendGateway("presence", { status });
+    window.dispatchEvent(new Event("llamble:gateway-open"));
   };
   sock.onmessage = (e) => {
     try {

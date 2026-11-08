@@ -397,6 +397,7 @@ function Profile({ userId, guildId }: { userId: string; guildId: string | null }
   const roles = useStore((s) => (guildId ? s.roles[guildId] : undefined)) || [];
   const me = useStore((s) => s.me)!;
   const presence = useStore((s) => s.presences[userId]);
+  const game = useStore((s) => s.games[userId]);
   const manageRoles = guildId ? can(guildId, P.MANAGE_ROLES) : false;
   if (!user) return null;
   const toggleRole = (rid: string, has: boolean) =>
@@ -422,6 +423,11 @@ function Profile({ userId, guildId }: { userId: string; guildId: string | null }
         </h2>
         <div className="muted">@{user.username}{user.is_admin ? " · server admin" : ""}</div>
         <div className="muted small">{user.is_bot ? "AI assistant (llama.cpp)" : presence && presence !== "offline" ? presence : "offline"}</div>
+        {game && presence && presence !== "offline" && (
+          <div className="playing" style={{ marginTop: 6 }}>
+            🎮 Playing <b>{game}</b>
+          </div>
+        )}
         {member && (
           <>
             <div className="profile-section">Member since</div>

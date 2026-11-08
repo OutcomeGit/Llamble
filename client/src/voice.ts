@@ -1,10 +1,11 @@
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
-  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalVideoTrack, type RemoteTrackPublication,
+  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
 } from "livekit-client";
 import { create } from "zustand";
 import { api } from "./api";
 import { sounds } from "./sounds";
+import { needsBackup, pickCodec, useEncoder, verifyEncoder, type VideoKind } from "./encoder";
 import { onEvent, useStore } from "./store";
 
 export interface VoiceUI {
@@ -325,9 +326,17 @@ export async function toggleCamera() {
   if (!room) return;
   const on = !vget().camera;
   try {
-    await room.localParticipant.setCameraEnabled(on, { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() }, { videoSimulcastLayers: cameraLayers() });
+    const codec = on ? await pickCodec("camera") : "vp8";
+    await room.localParticipant.setCameraEnabled(
+      on,
+      { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() },
+      { videoSimulcastLayers: cameraLayers(), videoCodec: codec, backupCodec: needsBackup(codec) },
+    );
     vset({ camera: on });
-    if (on) syncCameraFx();
+    if (on) {
+      syncCameraFx();
+      watchEncoder("camera", codec);
+    } else useEncoder.setState({ camera: undefined });
   } catch (e: any) {
     vset({ error: "Camera unavailable: " + e.message });
   }
@@ -400,10 +409,12 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
   const p = sharePreset(quality);
   // People with smaller screens or slower connections get a lighter copy: VP9 sends
   // layers inside one stream; H.264 (Chromebooks) sends separate smaller copies.
+  const codec = await pickCodec("screen");
   const layers =
     p.height > 1080
       ? [new VideoPreset(1280, 720, 1_500_000, 15), new VideoPreset(1920, 1080, 4_000_000, Math.min(30, p.fps))]
       : [new VideoPreset(1280, 720, 1_200_000, 15)];
+  screenOpts = { screenShareEncoding: { maxBitrate: p.bitrate, maxFramerate: p.fps }, screenShareSimulcastLayers: layers };
   try {
     await room.localParticipant.setScreenShareEnabled(
       true,
@@ -414,14 +425,10 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
         selfBrowserSurface: "exclude",
         systemAudio: audio ? "include" : "exclude",
       },
-      // Chromebooks encode H.264 in hardware; their VP9 encoder can send black frames
-      {
-        screenShareEncoding: { maxBitrate: p.bitrate, maxFramerate: p.fps },
-        screenShareSimulcastLayers: layers,
-        videoCodec: isChromeOS() ? "h264" : "vp9",
-        backupCodec: true,
-      },
+      // AV1/H.264 on the graphics card when it can, else VP9 (see encoder.ts)
+      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec) },
     );
+    watchEncoder("screen", codec);
     vset({ screen: true, pickerOpen: false });
     const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
     if (t) watchForBlack(t);
@@ -430,6 +437,35 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
   }
   syncServerState();
   bump();
+}
+
+let screenOpts: Record<string, unknown> = {};
+
+/**
+ * A few seconds after publishing, look at what's really encoding the video. If an
+ * automatically chosen hardware codec ended up on the CPU, send the same video again
+ * with the next codec (viewers see a short blip, nothing to click).
+ */
+async function watchEncoder(kind: VideoKind, codec: VideoCodec) {
+  const r = room;
+  const source = kind === "camera" ? Track.Source.Camera : Track.Source.ScreenShare;
+  const track = r?.localParticipant.getTrackPublication(source)?.track as LocalVideoTrack | undefined;
+  if (!r || !track) return;
+  const next = await verifyEncoder(kind, track, codec);
+  if (!next || room !== r || r.localParticipant.getTrackPublication(source)?.track !== track) return;
+  console.info(`[llamble] ${codec} was encoding on the CPU; switching ${kind} to ${next}`);
+  try {
+    await r.localParticipant.unpublishTrack(track, false);
+    await r.localParticipant.publishTrack(track, {
+      source,
+      ...(kind === "camera" ? { videoSimulcastLayers: cameraLayers() } : screenOpts),
+      videoCodec: next,
+      backupCodec: needsBackup(next),
+    });
+    watchEncoder(kind, next);
+  } catch (e) {
+    console.warn("codec switch failed", e);
+  }
 }
 
 function isChromeOS(): boolean {
@@ -471,6 +507,7 @@ export async function stopScreenShare() {
   if (!room) return;
   await room.localParticipant.setScreenShareEnabled(false).catch(() => {});
   vset({ screen: false });
+  useEncoder.setState({ screen: undefined });
   syncServerState();
   bump();
 }

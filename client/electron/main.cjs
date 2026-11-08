@@ -224,6 +224,7 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   llm.init((channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); });
+  games.init(app, (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); });
   require("./images.cjs").init((channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); });
 
   setupAutoUpdate();
@@ -236,7 +237,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 
@@ -268,6 +269,14 @@ ipcMain.handle("is-focused", () => !!(win && win.isFocused() && win.isVisible())
 ipcMain.handle("app-version", () => app.getVersion());
 ipcMain.on("quit", () => { quitting = true; app.quit(); });
 ipcMain.on("set-autostart", (_e, on) => app.setLoginItemSettings({ openAtLogin: !!on, args: ["--hidden"] }));
+
+// ---- game detection ----
+const games = require("./games.cjs");
+ipcMain.handle("games-current", () => games.poll());
+ipcMain.handle("games-running", () => games.running());
+ipcMain.handle("games-custom", () => games.custom());
+ipcMain.handle("games-mark", (_e, exe, name) => games.mark(exe, name));
+ipcMain.handle("games-reset", (_e, exe) => games.reset(exe));
 
 // ---- local AI (llama.cpp) ----
 ipcMain.handle("llm-gpus", () => llm.detectGpus(app));

@@ -178,6 +178,14 @@ export const PERM_LABELS: [number, string, string][] = [
   [P.ADMINISTRATOR, "Administrator", "Every permission. Grant carefully."],
 ];
 
+export interface DetectedGame {
+  name: string;
+  exe: string;
+  title: string;
+  /** desktop capture id of the game's window ("window:<hwnd>:0") */
+  sourceId: string | null;
+}
+
 declare global {
   interface Window {
     llambleNative?: {
@@ -197,6 +205,15 @@ declare global {
       installUpdate: () => void;
       checkUpdate?: () => void;
       onUpdateStatus?: (cb: (s: { state: string; percent?: number; message?: string }) => void) => () => void;
+      /** game detection (Windows app; older versions don't have it) */
+      games?: {
+        current: () => Promise<DetectedGame[]>;
+        running: () => Promise<{ exe: string; title: string; game: string | null }[]>;
+        custom: () => Promise<{ games: Record<string, string>; ignored: Record<string, boolean> }>;
+        mark: (exe: string, name: string | null) => Promise<{ games: Record<string, string>; ignored: Record<string, boolean> }>;
+        reset: (exe: string) => Promise<{ games: Record<string, string>; ignored: Record<string, boolean> }>;
+        on: (cb: (g: DetectedGame[]) => void) => () => void;
+      };
       /** Windows app overlay (older app versions don't have it) */
       overlay?: {
         set: (o: { show: boolean; hideWhenFocused: boolean }) => void;

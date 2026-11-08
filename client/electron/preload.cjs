@@ -16,6 +16,18 @@ contextBridge.exposeInMainWorld("llambleNative", {
     ipcRenderer.on("hotkey", h);
     return () => ipcRenderer.removeListener("hotkey", h);
   },
+  games: {
+    current: () => ipcRenderer.invoke("games-current"),
+    running: () => ipcRenderer.invoke("games-running"),
+    custom: () => ipcRenderer.invoke("games-custom"),
+    mark: (exe, name) => ipcRenderer.invoke("games-mark", exe, name),
+    reset: (exe) => ipcRenderer.invoke("games-reset", exe),
+    on: (cb) => {
+      const h = (_e, g) => cb(g);
+      ipcRenderer.on("games-update", h);
+      return () => ipcRenderer.removeListener("games-update", h);
+    },
+  },
   llm: {
     gpus: () => ipcRenderer.invoke("llm-gpus"),
     start: (cfg) => ipcRenderer.invoke("llm-start", cfg),

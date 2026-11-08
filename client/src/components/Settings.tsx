@@ -1,3 +1,5 @@
+import { GamesSettings } from "./Games";
+import { CODEC_LABELS, clearBad, codecChoice, describe, hardwareEncoders, setCodecChoice, useEncoder, type CodecChoice } from "../encoder";
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, setWidget, useOverlayPrefs, usePopout, type WidgetId } from "../overlay";
 import { useShallow } from "zustand/react/shallow";
 import React, { useEffect, useRef, useState } from "react";
@@ -489,6 +491,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "ai", label: "Lend My GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
         { id: "overlay", label: "Overlay" },
+        { id: "games", label: "Games", hidden: !window.llambleNative?.games },
         { id: "recordings", label: "Recordings" },
         { id: "sessions", label: "Devices" },
         { id: "family", label: "Family", hidden: !!me.is_kid },
@@ -507,6 +510,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "ai" && <AiSettings />}
       {tab === "notifications" && <NotifSettings />}
       {tab === "overlay" && <OverlaySettings />}
+      {tab === "games" && <GamesSettings />}
       {tab === "recordings" && <Recordings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
@@ -709,6 +713,7 @@ function VoiceSettings() {
           <option value="256000">256 kbps (music)</option>
         </select>
       </label>
+      <EncoderSetting />
       {flag("noiseSuppression", "Noise suppression", "Filter background noise (keyboard, fans)")}
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}
@@ -723,6 +728,49 @@ function VoiceSettings() {
       <div className="profile-section">Camera effects</div>
       <CameraFxPicker preview />
     </div>
+  );
+}
+
+function EncoderSetting() {
+  const [choice, setChoice] = useState<CodecChoice>(codecChoice());
+  const enc = useEncoder();
+  useEffect(() => {
+    hardwareEncoders();
+  }, []);
+  const hw = enc.hw;
+  const hwText = hw
+    ? Object.entries(hw)
+        .filter(([, v]) => v)
+        .map(([k]) => k.toUpperCase())
+        .join(", ") || "none found (video is encoded on the CPU)"
+    : "checking…";
+  return (
+    <>
+      <label>
+        Video encoder (camera and screen share)
+        <select
+          value={choice}
+          onChange={(e) => {
+            const c = e.target.value as CodecChoice;
+            setChoice(c);
+            setCodecChoice(c);
+            clearBad();
+          }}
+        >
+          {(Object.keys(CODEC_LABELS) as CodecChoice[]).map((c) => (
+            <option key={c} value={c}>
+              {CODEC_LABELS[c]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted small" style={{ marginTop: -6 }}>
+        Hardware encoders on this {window.llambleNative ? "PC" : "device"}: {hwText}.
+        {enc.screen && <> Screen share: {describe(enc.screen)}.</>}
+        {enc.camera && <> Camera: {describe(enc.camera)}.</>} Viewers who can't play AV1 or VP9 automatically get a backup copy. Takes effect the next
+        time you start your camera or a share.
+      </p>
+    </>
   );
 }
 

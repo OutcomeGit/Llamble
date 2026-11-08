@@ -8,6 +8,7 @@ export function MemberList({ guildId }: { guildId: string }) {
   const members = useStore((s) => s.members[guildId]);
   const roles = useStore((s) => s.roles[guildId]);
   const presences = useStore((s) => s.presences);
+  const games = useStore((s) => s.games);
   const list = Object.values(members || {});
   const hoisted = [...(roles || [])].filter((r) => r.hoist && r.id !== guildId).sort((a, b) => b.position - a.position);
 
@@ -41,9 +42,16 @@ export function MemberList({ guildId }: { guildId: string }) {
               onContextMenu={(e) => userMenu(e, m.user.id, guildId)}
             >
               <Avatar user={m.user} size={32} status />
-              <span className="ellipsis" style={{ color: roleColor(guildId, m.user.id) }}>
-                {memberName(guildId, m.user)}
-              </span>
+              <div className="member-text">
+                <span className="ellipsis" style={{ color: roleColor(guildId, m.user.id) }}>
+                  {memberName(guildId, m.user)}
+                </span>
+                {games[m.user.id] && online(m) && (
+                  <span className="playing ellipsis" title={`Playing ${games[m.user.id]}`}>
+                    Playing <b className="ellipsis">{games[m.user.id]}</b>
+                  </span>
+                )}
+              </div>
               {m.user.is_bot && <BotTag />}
             </div>
           ))}

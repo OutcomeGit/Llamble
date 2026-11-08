@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { EmailResetLanding } from "./components/Recovery";
 import { api, session, setSession } from "./api";
 import { initAiWorker } from "./aiWorker";
+import { startGameDetection } from "./games";
 import { connectGateway, disconnectGateway } from "./gateway";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -60,6 +61,7 @@ export default function App() {
     if (!token) return;
     connectGateway();
     initAiWorker();
+    startGameDetection();
     return () => disconnectGateway();
   }, [token]);
 
