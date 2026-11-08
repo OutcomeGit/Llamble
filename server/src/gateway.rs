@@ -93,22 +93,32 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
     let (mut sink, mut stream) = sock.split();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
-    let ready = match ready_payload(&state, &auth).await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("ready failed: {e:#}");
-            let _ = sink.close().await;
-            return;
-        }
-    };
-    if sink.send(WsMsg::Text(json!({ "t": "READY", "d": ready }).to_string().into())).await.is_err() {
-        return;
-    }
+    // Register before taking the READY snapshot: anything that happens while READY is
+    // being built (someone else coming online, joining voice...) is queued on `tx` and
+    // delivered right after it. Registering afterwards lost those events, which is why
+    // people could be missing from lists after everyone reconnected at once (restarts).
     let worker_tx = tx.clone();
     let (conn_id, first) = state.hub.register(&auth.id, tx);
     if first {
         let status = status_of(&state, &auth.id);
         state.emit_related(&auth.id, "PRESENCE_UPDATE", &json!({ "user_id": auth.id, "status": status })).await;
+    }
+    let ready = match ready_payload(&state, &auth).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("ready failed: {e:#}");
+            let _ = sink.close().await;
+            if state.hub.unregister(&auth.id, conn_id) {
+                state.emit_related(&auth.id, "PRESENCE_UPDATE", &json!({ "user_id": auth.id, "status": "offline" })).await;
+            }
+            return;
+        }
+    };
+    if sink.send(WsMsg::Text(json!({ "t": "READY", "d": ready }).to_string().into())).await.is_err() {
+        if state.hub.unregister(&auth.id, conn_id) {
+            state.emit_related(&auth.id, "PRESENCE_UPDATE", &json!({ "user_id": auth.id, "status": "offline" })).await;
+        }
+        return;
     }
 
     let mut last_seen = Instant::now();

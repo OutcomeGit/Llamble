@@ -628,3 +628,5 @@ html:has(body.overlay-window) { background: transparent !important; }
 .ov-editbar b { white-space: nowrap; }
 .ov-editbar input[type="range"] { width: 110px; }
 .ov-editbar label, .ov-check { text-transform: none; letter-spacing: 0; font-size: 14px; color: #dde; white-space: nowrap; }
+.voice-alert.sharing { background: #2b2d31; color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.call-btn.on[title^="Stop sharing"] { background: #da373c; color: #fff; }

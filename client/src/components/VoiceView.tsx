@@ -50,6 +50,14 @@ export function VoiceView({ channel }: { channel: Channel }) {
         <span className="chat-title">{channel.name}</span>
         <span className={"voice-label " + v.status}>{v.status === "connected" ? "Connected" : v.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</span>
       </header>
+      {v.screen && (
+        <div className="voice-alert sharing">
+          <span>🔴 You're sharing your screen</span>
+          <button className="btn small red" onClick={stopScreenShare}>
+            Stop sharing
+          </button>
+        </div>
+      )}
       {v.audioBlocked && (
         <button className="voice-alert clickable" onClick={enableAudio}>
           🔇 Your browser paused call sound. <b>Click here to hear everyone.</b>
@@ -89,9 +97,9 @@ export function VoiceView({ channel }: { channel: Channel }) {
           className={"call-btn" + (v.screen ? " on" : "")}
           disabled={!v.canVideo}
           onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, "1080p30"))}
-          title="Share screen"
+          title={v.screen ? "Stop sharing your screen" : "Share screen"}
         >
-          <Icon name="screen" size={22} />
+          <Icon name={v.screen ? "x" : "screen"} size={22} />
         </button>
         <OverlayButton />
         <button className={"call-btn" + (v.muted ? " off" : "")} onClick={toggleMute} title="Mute">

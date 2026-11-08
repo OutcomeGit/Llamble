@@ -475,3 +475,19 @@ export async function enableAudio() {
   } catch {}
   vset({ audioBlocked: !room.canPlaybackAudio });
 }
+
+// After the gateway reconnects (server restart/update), make sure the server still
+// lists us in our voice channel; if it forgot, announce ourselves again so everyone
+// sees us in the channel list.
+onEvent((t, d) => {
+  if (t !== "READY") return;
+  const s = vget();
+  if (!room || s.status !== "connected" || !s.channelId) return;
+  const meId = d?.user?.id;
+  const listed = (d?.voice_states || []).some((v: any) => v.user_id === meId && v.channel_id === s.channelId);
+  if (!listed) {
+    api(`/api/channels/${s.channelId}/voice`, { method: "POST" })
+      .then(() => syncServerState())
+      .catch(() => {});
+  }
+});
