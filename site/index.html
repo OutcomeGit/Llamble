@@ -119,7 +119,12 @@
       <div class="note">Every Llamble server has its own web address. If someone invited you, just open their invite link; it takes you to the right place.</div>
     </div>
     <div class="cards" style="grid-template-columns:1fr">
-      <a class="btn primary" style="justify-content:center" href="https://chat.llamble.com">Open chat.llamble.com</a>
+      <form class="card" onsubmit="event.preventDefault();var a=this.addr.value.trim().replace(/\/+$/,'');if(!a)return;if(!/^https?:\/\//i.test(a))a='https://'+a;location.href=a;">
+        <h3 style="margin-top:0">Go to your server</h3>
+        <p>Type the address your server's owner gave you.</p>
+        <input name="addr" placeholder="chat.example.com" autocomplete="url" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #444;background:#111;color:#fff;font-size:16px;box-sizing:border-box">
+        <button class="btn primary" style="justify-content:center;width:100%;margin-top:10px" type="submit">Open</button>
+      </form>
     </div>
   </div>
 </section>
