@@ -414,6 +414,21 @@ export function KidChats({ kidId, name }: { kidId: string; name: string }) {
   const open = async (id: string, label: string) => {
     setSel({ id, label });
     setMsgs(null);
+    if (id === "__calls") {
+      // what was said in voice calls (saved only for kids), shaped like messages
+      const lines = await api(`/api/kids/${kidId}/calls`).catch(() => []);
+      setMsgs(
+        lines.map((l: any, i: number) => ({
+          id: "c" + i,
+          author: { id: l.speaker_id, display_name: l.speaker + (l.channel_name ? `  · 🔊 ${l.channel_name}` : "") },
+          content: l.text,
+          created_at: l.at,
+          attachments: [],
+        })),
+      );
+      setMore(false);
+      return;
+    }
     const m = await api(`/api/channels/${id}/messages?limit=100`);
     setMsgs(m);
     setMore(m.length === 100);
@@ -438,6 +453,10 @@ export function KidChats({ kidId, name }: { kidId: string; name: string }) {
           {!list && <div className="muted">Loading…</div>}
           {list && (
             <>
+              <div className="profile-section">Voice calls</div>
+              <button className={"role-item" + (sel?.id === "__calls" ? " on" : "")} onClick={() => open("__calls", "What was said in voice calls")}>
+                🔊 Call transcripts
+              </button>
               <div className="profile-section">Direct messages</div>
               {list.dms.length === 0 && <div className="muted small">None</div>}
               {list.dms.map((d) => {

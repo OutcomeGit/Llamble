@@ -48,6 +48,10 @@ pub async fn broadcast_voice(state: &Shared, channel_id: &str, payload: Value) {
 
 pub async fn leave_voice(state: &Shared, user_id: &str) {
     if let Some((_, vs)) = state.hub.voice.remove(user_id) {
+        // last one out: Llamble forgets what was said in this call
+        if !state.hub.voice.iter().any(|v| v.channel_id == vs.channel_id) {
+            crate::voicebot::forget_channel(&vs.channel_id);
+        }
         broadcast_voice(state, &vs.channel_id, json!({ "user_id": user_id, "channel_id": null, "guild_id": vs.guild_id })).await;
     }
 }

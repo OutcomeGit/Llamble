@@ -16,6 +16,7 @@ mod shows;
 mod soundboard;
 mod state;
 mod voice_server;
+mod voicebot;
 
 use crate::error::{invite_code, now_ms};
 use crate::state::{AppState, Hub, Shared};
@@ -80,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
 
     shows::migrate(&state.db).await?;
     soundboard::migrate(&state.db).await?;
+    voicebot::migrate(&state.db).await?;
     settings::load_into_cache(&state).await;
     // once: give servers made before role presets existed the standard roles
     let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'presets_v1'").fetch_optional(&state.db).await?;
@@ -93,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
     bootstrap(&state).await?;
     tokio::spawn(janitor(state.clone()));
     tokio::spawn(ai::boot(state.clone()));
+    voicebot::boot(state.clone());
 
     let mut app = api::router(state.clone());
     if let Ok(web) = std::env::var("LLAMBLE_WEB_DIR") {

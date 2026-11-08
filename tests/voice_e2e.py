@@ -91,5 +91,33 @@ with sync_playwright() as p:
     px = open("/tmp/frame.raw", "rb").read()
     assert len(set(px)) > 8, "recorded frame is blank"
     print(f"show recorded: {mine[0]['size'] // 1000} KB of 1080p video with sound, visible to the other person in it")
+
+    # ---- "Hey Llamble" with the real speech tools in the image (Whisper tiny + Kokoro)
+    ok(requests.put(B + "/api/admin/voice-ai", headers=TA, json={"enabled": True, "stt": "whisper-tiny.en"}))
+    def voice_ready():
+        x = ok(requests.get(B + "/api/admin/voice-ai", headers=TA))["status"]
+        if x.get("error"): raise SystemExit("voice models: " + x["error"])
+        return x["stt"] == "ready" and x["tts"] == "ready"
+    wait(voice_ready, 600, "voice models downloaded")
+    print("voice models downloaded")
+    ok(requests.patch(B + f"/api/guilds/{gid}/bot", headers=TA, json={"enabled": True}))
+    ok(requests.put(B + f"/api/guilds/{gid}/voice-listen", headers=TA, json={"voice_listen": True}))
+    t0 = time.time()
+    said = requests.post(B + "/api/admin/voice-ai/preview", headers=TA, json={"text": "Hey Llamble, what is two plus two?"})
+    assert said.status_code == 200 and said.content[:4] == b"RIFF", (said.status_code, said.text[:300])
+    print(f"Kokoro spoke a sentence in {time.time() - t0:.1f}s ({len(said.content) // 1000} KB)")
+    open("/tmp/q.wav", "wb").write(said.content)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", "/tmp/q.wav", "-ac", "1", "-ar", "16000", "-f", "s16le", "/tmp/q.pcm"], check=True)
+    wsb = create_connection(B.replace("http", "ws") + "/api/gateway?access_token=" + b["token"]); wsb.recv(); wsb.settimeout(1)
+    ok(requests.post(B + f"/api/channels/{vc}/listen", headers=TA, data=open("/tmp/q.pcm", "rb").read()))
+    end, heard = time.time() + 120, None
+    while time.time() < end and not heard:
+        try:
+            m = json.loads(wsb.recv())
+            if m["t"] == "BOT_SPEAK": heard = m["d"]
+        except Exception: pass
+    assert heard, "Llamble didn't hear 'Hey Llamble' (speech recognition or wake word failed)"
+    print("Whisper heard the question; Llamble answered out loud:", heard["text"][:80], "| audio:", bool(heard["audio_url"]))
+    assert heard["audio_url"], heard
     br.close()
 print("ALL VOICE E2E OK")

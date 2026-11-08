@@ -14,6 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
 import { CameraFxPicker } from "./CameraFx";
+import { GuildVoiceListen, VoiceAiAdmin } from "./VoiceAi";
 import { Recordings } from "./Show";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
@@ -425,6 +426,7 @@ function BotSettings({ guildId }: { guildId: string }) {
         </div>
         <Toggle on={s.enabled} onChange={(v) => save({ enabled: v })} />
       </div>
+      <GuildVoiceListen guildId={guildId} botEnabled={s.enabled} value={!!s.voice_listen} onChange={(v) => setS({ ...s, voice_listen: v })} />
       <label>
         Personality / instructions
         <textarea
@@ -460,7 +462,7 @@ function BotSettings({ guildId }: { guildId: string }) {
           <div className={"backend " + (status.server_backend ? "ok" : "off")}>
             <Icon name="cpu" size={16} /> Server llama.cpp {status.server_backend ? "(fallback, configured)" : "— not configured (set LLAMBLE_LLAMA_URL)"}
           </div>
-          {!backends && <div className="form-error">No model available right now. Lend a GPU from User Settings → AI &amp; GPU, or configure the server model.</div>}
+          {!backends && <div className="form-error">No model available right now. Lend a GPU from My Settings → Lend My GPU, or configure the server model.</div>}
           <p className="muted small">
             Lent GPUs are tried first (most free VRAM), then the server. GPU lending is limited to {status.worker_policy === "members" ? "any member" : "instance admins"}; a lent GPU only receives conversations from channels its owner can already read.
           </p>
@@ -517,6 +519,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
           <ModelPicker />
           <ServerModels />
           <GpuSharing />
+          <VoiceAiAdmin />
         </div>
       )}
       {tab === "logout" && (
@@ -707,6 +710,10 @@ function VoiceSettings() {
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}
       <p className="muted small">Changes to processing apply the next time you join voice. Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
+      <label>
+        Llamble's voice volume (in calls)
+        <input type="range" min={0} max={1} step={0.05} defaultValue={prefs.get("botVolume", "1")} onChange={(e) => set("botVolume", e.target.value)} />
+      </label>
       <div className="profile-section">Camera effects</div>
       <CameraFxPicker preview />
     </div>
@@ -1197,7 +1204,7 @@ function GpuSharing() {
     <div>
       <h2 style={{ marginTop: 28 }}>GPU sharing</h2>
       <p className="muted small">
-        Members can offer their graphics card from their app (User Settings → AI &amp; GPU). The bot always uses the <b>best available</b> one, switches when its owner starts using
+        Members can offer their graphics card from their app (My Settings → Lend My GPU). The bot always uses the <b>best available</b> one, switches when its owner starts using
         their PC, starts a game, or logs off, and falls back to this server's own model when none are free.
       </p>
       <div className="perm-row">

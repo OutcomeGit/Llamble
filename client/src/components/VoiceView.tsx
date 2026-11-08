@@ -10,6 +10,7 @@ import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
 import { DirectorPanel, ShowBanner, StartShow } from "./Show";
 import { useShows } from "../show";
+import { listeningIn, useBotVoice } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
 
@@ -100,6 +101,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
         </div>
       )}
       <ShowBanner onDirect={() => setShowPanel("director")} />
+      <LlambleVoice channel={channel} />
       <SoundboardTicker guildId={channel.guild_id} />
       <div className="call-controls">
         {showPanel === "start" && !liveShow && <StartShow channelId={channel.id} onClose={() => setShowPanel(null)} />}
@@ -326,5 +328,42 @@ function OverlayButton() {
     >
       <Icon name="expand" size={22} />
     </button>
+  );
+}
+
+/** "Llamble is listening" + the first-time notice + what Llamble is saying. */
+function LlambleVoice({ channel }: { channel: Channel }) {
+  useStore((s) => s.config);
+  const bot = useStore((s) => s.config.bot?.name || "Llamble");
+  const notice = useStore((s) => (s.config as any).voice_ai?.notice as string | undefined);
+  const { thinking, caption } = useBotVoice();
+  const [, force] = useState(0);
+  if (!listeningIn(channel.id)) return null;
+  const key = "llamble.voiceNotice." + channel.guild_id;
+  const seen = localStorage.getItem(key) === "1";
+  return (
+    <>
+      {!seen && notice && (
+        <div className="voice-alert listen-notice">
+          <div>
+            <b>👂 {bot} is listening in this server's calls.</b> {notice}
+          </div>
+          <button className="btn small" onClick={() => (localStorage.setItem(key, "1"), force((n) => n + 1))}>
+            Got it
+          </button>
+        </div>
+      )}
+      <div className="listen-row">
+        <span className="listen-badge" title={`Say "Hey ${bot}" and ask anything out loud`}>
+          👂 {bot} is listening · say “Hey {bot}”
+        </span>
+        {thinking && !caption && <span className="listen-thinking">{bot} is thinking…</span>}
+      </div>
+      {caption && (
+        <div className="bot-caption">
+          <b>🦙 {bot}:</b> {caption.text}
+        </div>
+      )}
+    </>
   );
 }

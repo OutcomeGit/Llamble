@@ -717,3 +717,10 @@ body.pop-body > .pop { height: 100vh; }
 .director-preview { width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: #000; display: block; }
 .recording { padding: 12px 0; border-bottom: 1px solid #2b2d31; }
 .recording-video { width: 100%; max-height: 360px; background: #000; border-radius: 8px; margin-top: 8px; }
+
+/* ---------- talking with Llamble ---------- */
+.listen-row { display: flex; gap: 10px; align-items: center; margin: 8px 16px 0; font-size: 13px; }
+.listen-badge { background: #1f3a2a; color: #9be3b4; padding: 3px 10px; border-radius: 12px; }
+.listen-thinking { color: #b5bac1; font-style: italic; animation: rec-pulse 1.4s infinite; }
+.voice-alert.listen-notice { background: #1f2a3a; color: #dbe6f5; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.bot-caption { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); max-width: min(720px, 90%); background: rgba(10, 10, 14, 0.85); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 16px; line-height: 1.4; z-index: 5; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }

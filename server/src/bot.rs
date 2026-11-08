@@ -67,23 +67,26 @@ pub struct BotSettings {
     pub enabled: bool,
     pub system_prompt: String,
     pub always_channels: Vec<String>,
+    /// "Hey Llamble" in this server's voice channels
+    pub voice_listen: bool,
 }
 
 pub async fn settings(state: &Shared, guild_id: &str) -> BotSettings {
-    let row: Option<(bool, String, String)> =
-        sqlx::query_as("SELECT enabled, system_prompt, always_channels FROM bot_settings WHERE guild_id = ?")
+    let row: Option<(bool, String, String, bool)> =
+        sqlx::query_as("SELECT enabled, system_prompt, always_channels, voice_listen FROM bot_settings WHERE guild_id = ?")
             .bind(guild_id)
             .fetch_optional(&state.db)
             .await
             .ok()
             .flatten();
     match row {
-        Some((enabled, system_prompt, ch)) => BotSettings {
+        Some((enabled, system_prompt, ch, voice_listen)) => BotSettings {
             enabled,
             system_prompt,
             always_channels: serde_json::from_str(&ch).unwrap_or_default(),
+            voice_listen,
         },
-        None => BotSettings { enabled: false, system_prompt: String::new(), always_channels: vec![] },
+        None => BotSettings { enabled: false, system_prompt: String::new(), always_channels: vec![], voice_listen: false },
     }
 }
 
@@ -92,6 +95,7 @@ fn settings_json(state: &Shared, s: &BotSettings) -> Value {
         "enabled": s.enabled,
         "system_prompt": s.system_prompt,
         "always_channels": s.always_channels,
+        "voice_listen": s.voice_listen,
         "bot_user_id": state.bot_id,
         "bot_name": state.s().bot_name,
     })
@@ -123,11 +127,12 @@ pub async fn update_settings(State(state): State<Shared>, auth: AuthUser, Path(g
     if let Some(c) = req.always_channels {
         s.always_channels = c.into_iter().take(50).collect();
     }
-    sqlx::query("INSERT OR REPLACE INTO bot_settings (guild_id, enabled, system_prompt, always_channels) VALUES (?,?,?,?)")
+    sqlx::query("INSERT OR REPLACE INTO bot_settings (guild_id, enabled, system_prompt, always_channels, voice_listen) VALUES (?,?,?,?,?)")
         .bind(&gid)
         .bind(s.enabled)
         .bind(&s.system_prompt)
         .bind(serde_json::to_string(&s.always_channels).unwrap())
+        .bind(s.voice_listen)
         .execute(&state.db)
         .await?;
     if s.enabled && !was {
@@ -136,6 +141,9 @@ pub async fn update_settings(State(state): State<Shared>, auth: AuthUser, Path(g
         let members = crate::state::guild_member_ids(&state.db, &gid).await;
         sqlx::query("DELETE FROM members WHERE guild_id = ? AND user_id = ?").bind(&gid).bind(&state.bot_id).execute(&state.db).await?;
         state.hub.send_users(&members, "GUILD_MEMBER_REMOVE", &json!({ "guild_id": gid, "user_id": state.bot_id }));
+    }
+    if s.enabled != was {
+        crate::voicebot::announce_config(&state).await;
     }
     let v = settings_json(&state, &s);
     state.emit_guild(&gid, "BOT_SETTINGS_UPDATE", &json!({ "guild_id": gid, "settings": v })).await;
@@ -538,6 +546,8 @@ struct Writer {
     message_id: Option<String>,
     last_flush: Instant,
     last_sent: String,
+    /// collect the reply without posting it (voice answers)
+    silent: bool,
 }
 
 impl Writer {
@@ -549,6 +559,9 @@ impl Writer {
     }
 
     async fn flush(&mut self) {
+        if self.silent {
+            return;
+        }
         let text = visible_text(&self.raw, &self.state.s().bot_name);
         if text.is_empty() || text == self.last_sent {
             return;
@@ -741,6 +754,7 @@ async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<
         message_id: None,
         last_flush: Instant::now(),
         last_sent: String::new(),
+        silent: false,
     };
 
     let mut result: Option<Outcome> = None;
@@ -817,5 +831,42 @@ mod tests {
     fn date() {
         assert_eq!(civil_date(0), "1970-01-01");
         assert_eq!(civil_date(1_762_473_600_000), "2025-11-07");
+    }
+}
+
+/// Run a prompt on the best available model (a lent GPU whose owner can see `ch`, else the
+/// server's own) and return the whole reply. Used for spoken answers in voice channels.
+pub async fn complete(state: &Shared, ch: &Channel, messages: &[Value]) -> anyhow::Result<String> {
+    let mut w = Writer {
+        state: state.clone(),
+        ch: ch.clone(),
+        reply_to: String::new(),
+        raw: String::new(),
+        message_id: None,
+        last_flush: Instant::now(),
+        last_sent: String::new(),
+        silent: true,
+    };
+    let mut result = None;
+    for conn in eligible_workers(state, ch).await {
+        match run_on_worker(state, conn, messages, &mut w).await {
+            Outcome::FailedClean(_) => continue,
+            o => {
+                result = Some(o);
+                break;
+            }
+        }
+    }
+    if result.is_none() {
+        if let Some(url) = crate::ai::server_llama_url(state).await {
+            result = Some(run_on_server(state, &url, messages, &mut w).await);
+        }
+    }
+    let text = visible_text(&w.raw, &state.s().bot_name);
+    match result {
+        Some(Outcome::Finished) | Some(Outcome::FailedPartial(_)) if !text.is_empty() => Ok(text),
+        None => anyhow::bail!("{}", server_model_problem(state).await),
+        Some(Outcome::FailedClean(e)) | Some(Outcome::FailedPartial(e)) => anyhow::bail!("{e}"),
+        _ => anyhow::bail!("the model returned an empty reply"),
     }
 }
