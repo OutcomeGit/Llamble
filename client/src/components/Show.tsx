@@ -4,14 +4,14 @@ import { Track } from "livekit-client";
 import { api, media } from "../api";
 import { memberName, useStore } from "../store";
 import { toast } from "../ui";
-import { participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
+import { defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
 import { openModal } from "../ui";
 
 /** Pick a screen, window or app to share (same picker as the Share Screen button). */
 async function pickScreen(replace = false) {
   if (replace && useVoice.getState().screen) await stopScreenShare();
   if (window.llambleNative) openModal({ kind: "screenPicker" });
-  else startScreenShare("", true, (localStorage.getItem("llamble.shareQuality") as any) || "1080p30");
+  else startScreenShare("", true, defaultShareQuality());
 }
 import { Compositor, showApi, useRecorder, useShows, type RecRes, type Show, type Streams } from "../show";
 

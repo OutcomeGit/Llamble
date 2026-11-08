@@ -4,7 +4,7 @@ import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPrefs, usePopout } from "../overlay";
 import { openModal, toast } from "../ui";
-import { SHARE_LABELS, SHARE_ORDER, setWatching, shareAllowed, useWatch, watching, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
+import { SHARE_LABELS, defaultShareQuality, SHARE_ORDER, setWatching, shareAllowed, useWatch, watching, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
 import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
@@ -131,7 +131,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
         <button
           className={"call-btn" + (v.screen ? " on" : "")}
           disabled={!v.canVideo}
-          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, "1080p30"))}
+          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, defaultShareQuality()))}
           title={v.screen ? "Stop sharing your screen" : "Share screen"}
         >
           <Icon name={v.screen ? "x" : "screen"} size={22} />
@@ -278,7 +278,8 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [picked, setPicked] = useState<string | null>(null);
   const [audio, setAudio] = useState(true);
-  const [quality, setQuality] = useState<ShareQuality>((localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30");
+  // starts at your default (Settings → Voice & Video); changing it here is just for this share
+  const [quality, setQuality] = useState<ShareQuality>(defaultShareQuality());
   useStore((s) => s.config.media); // re-check the server's limits when they change
 
   const games = useGames((g) => g.list);
@@ -287,12 +288,11 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     Promise.all([window.llambleNative!.getScreenSources(), refreshGames()]).then(([s, gs]) => {
       setSources(s);
-      // a game is open: start on its window, at 60 fps if the server allows
+      // a game is open: start on its window
       const game = gs.find((g) => g.sourceId && s.some((x) => x.id === g.sourceId));
       if (game) {
         setTab("window");
         setPicked(game.sourceId);
-        setQuality((q) => gameQuality(q));
       } else {
         setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
       }
@@ -301,7 +301,6 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
 
   const go = async () => {
     if (!picked) return;
-    localStorage.setItem("llamble.shareQuality", quality);
     onClose();
     await startScreenShare(picked, audio, quality);
   };
@@ -333,7 +332,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
       </div>
       <div className="share-opts">
         <label>
-          Quality
+          Quality (this share)
           <select value={quality} onChange={(e) => setQuality(e.target.value as ShareQuality)}>
             {SHARE_ORDER.map((q) => (
               <option key={q} value={q} disabled={!shareAllowed(q)}>
@@ -358,15 +357,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Games look best at 60 fps: keep the chosen size, raise the frame rate if the server allows it. */
-function gameQuality(q: ShareQuality): ShareQuality {
-  if (q === "native" || q.endsWith("p60")) return q;
-  const sixty = (q.replace("p30", "p60") as ShareQuality);
-  if (SHARE_ORDER.includes(sixty) && shareAllowed(sixty)) return sixty;
-  return shareAllowed("1080p60") ? "1080p60" : q;
-}
-
-/** One click: "Stream Roblox" — shares the game's window with its sound at 60 fps. */
+/** One click: "Stream Roblox" — shares the game's window with its sound at your default quality. */
 function StreamGameButton() {
   const games = useGames((g) => g.list);
   const v = useVoice();
@@ -375,11 +366,8 @@ function StreamGameButton() {
   return (
     <button
       className="call-btn stream-game"
-      title={`Stream ${game.name} (its window and sound, 60 fps)`}
-      onClick={() => {
-        const q = gameQuality((localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30");
-        startScreenShare(game.sourceId!, true, q);
-      }}
+      title={`Stream ${game.name} (its window and sound, ${SHARE_LABELS[defaultShareQuality()]})`}
+      onClick={() => startScreenShare(game.sourceId!, true, defaultShareQuality())}
     >
       <Icon name="gamepad" size={20} />
       <span className="ellipsis">Stream {game.name}</span>

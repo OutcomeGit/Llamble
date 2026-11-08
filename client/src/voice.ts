@@ -360,6 +360,18 @@ export const SHARE_LABELS: Record<ShareQuality, string> = {
 const CAMERA_ORDER = ["360p", "720p", "1080p", "2160p"];
 
 /** Is this screen-share quality within the server's limit? */
+/** Your default from Settings → Voice & Video, lowered to the server's limit if needed. */
+export function defaultShareQuality(): ShareQuality {
+  const saved = (localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30";
+  if (SHARE_ORDER.includes(saved) && shareAllowed(saved)) return saved;
+  const ok = SHARE_ORDER.filter((q) => q !== "native" && shareAllowed(q));
+  return ok[ok.length - 1] || "720p30";
+}
+
+export function setDefaultShareQuality(q: ShareQuality) {
+  localStorage.setItem("llamble.shareQuality", q);
+}
+
 export function shareAllowed(q: ShareQuality): boolean {
   const max = (useStore.getState().config.media?.max_share || "native") as ShareQuality;
   return SHARE_ORDER.indexOf(q) <= SHARE_ORDER.indexOf(max);

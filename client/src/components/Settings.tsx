@@ -8,7 +8,7 @@ import { chosenGpu, preparePictures, refreshGpus, saveAiConfig, setLending, star
 import { can, guildPerms, memberName, useStore } from "../store";
 import { GUEST_DENY, P, PERM_LABELS, type Role, type User } from "../types";
 import { closeModal, copy, openModal, toast } from "../ui";
-import { applyDevicePrefs, cameraAllowed, prefs } from "../voice";
+import { SHARE_LABELS, SHARE_ORDER, applyDevicePrefs, cameraAllowed, defaultShareQuality, prefs, setDefaultShareQuality, shareAllowed, type ShareQuality } from "../voice";
 import { Avatar, BotTag, GuildIcon, Icon, Toggle } from "./common";
 import { inviteLink } from "./Modals";
 import { logout } from "../App";
@@ -713,6 +713,7 @@ function VoiceSettings() {
           <option value="256000">256 kbps (music)</option>
         </select>
       </label>
+      <ShareDefault />
       <EncoderSetting />
       {flag("noiseSuppression", "Noise suppression", "Filter background noise (keyboard, fans)")}
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
@@ -728,6 +729,31 @@ function VoiceSettings() {
       <div className="profile-section">Camera effects</div>
       <CameraFxPicker preview />
     </div>
+  );
+}
+
+function ShareDefault() {
+  const [q, setQ] = useState<ShareQuality>(defaultShareQuality());
+  return (
+    <label>
+      Screen share quality (default)
+      <select
+        value={q}
+        onChange={(e) => {
+          const v = e.target.value as ShareQuality;
+          setQ(v);
+          setDefaultShareQuality(v);
+        }}
+      >
+        {SHARE_ORDER.map((x) => (
+          <option key={x} value={x} disabled={!shareAllowed(x)}>
+            {SHARE_LABELS[x]}
+            {!shareAllowed(x) ? " (above server limit)" : ""}
+          </option>
+        ))}
+      </select>
+      <span className="muted small">Used by Share Screen and Stream game. You can still change it for one share in the picker.</span>
+    </label>
   );
 }
 
