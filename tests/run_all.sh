@@ -36,6 +36,8 @@ LAN_IP=$(hostname -I 2>/dev/null | awk "{print \$1}")
 run accounts -- accounts_test.py http://127.0.0.1:8099
 run shows LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk2.yaml -- shows_test.py http://127.0.0.1:8099
 run soundboard LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk3.yaml -- soundboard_test.py http://127.0.0.1:8099
+IMP=$(mktemp -d); python3 -c "f=open('$IMP/unsloth_Qwen3-4B-Instruct-2507-GGUF_Qwen3-4B-Instruct-2507-Q4_K_M.gguf','wb'); f.write(b'GGUF'); f.truncate(60_000_000)"
+run import LLAMBLE_IMPORT_DIR=$IMP LLAMBLE_LLAMA_BIN=$T/fake_llama_server.py -- import_test.py http://127.0.0.1:8099
 run presence_race -- presence_race_test.py http://127.0.0.1:8099
 run login_guard LLAMBLE_BIND=0.0.0.0:8099 -- login_guard_test.py http://${LAN_IP:-127.0.0.1}:8099
 exit $FAIL

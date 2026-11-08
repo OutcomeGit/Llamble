@@ -212,10 +212,78 @@ async fn save_choice(state: &Shared, c: Option<&ModelChoice>) -> ApiResult<()> {
 }
 
 /// Called at boot: resume whatever model was chosen.
+/// Older Llamble setups ran llama.cpp in its own container with a `llama-models` volume.
+/// If that volume is mounted at /import (or LLAMBLE_IMPORT_DIR), link the models it holds
+/// into our model folder so they show up and can be used without downloading again.
+/// Returns (repo, quant) of what was found.
+pub async fn import_old_models(state: &Shared) -> Vec<(String, String)> {
+    let root = PathBuf::from(std::env::var("LLAMBLE_IMPORT_DIR").unwrap_or_else(|_| "/import".into()));
+    let mut found = vec![];
+    let mut stack = vec![root];
+    let quant_re = regex::Regex::new(r"(?i)[-_.]((?:IQ\d_[A-Z]+(?:_[A-Z]+)?)|(?:Q\d_K(?:_[SML])?)|(?:Q\d_\d)|BF16|F16|F32)\.gguf$").unwrap();
+    let flat_re = regex::Regex::new(r"(?i)^([^_]+)_(.+?-GGUF)_(.+\.gguf)$").unwrap();
+    while let Some(dir) = stack.pop() {
+        let Ok(mut rd) = tokio::fs::read_dir(&dir).await else { continue };
+        while let Ok(Some(e)) = rd.next_entry().await {
+            let path = e.path();
+            let Ok(meta) = tokio::fs::metadata(&path).await else { continue };
+            if meta.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            let lower = name.to_lowercase();
+            if !lower.ends_with(".gguf") || lower.contains("mmproj") || meta.len() < 50_000_000 {
+                continue;
+            }
+            // Hugging Face cache layout: .../models--OWNER--REPO/snapshots/<rev>/FILE.gguf
+            let hub = path.ancestors().filter_map(|a| a.file_name()).map(|n| n.to_string_lossy().to_string()).find(|n| n.starts_with("models--"));
+            let (repo, file) = if let Some(h) = hub {
+                let parts: Vec<&str> = h.trim_start_matches("models--").splitn(2, "--").collect();
+                if parts.len() != 2 {
+                    continue;
+                }
+                (format!("{}/{}", parts[0], parts[1]), name.clone())
+            } else if let Some(c) = flat_re.captures(&name) {
+                // llama.cpp's own cache: OWNER_REPO-GGUF_FILE.gguf
+                (format!("{}/{}", &c[1], &c[2]), c[3].to_string())
+            } else {
+                ("imported/models".to_string(), name.clone())
+            };
+            let Some(q) = quant_re.captures(&file) else { continue };
+            let quant = q[1].to_uppercase();
+            let dest_dir = models_dir(state).join(repo.replace('/', "__"));
+            let dest = dest_dir.join(&file);
+            if tokio::fs::symlink_metadata(&dest).await.is_err() {
+                if tokio::fs::create_dir_all(&dest_dir).await.is_err() {
+                    continue;
+                }
+                #[cfg(unix)]
+                if let Err(e) = tokio::fs::symlink(&path, &dest).await {
+                    tracing::warn!("couldn't link old model {}: {e}", path.display());
+                    continue;
+                }
+                let _ = tokio::fs::write(dest_dir.join(format!("{quant}.json")), serde_json::to_string(&(vec![file.clone()], meta.len())).unwrap_or_default()).await;
+                tracing::info!("found model from the old llama.cpp setup: {repo} {quant}");
+            }
+            found.push((repo, quant));
+        }
+    }
+    found
+}
+
 pub async fn boot(state: Shared) {
     if state.cfg.llama_url.is_some() {
         state.ai.set(|s| s.state = "external".into()).await;
         return;
+    }
+    let imported = import_old_models(&state).await;
+    // nothing chosen yet but an old model is right there: use it (it's what ran before)
+    if load_choice(&state).await.is_none() {
+        if let Some((repo, quant)) = imported.first() {
+            let c = ModelChoice { repo: repo.clone(), quant: quant.clone(), ctx: 8192 };
+            let _ = save_choice(&state, Some(&c)).await;
+        }
     }
     match load_choice(&state).await {
         Some(c) => activate(state, c),
@@ -538,7 +606,8 @@ pub async fn list_models(State(state): State<Shared>, auth: AuthUser) -> ApiResu
         let mut files: std::collections::HashMap<String, u64> = Default::default();
         if let Ok(mut rd) = tokio::fs::read_dir(d.path()).await {
             while let Ok(Some(f)) = rd.next_entry().await {
-                if let Ok(m) = f.metadata().await {
+                // follow links (models found in the old llama.cpp storage)
+                if let Ok(m) = tokio::fs::metadata(f.path()).await {
                     if m.is_file() {
                         files.insert(f.file_name().to_string_lossy().to_string(), m.len());
                     }

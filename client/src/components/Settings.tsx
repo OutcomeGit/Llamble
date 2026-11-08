@@ -682,9 +682,9 @@ function VoiceSettings() {
       <label>
         Camera quality
         <select value={prefs.get("cameraQuality", "720p")} onChange={(e) => set("cameraQuality", e.target.value)}>
-          {(["360p", "720p", "1080p"] as const).map((q) => (
+          {(["360p", "720p", "1080p", "2160p"] as const).map((q) => (
             <option key={q} value={q} disabled={!cameraAllowed(q)}>
-              {q}
+              {q === "2160p" ? "4K" : q}
               {!cameraAllowed(q) ? " (above this server's limit)" : ""}
             </option>
           ))}
@@ -1318,16 +1318,20 @@ function ServerConfig() {
       </div>
 
       <div className="profile-section">Voice &amp; video limits</div>
-      <p className="muted small">The most anyone on this server can send. Higher quality uses more upload bandwidth from your home connection for every person watching from outside. Each person still picks their own quality up to this limit in My Settings.</p>
+      <p className="muted small">The most anyone on this server can send. Each viewer automatically gets the best copy their screen and connection can handle, so a 4K share still plays smoothly for someone on a phone. The sender's own upload is what this limit protects.</p>
       <div className="perm-row">
         <div>
           <div className="bold">Screen share, highest quality</div>
         </div>
-        <select value={f.max_share ?? "1440p30"} onChange={(e) => set("max_share", e.target.value)} style={{ width: 200 }}>
+        <select value={f.max_share ?? "native"} onChange={(e) => set("max_share", e.target.value)} style={{ width: 200 }}>
           <option value="720p30">720p · 30 fps</option>
           <option value="1080p30">1080p · 30 fps</option>
           <option value="1080p60">1080p · 60 fps</option>
           <option value="1440p30">1440p · 30 fps</option>
+          <option value="1440p60">1440p · 60 fps</option>
+          <option value="2160p30">4K · 30 fps</option>
+          <option value="2160p60">4K · 60 fps</option>
+          <option value="native">Whatever their screen is (up to 4K · 60)</option>
         </select>
       </div>
       <div className="perm-row">
@@ -1338,6 +1342,7 @@ function ServerConfig() {
           <option value="360p">360p</option>
           <option value="720p">720p</option>
           <option value="1080p">1080p</option>
+          <option value="2160p">4K</option>
         </select>
       </div>
 

@@ -4,10 +4,11 @@ import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPrefs, usePopout } from "../overlay";
 import { openModal, toast } from "../ui";
-import { shareAllowed, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
+import { SHARE_LABELS, SHARE_ORDER, shareAllowed, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
 import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
+import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
 
 interface TileSpec {
@@ -184,9 +185,23 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
         {isScreen ? "'s screen" : ""}
       </div>
       {track && (
-        <button className="tile-fs icon-btn" onClick={fullscreen} title="Fullscreen">
-          <Icon name="expand" size={16} />
-        </button>
+        <div className="tile-btns">
+          {canPopVideo() && (
+            <button
+              className="icon-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                popOut(spec.participant.identity, spec.source);
+              }}
+              title="Pop out: a floating window you can drag anywhere, even over games"
+            >
+              ⧉
+            </button>
+          )}
+          <button className="icon-btn" onClick={fullscreen} title="Fullscreen">
+            <Icon name="expand" size={16} />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -240,22 +255,12 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         <label>
           Quality
           <select value={quality} onChange={(e) => setQuality(e.target.value as ShareQuality)}>
-            <option value="720p30" disabled={!shareAllowed("720p30")}>
-              720p · 30 fps
-              {!shareAllowed("720p30") ? " (above server limit)" : ""}
-            </option>
-            <option value="1080p30" disabled={!shareAllowed("1080p30")}>
-              1080p · 30 fps (text & code)
-              {!shareAllowed("1080p30") ? " (above server limit)" : ""}
-            </option>
-            <option value="1080p60" disabled={!shareAllowed("1080p60")}>
-              1080p · 60 fps (games & video)
-              {!shareAllowed("1080p60") ? " (above server limit)" : ""}
-            </option>
-            <option value="1440p30" disabled={!shareAllowed("1440p30")}>
-              1440p · 30 fps
-              {!shareAllowed("1440p30") ? " (above server limit)" : ""}
-            </option>
+            {SHARE_ORDER.map((q) => (
+              <option key={q} value={q} disabled={!shareAllowed(q)}>
+                {SHARE_LABELS[q]}
+                {!shareAllowed(q) ? " (above server limit)" : ""}
+              </option>
+            ))}
           </select>
         </label>
         <label className="check">

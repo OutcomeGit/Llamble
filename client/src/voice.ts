@@ -1,6 +1,6 @@
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
-  Room, RoomEvent, ScreenSharePresets, Track, VideoPresets, type LocalVideoTrack,
+  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalVideoTrack,
 } from "livekit-client";
 import { create } from "zustand";
 import { api } from "./api";
@@ -181,7 +181,7 @@ async function connect(channelId: string, rejoining: boolean) {
       red: true,
       videoCodec: "vp9",
       backupCodec: true,
-      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+      videoSimulcastLayers: cameraLayers(),
       screenShareEncoding: ScreenSharePresets.h1080fps30.encoding,
     },
     audioOutput: prefs.get("audioOutput") ? { deviceId: prefs.get("audioOutput") } : undefined,
@@ -314,7 +314,7 @@ export async function toggleCamera() {
   if (!room) return;
   const on = !vget().camera;
   try {
-    await room.localParticipant.setCameraEnabled(on, { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() });
+    await room.localParticipant.setCameraEnabled(on, { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() }, { videoSimulcastLayers: cameraLayers() });
     vset({ camera: on });
     if (on) syncCameraFx();
   } catch (e: any) {
@@ -324,19 +324,29 @@ export async function toggleCamera() {
   bump();
 }
 
-export type ShareQuality = "720p30" | "1080p30" | "1080p60" | "1440p30";
+export type ShareQuality = "720p30" | "1080p30" | "1080p60" | "1440p30" | "1440p60" | "2160p30" | "2160p60" | "native";
 
-const SHARE_ORDER: ShareQuality[] = ["720p30", "1080p30", "1080p60", "1440p30"];
-const CAMERA_ORDER = ["360p", "720p", "1080p"];
+export const SHARE_ORDER: ShareQuality[] = ["720p30", "1080p30", "1080p60", "1440p30", "1440p60", "2160p30", "2160p60", "native"];
+export const SHARE_LABELS: Record<ShareQuality, string> = {
+  "720p30": "720p · 30 fps",
+  "1080p30": "1080p · 30 fps (text & code)",
+  "1080p60": "1080p · 60 fps (games & video)",
+  "1440p30": "1440p · 30 fps",
+  "1440p60": "1440p · 60 fps",
+  "2160p30": "4K · 30 fps",
+  "2160p60": "4K · 60 fps",
+  native: "Match my screen (up to 4K · 60 fps)",
+};
+const CAMERA_ORDER = ["360p", "720p", "1080p", "2160p"];
 
 /** Is this screen-share quality within the server's limit? */
 export function shareAllowed(q: ShareQuality): boolean {
-  const max = (useStore.getState().config.media?.max_share || "1440p30") as ShareQuality;
+  const max = (useStore.getState().config.media?.max_share || "native") as ShareQuality;
   return SHARE_ORDER.indexOf(q) <= SHARE_ORDER.indexOf(max);
 }
 
 export function cameraAllowed(q: string): boolean {
-  const max = useStore.getState().config.media?.max_camera || "1080p";
+  const max = useStore.getState().config.media?.max_camera || "2160p";
   return CAMERA_ORDER.indexOf(q) <= CAMERA_ORDER.indexOf(max);
 }
 
@@ -344,31 +354,62 @@ export function cameraAllowed(q: string): boolean {
 function cameraResolution() {
   let q = prefs.get("cameraQuality", "720p");
   while (!cameraAllowed(q) && CAMERA_ORDER.indexOf(q) > 0) q = CAMERA_ORDER[CAMERA_ORDER.indexOf(q) - 1];
-  return (q === "1080p" ? VideoPresets.h1080 : q === "360p" ? VideoPresets.h360 : VideoPresets.h720).resolution;
+  return (q === "2160p" ? VideoPresets.h2160 : q === "1080p" ? VideoPresets.h1080 : q === "360p" ? VideoPresets.h360 : VideoPresets.h720).resolution;
+}
+
+/** Smaller copies sent alongside a big camera picture, so people on slow links still get video. */
+function cameraLayers() {
+  const h = cameraResolution().height;
+  return h >= 2160 ? [VideoPresets.h360, VideoPresets.h1080] : h >= 1080 ? [VideoPresets.h360, VideoPresets.h720] : [VideoPresets.h180, VideoPresets.h360];
+}
+
+/** Resolution, frame rate and bitrate for a screen-share choice. */
+function sharePreset(q: ShareQuality): { width: number; height: number; fps: number; bitrate: number } {
+  if (q === "native") {
+    const dpr = window.devicePixelRatio || 1;
+    let w = Math.round(screen.width * dpr);
+    let h = Math.round(screen.height * dpr);
+    const k = Math.min(1, 3840 / w, 2160 / h);
+    w = Math.round(w * k);
+    h = Math.round(h * k);
+    // about 0.04 bits per pixel per frame: 4K60 ~ 20 Mbps, 1440p60 ~ 9 Mbps, 1080p60 ~ 5 Mbps
+    return { width: w, height: h, fps: 60, bitrate: Math.round(Math.max(3_000_000, Math.min(22_000_000, w * h * 60 * 0.04))) };
+  }
+  const [res, fps] = q.split("p").map(Number) as [number, number];
+  const dims: Record<number, [number, number]> = { 720: [1280, 720], 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160] };
+  const [width, height] = dims[res];
+  const rate: Record<string, number> = { "720p30": 2_000_000, "1080p30": 3_000_000, "1080p60": 6_000_000, "1440p30": 8_000_000, "1440p60": 12_000_000, "2160p30": 14_000_000, "2160p60": 20_000_000 };
+  return { width, height, fps, bitrate: rate[q] };
 }
 
 export async function startScreenShare(sourceId: string, audio: boolean, quality: ShareQuality) {
   if (!room) return;
   while (!shareAllowed(quality) && SHARE_ORDER.indexOf(quality) > 0) quality = SHARE_ORDER[SHARE_ORDER.indexOf(quality) - 1];
   await window.llambleNative?.setScreenSource({ id: sourceId, audio });
-  const preset = {
-    "720p30": ScreenSharePresets.h720fps30,
-    "1080p30": ScreenSharePresets.h1080fps30,
-    "1080p60": { encoding: { maxBitrate: 6_000_000, maxFramerate: 60 }, width: 1920, height: 1080 },
-    "1440p30": { encoding: { maxBitrate: 8_000_000, maxFramerate: 30 }, width: 2560, height: 1440 },
-  }[quality] as any;
+  const p = sharePreset(quality);
+  // People with smaller screens or slower connections get a lighter copy: VP9 sends
+  // layers inside one stream; H.264 (Chromebooks) sends separate smaller copies.
+  const layers =
+    p.height > 1080
+      ? [new VideoPreset(1280, 720, 1_500_000, 15), new VideoPreset(1920, 1080, 4_000_000, Math.min(30, p.fps))]
+      : [new VideoPreset(1280, 720, 1_200_000, 15)];
   try {
     await room.localParticipant.setScreenShareEnabled(
       true,
       {
         audio,
-        resolution: { width: preset.width ?? preset.resolution?.width, height: preset.height ?? preset.resolution?.height, frameRate: preset.encoding.maxFramerate },
-        contentHint: quality.endsWith("60") ? "motion" : "detail",
+        resolution: { width: p.width, height: p.height, frameRate: p.fps },
+        contentHint: p.fps >= 60 ? "motion" : "detail",
         selfBrowserSurface: "exclude",
         systemAudio: audio ? "include" : "exclude",
       },
       // Chromebooks encode H.264 in hardware; their VP9 encoder can send black frames
-      { screenShareEncoding: preset.encoding, videoCodec: isChromeOS() ? "h264" : "vp9", backupCodec: true },
+      {
+        screenShareEncoding: { maxBitrate: p.bitrate, maxFramerate: p.fps },
+        screenShareSimulcastLayers: layers,
+        videoCodec: isChromeOS() ? "h264" : "vp9",
+        backupCodec: true,
+      },
     );
     vset({ screen: true, pickerOpen: false });
     const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;

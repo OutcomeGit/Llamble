@@ -124,9 +124,29 @@ function createWindow() {
   });
 
   // External links open in the user's browser, never inside the app.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    // pop-out video: a frameless, always-on-top window the app draws into itself
+    if (url === "about:blank" && frameName.startsWith("llamble-pop")) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          frame: false,
+          alwaysOnTop: true,
+          backgroundColor: "#000000",
+          minWidth: 200,
+          minHeight: 120,
+          icon: iconPath(),
+          webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false },
+        },
+      };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: "deny" };
+  });
+  win.webContents.on("did-create-window", (child) => {
+    child.setAlwaysOnTop(true, "screen-saver");
+    child.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    child.webContents.on("will-navigate", (e) => e.preventDefault());
   });
   win.webContents.on("will-navigate", (e, url) => {
     const allowed = DEV ? url.startsWith("http://localhost:5173") : url.startsWith("file://");
