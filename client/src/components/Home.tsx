@@ -49,6 +49,8 @@ export function Board({ scope }: { scope: Scope }) {
   const guild = useStore((s) => (home ? undefined : s.guilds[scope]));
   const section = useStore((s) => s.boardSection);
   const scroller = useRef<HTMLDivElement>(null);
+  // what the board shows: everything, or just one kind (News joins this list when it exists)
+  const [show, setShow] = useState<"all" | "notes" | "highlights">("all");
   const pick = (v: BoardStyle) => {
     setStyle(v);
     try {
@@ -61,9 +63,12 @@ export function Board({ scope }: { scope: Scope }) {
     loadBoard(scope).catch(() => {});
     loadHighlights(scope).catch(() => {});
   }, [scope, home]);
+  // a different board starts on "Everything" (the effect below may then narrow it)
+  useEffect(() => setShow("all"), [scope]);
   // openGuildView(g, "notes" | "highlights") scrolls to that section
   useEffect(() => {
     if (!section) return;
+    if (section === "notes" || section === "highlights") setShow(section);
     const t = window.setTimeout(() => {
       scroller.current?.querySelector(`[data-hb-section="${section}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
       useStore.setState({ boardSection: null });
@@ -90,16 +95,32 @@ export function Board({ scope }: { scope: Scope }) {
           </div>
         </header>
 
-        <div className="hb-top">
-          <RightNow scope={scope} />
-          {home && <ChatWithBot />}
+        <div className="hb-filter" role="tablist" aria-label="Show">
+          {(
+            [
+              ["all", "Everything"],
+              ["notes", "Notes"],
+              ["highlights", "Highlights"],
+            ] as const
+          ).map(([v, label]) => (
+            <button key={v} role="tab" aria-selected={show === v} className={"hb-filter-btn" + (show === v ? " on" : "")} onClick={() => setShow(v)}>
+              {label}
+            </button>
+          ))}
         </div>
 
-        {/* reserved for News (Llamble, instance and server news) */}
-        <div className="hb-news" />
+        {show === "all" && (
+          <div className="hb-top">
+            <RightNow scope={scope} />
+            {home && <ChatWithBot />}
+          </div>
+        )}
 
-        {home ? <ForYou /> : <ServerNotes guildId={scope} />}
-        <Highlights scope={scope} />
+        {/* reserved for News (Llamble, instance and server news) */}
+        {show === "all" && <div className="hb-news" />}
+
+        {show !== "highlights" && (home ? <ForYou /> : <ServerNotes guildId={scope} />)}
+        {show !== "notes" && <Highlights scope={scope} />}
       </div>
     </div>
   );
