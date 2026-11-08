@@ -244,3 +244,9 @@ call("POST", f"/api/channels/{text}/messages", S, expect=403, json={"content": "
 call("GET", f"/api/channels/{text}/messages", S)
 print("Guest role: can read, can't post")
 print("ALL ACCOUNTS OK")
+
+# ---- server-wide voice/video limits reach every client
+call("PUT", "/api/admin/settings", M, json={"max_share": "1080p30", "max_camera": "360p"})
+call("PUT", "/api/admin/settings", M, expect=400, json={"max_share": "4k"})
+assert ready(MOM)["config"]["media"] == {"max_share": "1080p30", "max_camera": "360p"}
+print("voice/video limits set by the Master reach clients")

@@ -4,7 +4,7 @@ import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPrefs, usePopout } from "../overlay";
 import { openModal, toast } from "../ui";
-import { enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
+import { shareAllowed, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
 import { userMenu } from "./Sidebar";
 
@@ -213,10 +213,22 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         <label>
           Quality
           <select value={quality} onChange={(e) => setQuality(e.target.value as ShareQuality)}>
-            <option value="720p30">720p · 30 fps</option>
-            <option value="1080p30">1080p · 30 fps (text & code)</option>
-            <option value="1080p60">1080p · 60 fps (games & video)</option>
-            <option value="1440p30">1440p · 30 fps</option>
+            <option value="720p30" disabled={!shareAllowed("720p30")}>
+              720p · 30 fps
+              {!shareAllowed("720p30") ? " (above server limit)" : ""}
+            </option>
+            <option value="1080p30" disabled={!shareAllowed("1080p30")}>
+              1080p · 30 fps (text & code)
+              {!shareAllowed("1080p30") ? " (above server limit)" : ""}
+            </option>
+            <option value="1080p60" disabled={!shareAllowed("1080p60")}>
+              1080p · 60 fps (games & video)
+              {!shareAllowed("1080p60") ? " (above server limit)" : ""}
+            </option>
+            <option value="1440p30" disabled={!shareAllowed("1440p30")}>
+              1440p · 30 fps
+              {!shareAllowed("1440p30") ? " (above server limit)" : ""}
+            </option>
           </select>
         </label>
         <label className="check">

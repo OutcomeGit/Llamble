@@ -9,6 +9,8 @@ export interface ServerConfig {
   public_domain?: string | null;
   version?: string;
   client_download?: string;
+  /** server-wide limits set by the Master Admin */
+  media?: { max_share: string; max_camera: string };
   bot?: { id: string; name: string; server_backend: boolean; worker_policy: string };
 }
 

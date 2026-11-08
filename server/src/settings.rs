@@ -19,6 +19,10 @@ pub struct ServerSettings {
     pub bot_name: String,
     /// allow members to record calls on the server (used by show recording)
     pub allow_server_recording: bool,
+    /// highest screen-share quality anyone may send: 720p30 | 1080p30 | 1080p60 | 1440p30
+    pub max_share: String,
+    /// highest camera quality: 360p | 720p | 1080p
+    pub max_camera: String,
 }
 
 impl ServerSettings {
@@ -30,6 +34,8 @@ impl ServerSettings {
             unfurl_links: cfg.unfurl_links,
             bot_name: cfg.bot_name.clone(),
             allow_server_recording: false,
+            max_share: "1440p30".into(),
+            max_camera: "720p".into(),
         }
     }
     pub fn max_upload_bytes(&self) -> u64 {
@@ -120,6 +126,12 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
     s.max_upload_mb = s.max_upload_mb.clamp(1, 20_000);
     if !["admin", "all"].contains(&s.guild_create.as_str()) {
         return Err(AppError::bad("guild_create must be admin or all"));
+    }
+    if !["720p30", "1080p30", "1080p60", "1440p30"].contains(&s.max_share.as_str()) {
+        return Err(AppError::bad("max_share must be 720p30, 1080p30, 1080p60 or 1440p30"));
+    }
+    if !["360p", "720p", "1080p"].contains(&s.max_camera.as_str()) {
+        return Err(AppError::bad("max_camera must be 360p, 720p or 1080p"));
     }
     s.bot_name = s.bot_name.trim().chars().take(32).collect();
     if s.bot_name.is_empty() {

@@ -6,7 +6,7 @@ import { chosenGpu, refreshGpus, saveAiConfig, setLending, startLocalModel, stop
 import { can, guildPerms, memberName, useStore } from "../store";
 import { GUEST_DENY, P, PERM_LABELS, type Role, type User } from "../types";
 import { closeModal, copy, openModal, toast } from "../ui";
-import { applyDevicePrefs, prefs } from "../voice";
+import { applyDevicePrefs, cameraAllowed, prefs } from "../voice";
 import { Avatar, BotTag, GuildIcon, Icon, Toggle } from "./common";
 import { inviteLink } from "./Modals";
 import { logout } from "../App";
@@ -679,6 +679,17 @@ function VoiceSettings() {
       </div>
       {sel("videoinput", "videoInput", "Camera")}
       <label>
+        Camera quality
+        <select value={prefs.get("cameraQuality", "720p")} onChange={(e) => set("cameraQuality", e.target.value)}>
+          {(["360p", "720p", "1080p"] as const).map((q) => (
+            <option key={q} value={q} disabled={!cameraAllowed(q)}>
+              {q}
+              {!cameraAllowed(q) ? " (above this server's limit)" : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
         Voice quality
         <select value={prefs.get("audioBitrate", "96000")} onChange={(e) => set("audioBitrate", e.target.value)}>
           <option value="32000">32 kbps (low bandwidth)</option>
@@ -1298,6 +1309,30 @@ function ServerConfig() {
         <select value={f.guild_create} onChange={(e) => set("guild_create", e.target.value)} style={{ width: 200 }}>
           <option value="admin">Admins only</option>
           <option value="all">Anyone with an account</option>
+        </select>
+      </div>
+
+      <div className="profile-section">Voice &amp; video limits</div>
+      <p className="muted small">The most anyone on this server can send. Higher quality uses more upload bandwidth from your home connection for every person watching from outside. Each person still picks their own quality up to this limit in My Settings.</p>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Screen share, highest quality</div>
+        </div>
+        <select value={f.max_share ?? "1440p30"} onChange={(e) => set("max_share", e.target.value)} style={{ width: 200 }}>
+          <option value="720p30">720p · 30 fps</option>
+          <option value="1080p30">1080p · 30 fps</option>
+          <option value="1080p60">1080p · 60 fps</option>
+          <option value="1440p30">1440p · 30 fps</option>
+        </select>
+      </div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Camera, highest quality</div>
+        </div>
+        <select value={f.max_camera ?? "720p"} onChange={(e) => set("max_camera", e.target.value)} style={{ width: 200 }}>
+          <option value="360p">360p</option>
+          <option value="720p">720p</option>
+          <option value="1080p">1080p</option>
         </select>
       </div>
 

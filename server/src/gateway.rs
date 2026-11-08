@@ -75,6 +75,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
             "voice_enabled": crate::voice_server::enabled(state),
             "max_upload_bytes": state.s().max_upload_bytes(),
             "guild_create": state.s().guild_create,
+            "media": { "max_share": state.s().max_share, "max_camera": state.s().max_camera },
             "public_domain": crate::remote::public_domain(state).await,
             "version": crate::config::server_version(),
             "client_download": crate::config::client_download_url(),

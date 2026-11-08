@@ -5,7 +5,7 @@ import {
 import { create } from "zustand";
 import { api } from "./api";
 import { sounds } from "./sounds";
-import { onEvent } from "./store";
+import { onEvent, useStore } from "./store";
 
 export interface VoiceUI {
   channelId: string | null;
@@ -174,7 +174,7 @@ async function connect(channelId: string, rejoining: boolean) {
     adaptiveStream: true,
     dynacast: true,
     audioCaptureDefaults: audioCapture(),
-    videoCaptureDefaults: { deviceId: prefs.get("videoInput") || undefined, resolution: VideoPresets.h720.resolution },
+    videoCaptureDefaults: { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() },
     publishDefaults: {
       audioPreset: { maxBitrate: Number(prefs.get("audioBitrate", "96000")) },
       dtx: true,
@@ -314,7 +314,7 @@ export async function toggleCamera() {
   if (!room) return;
   const on = !vget().camera;
   try {
-    await room.localParticipant.setCameraEnabled(on, { deviceId: prefs.get("videoInput") || undefined, resolution: VideoPresets.h720.resolution });
+    await room.localParticipant.setCameraEnabled(on, { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() });
     vset({ camera: on });
   } catch (e: any) {
     vset({ error: "Camera unavailable: " + e.message });
@@ -325,8 +325,30 @@ export async function toggleCamera() {
 
 export type ShareQuality = "720p30" | "1080p30" | "1080p60" | "1440p30";
 
+const SHARE_ORDER: ShareQuality[] = ["720p30", "1080p30", "1080p60", "1440p30"];
+const CAMERA_ORDER = ["360p", "720p", "1080p"];
+
+/** Is this screen-share quality within the server's limit? */
+export function shareAllowed(q: ShareQuality): boolean {
+  const max = (useStore.getState().config.media?.max_share || "1440p30") as ShareQuality;
+  return SHARE_ORDER.indexOf(q) <= SHARE_ORDER.indexOf(max);
+}
+
+export function cameraAllowed(q: string): boolean {
+  const max = useStore.getState().config.media?.max_camera || "1080p";
+  return CAMERA_ORDER.indexOf(q) <= CAMERA_ORDER.indexOf(max);
+}
+
+/** The camera resolution to use: your choice, capped by the server. */
+function cameraResolution() {
+  let q = prefs.get("cameraQuality", "720p");
+  while (!cameraAllowed(q) && CAMERA_ORDER.indexOf(q) > 0) q = CAMERA_ORDER[CAMERA_ORDER.indexOf(q) - 1];
+  return (q === "1080p" ? VideoPresets.h1080 : q === "360p" ? VideoPresets.h360 : VideoPresets.h720).resolution;
+}
+
 export async function startScreenShare(sourceId: string, audio: boolean, quality: ShareQuality) {
   if (!room) return;
+  while (!shareAllowed(quality) && SHARE_ORDER.indexOf(quality) > 0) quality = SHARE_ORDER[SHARE_ORDER.indexOf(quality) - 1];
   await window.llambleNative?.setScreenSource({ id: sourceId, audio });
   const preset = {
     "720p30": ScreenSharePresets.h720fps30,
