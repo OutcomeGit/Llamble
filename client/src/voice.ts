@@ -1,6 +1,6 @@
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
-  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalVideoTrack,
+  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalVideoTrack, type RemoteTrackPublication,
 } from "livekit-client";
 import { create } from "zustand";
 import { api } from "./api";
@@ -188,10 +188,20 @@ async function connect(channelId: string, rejoining: boolean) {
     audioOutput: prefs.get("audioOutput") ? { deviceId: prefs.get("audioOutput") } : undefined,
   });
   room = r;
-  r.on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
+  r.on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+    // someone's video/stream you haven't chosen to watch: don't download it
+    if (!wantTrack(p.identity, pub.source)) {
+      (pub as RemoteTrackPublication).setSubscribed(false);
+      bump();
+      return;
+    }
     attachAudio(track, p);
     bump();
   })
+    .on(RoomEvent.TrackPublished, (pub, p) => {
+      if (!wantTrack(p.identity, pub.source)) pub.setSubscribed(false);
+      bump();
+    })
     .on(RoomEvent.TrackUnsubscribed, (track) => {
       track.detach().forEach((el) => el.remove());
       bump();
@@ -578,3 +588,56 @@ async function syncCameraFx() {
   }
 }
 import("./camerafx").then((fx) => fx.useFx.subscribe(() => syncCameraFx()));
+
+// ---------------------------------------------------------------- choosing what to watch
+// Like Discord: screen shares aren't downloaded until you click "Watch"; cameras show
+// unless you hide them. Your choices last for the call (per person and per kind).
+
+/** your choice per person+kind for this call: true = watch, false = hide */
+export const useWatch = create<Record<string, boolean>>(() => ({}));
+const wkey = (identity: string, kind: "screen" | "camera") => identity + "|" + kind;
+const kindOf = (src: Track.Source) => (src === Track.Source.ScreenShare || src === Track.Source.ScreenShareAudio ? "screen" : src === Track.Source.Camera ? "camera" : null);
+
+/** Something outside the call view needs this person's video (a recording, a pop-out). */
+const needed = new Set<string>();
+export function needVideo(identity: string, kind: "screen" | "camera", on: boolean) {
+  const k = wkey(identity, kind);
+  if (on) needed.add(k);
+  else needed.delete(k);
+  applyWatch(identity, kind);
+}
+
+export function watching(identity: string, kind: "screen" | "camera"): boolean {
+  const k = wkey(identity, kind);
+  const choice = useWatch.getState()[k];
+  if (choice !== undefined) return choice;
+  return kind === "camera" ? prefs.bool("autoWatchCameras", true) : prefs.bool("autoWatchStreams", false);
+}
+
+function wantTrack(identity: string, src: Track.Source): boolean {
+  const kind = kindOf(src);
+  if (!kind) return true; // microphones: always
+  return watching(identity, kind) || needed.has(wkey(identity, kind));
+}
+
+function applyWatch(identity: string, kind: "screen" | "camera") {
+  const p = room?.remoteParticipants.get(identity);
+  if (!p) return;
+  const sources = kind === "screen" ? [Track.Source.ScreenShare, Track.Source.ScreenShareAudio] : [Track.Source.Camera];
+  for (const src of sources) {
+    const pub = p.getTrackPublication(src) as RemoteTrackPublication | undefined;
+    if (pub) pub.setSubscribed(wantTrack(identity, src));
+  }
+  bump();
+}
+
+/** Watch / stop watching someone's screen share or camera. */
+export function setWatching(identity: string, kind: "screen" | "camera", on: boolean) {
+  useWatch.setState({ [wkey(identity, kind)]: on });
+  applyWatch(identity, kind);
+}
+
+// a new call starts with the defaults again
+useVoice.subscribe((v, prev) => {
+  if (v.channelId !== prev.channelId) useWatch.setState({}, true);
+});

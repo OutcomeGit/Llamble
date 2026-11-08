@@ -68,6 +68,14 @@ with sync_playwright() as p:
     # ---- Show: bran records both of them (voice + camera) in his app, and it lands on the server
     pages[0].evaluate("() => window.llambleDebug.toggleCamera()")
     pages[0].wait_for_function("() => window.llambleDebug.voice().camera", timeout=30000)
+    # the other person sees the camera, can hide it (stops downloading it) and show it again
+    cam = """id => { const p = window.llambleDebug.getRoom().remoteParticipants.get(id); const pub = p && p.getTrackPublication('camera'); return pub ? pub.isSubscribed : null; }"""
+    pages[1].wait_for_function(cam, arg=a["user"]["id"], timeout=30000)
+    pages[1].evaluate("id => window.llambleDebug.setWatching(id, 'camera', false)", a["user"]["id"])
+    pages[1].wait_for_function("(id) => { const p = window.llambleDebug.getRoom().remoteParticipants.get(id); return p.getTrackPublication('camera').isSubscribed === false; }", arg=a["user"]["id"], timeout=15000)
+    pages[1].evaluate("id => window.llambleDebug.setWatching(id, 'camera', true)", a["user"]["id"])
+    pages[1].wait_for_function(cam, arg=a["user"]["id"], timeout=15000)
+    print("hiding someone's camera stops it downloading; showing it brings it back")
     TB = {"Authorization": "Bearer " + b["token"]}
     show = ok(requests.post(B + f"/api/channels/{vc}/shows", headers=TA, json={"title": "CI show", "people": [
         {"user_id": a["user"]["id"], "voice": True, "camera": True}, {"user_id": b["user"]["id"], "voice": True, "camera": False}]}))

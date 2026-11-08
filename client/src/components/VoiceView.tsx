@@ -4,7 +4,7 @@ import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPrefs, usePopout } from "../overlay";
 import { openModal, toast } from "../ui";
-import { SHARE_LABELS, SHARE_ORDER, shareAllowed, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
+import { SHARE_LABELS, SHARE_ORDER, setWatching, shareAllowed, useWatch, watching, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
 import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
@@ -48,7 +48,8 @@ export function VoiceView({ channel }: { channel: Channel }) {
   const tiles: TileSpec[] = [];
   for (const p of participants()) {
     const screen = p.getTrackPublication(Track.Source.ScreenShare);
-    if (screen && !screen.isMuted && screen.track) tiles.push({ key: p.identity + ":screen", participant: p, source: Track.Source.ScreenShare });
+    // shown even when you're not watching it (with a "Watch" button)
+    if (screen && !screen.isMuted && (screen.track || p.identity !== getRoom()?.localParticipant.identity)) tiles.push({ key: p.identity + ":screen", participant: p, source: Track.Source.ScreenShare });
     tiles.push({ key: p.identity + ":cam", participant: p, source: Track.Source.Camera });
   }
   const focused = tiles.find((t) => t.key === focus) || tiles.find((t) => t.source === Track.Source.ScreenShare && focus === null && tiles.length > 2 && false);
@@ -175,6 +176,12 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
   const pub = spec.participant.getTrackPublication(spec.source);
   const track = pub && !pub.isMuted ? pub.track : undefined;
   const isScreen = spec.source === Track.Source.ScreenShare;
+  useWatch();
+  const kind = isScreen ? "screen" : "camera";
+  const id = spec.participant.identity;
+  const local = id === getRoom()?.localParticipant.identity;
+  // they're sending video but you chose not to watch it
+  const hidden = !local && !!pub && !pub.isMuted && !watching(id, kind);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -189,12 +196,23 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
     e.stopPropagation();
     videoRef.current?.requestFullscreen?.();
   };
-  const local = spec.participant.identity === getRoom()?.localParticipant.identity;
-
   return (
     <div className={"tile" + (speaking && !isScreen ? " speaking" : "") + (big ? " big" : "")} onClick={onClick} onContextMenu={(e) => userMenu(e, spec.participant.identity, guildId)}>
-      {track ? (
+      {track && !hidden ? (
         <video ref={videoRef} autoPlay playsInline muted className={isScreen ? "contain" : local ? "mirror" : ""} />
+      ) : hidden && isScreen ? (
+        <div className="tile-avatar tile-watch">
+          <Avatar user={user} size={big ? 96 : 64} />
+          <button
+            className="btn primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              setWatching(id, "screen", true);
+            }}
+          >
+            ▶ Watch stream
+          </button>
+        </div>
       ) : (
         <div className="tile-avatar">
           <Avatar user={user} size={big ? 120 : 80} speaking={speaking} />
@@ -206,8 +224,32 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
         {memberName(guildId, user)}
         {isScreen ? "'s screen" : ""}
       </div>
-      {track && (
+      {hidden && !isScreen && (
+        <button
+          className="tile-show btn small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setWatching(id, "camera", true);
+          }}
+          title="You hid this camera"
+        >
+          Show video
+        </button>
+      )}
+      {track && !hidden && (
         <div className="tile-btns">
+          {!local && (
+            <button
+              className="icon-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setWatching(id, kind, false);
+              }}
+              title={isScreen ? "Stop watching" : "Hide their video"}
+            >
+              🚫
+            </button>
+          )}
           {canPopVideo() && (
             <button
               className="icon-btn"

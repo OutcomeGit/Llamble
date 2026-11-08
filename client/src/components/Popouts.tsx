@@ -9,7 +9,7 @@ import { Track } from "livekit-client";
 import { create } from "zustand";
 import { memberName, useStore } from "../store";
 import { toast } from "../ui";
-import { participants, useVoice } from "../voice";
+import { needVideo, participants, useVoice } from "../voice";
 
 interface Pop {
   key: string; // identity|source
@@ -52,6 +52,7 @@ export async function popOut(identity: string, source: Track.Source) {
   const key = identity + "|" + source;
   const st = usePopouts.getState();
   if (st.pops.some((p) => p.key === key)) return;
+  needVideo(identity, source === Track.Source.ScreenShare ? "screen" : "camera", true);
   if (window.llambleNative) {
     let pos = { x: 80, y: 80, w: 640, h: 380 };
     try {
@@ -86,6 +87,7 @@ export async function popOut(identity: string, source: Track.Source) {
 
 export function closePop(key: string) {
   const p = usePopouts.getState().pops.find((x) => x.key === key);
+  if (p) needVideo(p.identity, p.source === Track.Source.ScreenShare ? "screen" : "camera", false);
   if (p?.win) p.win.close();
   usePopouts.setState((s) => {
     const pops = s.pops.filter((x) => x.key !== key);

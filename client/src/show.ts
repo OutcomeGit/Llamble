@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { Track, type Participant } from "livekit-client";
 import { api, session } from "./api";
 import { memberName, onEvent, useStore } from "./store";
-import { participants, useVoice } from "./voice";
+import { needVideo, participants, useVoice } from "./voice";
 
 export interface Streams {
   voice: boolean;
@@ -103,6 +103,8 @@ export class Compositor {
   canvas = document.createElement("canvas");
   private ctx = this.canvas.getContext("2d")!;
   private sources = new Map<string, Source>();
+  /** people whose video we asked the call to send us even if this person isn't watching it */
+  private needs = new Set<string>();
   private box: HTMLDivElement;
   /** who's on the main shot in auto mode, and since when */
   private auto: { uid: string; since: number } | null = null;
@@ -126,6 +128,8 @@ export class Compositor {
 
   destroy() {
     for (const s of this.sources.values()) s.track.detach(s.el);
+    for (const k of this.needs) needVideo(k.split("|")[0], k.split("|")[1] as "camera" | "screen", false);
+    this.needs.clear();
     this.box.remove();
   }
 
@@ -133,6 +137,15 @@ export class Compositor {
   private refreshSources(s: Show) {
     const want = new Map<string, { uid: string; kind: "camera" | "screen"; track: Track }>();
     const ps = participants();
+    const needNow = new Set<string>();
+    for (const person of s.people) {
+      const c = person.consent;
+      if (c?.camera) needNow.add(person.user_id + "|camera");
+      if (c?.screen) needNow.add(person.user_id + "|screen");
+    }
+    for (const k of needNow) if (!this.needs.has(k)) needVideo(k.split("|")[0], k.split("|")[1] as "camera" | "screen", true);
+    for (const k of this.needs) if (!needNow.has(k)) needVideo(k.split("|")[0], k.split("|")[1] as "camera" | "screen", false);
+    this.needs = needNow;
     for (const person of s.people) {
       const c = person.consent;
       if (!c) continue;

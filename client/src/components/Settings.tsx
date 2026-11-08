@@ -661,13 +661,13 @@ function VoiceSettings() {
       </select>
     </label>
   );
-  const flag = (k: string, label: string, desc: string) => (
+  const flag = (k: string, label: string, desc: string, def = true) => (
     <div className="perm-row">
       <div>
         <div className="bold">{label}</div>
         <div className="muted small">{desc}</div>
       </div>
-      <Toggle on={prefs.bool(k)} onChange={(v) => set(k, v ? "1" : "0")} />
+      <Toggle on={prefs.bool(k, def)} onChange={(v) => set(k, v ? "1" : "0")} />
     </div>
   );
   return (
@@ -712,6 +712,8 @@ function VoiceSettings() {
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}
       <p className="muted small">Changes to processing apply the next time you join voice. Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
       {(useStore.getState().config as any).voice_ai?.available && <MicTest />}
+      {flag("autoWatchStreams", "Watch screen shares automatically", "Off: a shared screen shows a Watch button first (saves bandwidth, like Discord)", false)}
+      {flag("autoWatchCameras", "Show cameras automatically", "Off: cameras show a Show video button first")}
       <label>
         Llamble's voice volume (in calls)
         <input type="range" min={0} max={1} step={0.05} defaultValue={prefs.get("botVolume", "1")} onChange={(e) => set("botVolume", e.target.value)} />

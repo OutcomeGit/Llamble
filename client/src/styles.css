@@ -728,3 +728,5 @@ body.pop-body > .pop { height: 100vh; }
 .listen-heard { margin: 4px 16px 0; font-size: 13px; color: #b5bac1; font-style: italic; }
 .listen-side { color: #9be3b4; padding: 2px 8px 4px; }
 .listen-convo { color: #c9cdfb; }
+.tile-watch { flex-direction: column; gap: 14px; }
+.tile-show { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); }
