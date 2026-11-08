@@ -2,10 +2,11 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
-import { getRoom, joinVoice, leaveVoice, useVoice } from "./voice";
+import { getRoom, joinVoice, leaveVoice, toggleCamera, useVoice } from "./voice";
+import { useRecorder } from "./show";
 
 // handle for automated tests and troubleshooting from the dev console
-(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice };
+(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, recorder: () => useRecorder.getState() };
 
 import { OverlayApp } from "./OverlayApp";
 

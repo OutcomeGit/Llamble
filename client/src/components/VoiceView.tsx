@@ -8,6 +8,8 @@ import { SHARE_LABELS, SHARE_ORDER, shareAllowed, enableAudio, getRoom, joinVoic
 import { Avatar, Icon } from "./common";
 import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
+import { DirectorPanel, ShowBanner, StartShow } from "./Show";
+import { useShows } from "../show";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
 
@@ -24,6 +26,9 @@ export function VoiceView({ channel }: { channel: Channel }) {
   const [focus, setFocus] = useState<string | null>(null);
   const [board, setBoard] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
+  const [showPanel, setShowPanel] = useState<"start" | "director" | null>(null);
+  const liveShow = useShows((s) => s.live[channel.id]);
+  const me = useStore((s) => s.me?.id);
 
   if (!inThis) {
     return (
@@ -94,8 +99,11 @@ export function VoiceView({ channel }: { channel: Channel }) {
           ))}
         </div>
       )}
+      <ShowBanner onDirect={() => setShowPanel("director")} />
       <SoundboardTicker guildId={channel.guild_id} />
       <div className="call-controls">
+        {showPanel === "start" && !liveShow && <StartShow channelId={channel.id} onClose={() => setShowPanel(null)} />}
+        {showPanel === "director" && liveShow && <DirectorPanel onClose={() => setShowPanel(null)} />}
         {board && <SoundboardPanel guildId={channel.guild_id} onClose={() => setBoard(false)} />}
         {fxOpen && (
           <div className="camfx-pop">
@@ -125,6 +133,18 @@ export function VoiceView({ channel }: { channel: Channel }) {
           <Icon name={v.screen ? "x" : "screen"} size={22} />
         </button>
         <OverlayButton />
+        <button
+          className={"call-btn" + (liveShow?.status === "recording" ? " rec" : showPanel ? " on" : "")}
+          onClick={() => {
+            setBoard(false);
+            setFxOpen(false);
+            if (liveShow) setShowPanel(liveShow.director_id === me ? (showPanel ? null : "director") : null);
+            else setShowPanel(showPanel ? null : "start");
+          }}
+          title={liveShow ? (liveShow.director_id === me ? "Director controls" : "A show is on") : "Record a show"}
+        >
+          <span style={{ fontSize: 20 }}>🎬</span>
+        </button>
         {v.canSpeak && (
           <button className={"call-btn" + (board ? " on" : "")} onClick={() => setBoard((b) => !b)} title="Soundboard">
             <span style={{ fontSize: 20 }}>🎶</span>

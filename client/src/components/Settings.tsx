@@ -14,6 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
 import { CameraFxPicker } from "./CameraFx";
+import { Recordings } from "./Show";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
 class PageGuard extends React.Component<{ children: React.ReactNode; page: string }, { err: Error | null }> {
@@ -485,6 +486,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "ai", label: "Lend My GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
         { id: "overlay", label: "Overlay" },
+        { id: "recordings", label: "Recordings" },
         { id: "sessions", label: "Devices" },
         { id: "family", label: "Family", hidden: !!me.is_kid },
         // the Llamble server itself (the NAS): not the "servers" people chat in
@@ -502,6 +504,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "ai" && <AiSettings />}
       {tab === "notifications" && <NotifSettings />}
       {tab === "overlay" && <OverlaySettings />}
+      {tab === "recordings" && <Recordings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
       {tab === "family" && <Family />}

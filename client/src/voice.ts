@@ -171,7 +171,8 @@ async function connect(channelId: string, rejoining: boolean) {
   }
   if (wanted !== channelId) return;
   const r = new Room({
-    adaptiveStream: true,
+    // the desktop app keeps full video while minimized (a show may be recording)
+    adaptiveStream: { pauseVideoInBackground: !window.llambleNative },
     dynacast: true,
     audioCaptureDefaults: audioCapture(),
     videoCaptureDefaults: { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() },

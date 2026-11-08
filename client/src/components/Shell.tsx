@@ -9,6 +9,7 @@ import { ContextMenu, GuildIcon, Icon, Toasts } from "./common";
 import { MemberList } from "./MemberList";
 import { PopoutOverlay } from "./Overlay";
 import { Popouts } from "./Popouts";
+import { ShowPrompts } from "./Show";
 import { Modals } from "./Modals";
 import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
@@ -93,6 +94,7 @@ export function Shell() {
       <Toasts />
       <PopoutOverlay />
       <Popouts />
+      <ShowPrompts />
       <Lightbox />
     </div>
   );

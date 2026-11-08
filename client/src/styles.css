@@ -694,3 +694,26 @@ body.pop-body > .pop { height: 100vh; }
 .pop-x { -webkit-app-region: no-drag; background: none; border: none; color: #fff; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
 .pop-x:hover { background: #da373c; }
 .pop-off { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; font-size: 13px; }
+.show-sources { position: fixed; left: 0; top: 0; opacity: 0; pointer-events: none; z-index: -1; }
+.show-sources video { position: absolute; left: 0; top: 0; }
+
+/* ---------- show (recording) ---------- */
+.rec-badge { background: #da373c; color: #fff; font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 6px; animation: rec-pulse 1.6s infinite; }
+@keyframes rec-pulse { 50% { opacity: 0.55; } }
+.call-btn.rec { background: #da373c; color: #fff; }
+.show-banner { display: flex; align-items: center; gap: 12px; margin: 8px 16px 0; padding: 8px 12px; border-radius: 8px; background: #2b2d31; font-size: 14px; flex-wrap: wrap; }
+.show-banner.recording { background: #3d2224; }
+.show-banner .show-what { flex: 1; min-width: 160px; }
+.rec-dot { color: #fff; font-weight: 800; background: #da373c; border-radius: 4px; padding: 2px 8px; animation: rec-pulse 1.6s infinite; font-variant-numeric: tabular-nums; }
+.show-setup { font-weight: 700; }
+.show-start { max-height: 70vh; }
+.show-people { width: 100%; border-collapse: collapse; }
+.show-people td { padding: 4px 6px; border-bottom: 1px solid #2b2d31; }
+.show-people label.check, .show-prompt label.check { margin: 0; text-transform: none; font-weight: 400; font-size: 13px; color: #dbdee1; display: inline-flex; gap: 4px; align-items: center; }
+.show-prompt { position: fixed; right: 20px; bottom: 20px; width: 360px; background: #1e1f22; border: 1px solid #3f4147; border-radius: 12px; padding: 14px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6); z-index: 900; display: flex; flex-direction: column; gap: 10px; }
+.director { width: min(640px, 96vw); max-height: 75vh; overflow-y: auto; }
+.director input { flex: 1; min-width: 0; }
+.director-preview-box { margin-bottom: 8px; }
+.director-preview { width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: #000; display: block; }
+.recording { padding: 12px 0; border-bottom: 1px solid #2b2d31; }
+.recording-video { width: 100%; max-height: 360px; background: #000; border-radius: 8px; margin-top: 8px; }

@@ -1,3 +1,4 @@
+import { useShows } from "../show";
 import { api } from "../api";
 import { sendGateway } from "../gateway";
 import { can, channelSort, currentChannelId, isUnread, memberName, selectChannel, useStore } from "../store";
@@ -158,6 +159,7 @@ function ChannelRow({ ch }: { ch: Channel }) {
         {unread && !active && <span className="unread-pip" />}
         <Icon name={ch.kind === "voice" ? "speaker" : "hash"} size={18} className="channel-icon" />
         <span className="ellipsis">{ch.name}</span>
+        {ch.kind === "voice" && <RecBadge channelId={ch.id} />}
         {mentions > 0 && <span className="badge inline">{mentions}</span>}
         {manage && (
           <button
@@ -406,4 +408,9 @@ function UserPanel() {
       </button>
     </div>
   );
+}
+
+function RecBadge({ channelId }: { channelId: string }) {
+  const st = useShows((s) => s.status[channelId]);
+  return st === "recording" ? <span className="rec-badge" title="This call is being recorded">REC</span> : null;
 }

@@ -64,5 +64,32 @@ with sync_playwright() as p:
             time.sleep(0.5)
     st = ok(requests.get(B + "/api/admin/settings", headers=TA))["voice"]
     print("both rejoined on their own; voice server", st["state"])
+
+    # ---- Show: bran records both of them (voice + camera) in his app, and it lands on the server
+    pages[0].evaluate("() => window.llambleDebug.toggleCamera()")
+    pages[0].wait_for_function("() => window.llambleDebug.voice().camera", timeout=30000)
+    TB = {"Authorization": "Bearer " + b["token"]}
+    show = ok(requests.post(B + f"/api/channels/{vc}/shows", headers=TA, json={"title": "CI show", "people": [
+        {"user_id": a["user"]["id"], "voice": True, "camera": True}, {"user_id": b["user"]["id"], "voice": True, "camera": False}]}))
+    ok(requests.post(B + f"/api/shows/{show['id']}/consent", headers=TB, json={"voice": True}))
+    ok(requests.post(B + f"/api/shows/{show['id']}/start", headers=TA))
+    pages[0].wait_for_function("() => window.llambleDebug.recorder().showId", timeout=20000)
+    time.sleep(12)
+    ok(requests.post(B + f"/api/shows/{show['id']}/stop", headers=TA))
+    pages[0].wait_for_function("() => !window.llambleDebug.recorder().showId", timeout=60000)
+    rec = ok(requests.get(B + "/api/shows", headers=TB))
+    mine = [x for x in rec if x["id"] == show["id"]]
+    assert mine and mine[0]["size"] > 50_000, rec
+    v = requests.get(B + f"/api/shows/{show['id']}/video", headers=TA)
+    assert v.status_code == 200 and len(v.content) == mine[0]["size"], v.status_code
+    open("/tmp/show.webm", "wb").write(v.content)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height", "-of", "csv=p=0", "/tmp/show.webm"], capture_output=True, text=True).stdout
+    print("  ffprobe:", probe.strip().replace("\n", " | "))
+    assert "video" in probe and "1920,1080" in probe and "audio" in probe, probe
+    # the picture isn't blank: grab a frame from the middle and check it has detail
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "6", "-i", "/tmp/show.webm", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x36", "/tmp/frame.raw"], check=True)
+    px = open("/tmp/frame.raw", "rb").read()
+    assert len(set(px)) > 8, "recorded frame is blank"
+    print(f"show recorded: {mine[0]['size'] // 1000} KB of 1080p video with sound, visible to the other person in it")
     br.close()
 print("ALL VOICE E2E OK")

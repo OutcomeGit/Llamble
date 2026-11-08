@@ -164,6 +164,11 @@ async fn broadcast(state: &Shared, id: &str) -> ApiResult<Value> {
     let s = load(state, id).await?;
     let v = show_json(state, &s).await?;
     state.hub.send_users(&audience(state, &s).await, "SHOW_UPDATE", &v);
+    // everyone else who can see the channel just learns it's recording (for the REC badge)
+    if let Ok(ch) = load_channel(&state.db, &s.channel_id).await {
+        let ids = crate::state::channel_audience(&state.db, &ch).await;
+        state.hub.send_users(&ids, "SHOW_STATUS", &json!({ "id": s.id, "channel_id": s.channel_id, "status": s.status }));
+    }
     Ok(v)
 }
 
