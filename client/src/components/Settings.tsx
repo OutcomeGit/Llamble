@@ -1,6 +1,6 @@
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, setWidget, useOverlayPrefs, usePopout, type WidgetId } from "../overlay";
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api, formatBytes, upload } from "../api";
 import { chosenGpu, refreshGpus, saveAiConfig, setLending, startLocalModel, stopLocalModel, useAi, type AiConfig } from "../aiWorker";
 import { can, guildPerms, memberName, useStore } from "../store";
@@ -14,24 +14,61 @@ import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
 
-function SettingsFrame({ tabs, tab, setTab, children, title }: { tabs: { id: string; label: string; hidden?: boolean; danger?: boolean }[]; tab: string; setTab: (t: string) => void; children: React.ReactNode; title: string }) {
+/** Shows the problem instead of a blank window when a settings page crashes. */
+class PageGuard extends React.Component<{ children: React.ReactNode; page: string }, { err: Error | null }> {
+  state = { err: null as Error | null };
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  componentDidUpdate(prev: { page: string }) {
+    if (prev.page !== this.props.page && this.state.err) this.setState({ err: null });
+  }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const cfg = useStore.getState().config;
+    return (
+      <div>
+        <h2>This page didn't load</h2>
+        <p className="muted">{this.state.err.message}</p>
+        {cfg.version && cfg.version !== __APP_VERSION__ && (
+          <p>
+            The Llamble server is on version {cfg.version} and this app is {__APP_VERSION__}. Update the server on the NAS (see Settings → Server for how), then try again.
+          </p>
+        )}
+        <button className="btn" onClick={() => this.setState({ err: null })}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+}
+
+type TabSpec = { id: string; label: string; hidden?: boolean; danger?: boolean; section?: boolean };
+
+function SettingsFrame({ tabs, tab, setTab, children, title }: { tabs: TabSpec[]; tab: string; setTab: (t: string) => void; children: React.ReactNode; title: string }) {
   return (
     <div className="settings">
       <nav className="settings-nav">
         <div className="settings-nav-title">{title}</div>
         {tabs
           .filter((t) => !t.hidden)
-          .map((t) => (
-            <button key={t.id} className={(tab === t.id ? "on " : "") + (t.danger ? "danger" : "")} onClick={() => setTab(t.id)}>
-              {t.label}
-            </button>
-          ))}
+          .map((t) =>
+            t.section ? (
+              <div key={t.id} className="settings-nav-title section">
+                {t.label}
+              </div>
+            ) : (
+              <button key={t.id} className={(tab === t.id ? "on " : "") + (t.danger ? "danger" : "")} onClick={() => setTab(t.id)}>
+                {t.label}
+              </button>
+            ),
+          )}
       </nav>
       <section className="settings-body">
         <button className="settings-close" onClick={closeModal} title="Close (Esc)">
           <Icon name="x" size={22} />
         </button>
-        {children}
+        <PageGuard page={tab}>{children}</PageGuard>
       </section>
     </div>
   );
@@ -438,21 +475,24 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
   const me = useStore((s) => s.me)!;
   return (
     <SettingsFrame
-      title="User Settings"
+      title="My Settings"
       tab={tab}
       setTab={setTab}
       tabs={[
         { id: "account", label: "My Account" },
         { id: "voice", label: "Voice & Video" },
-        { id: "ai", label: "AI & GPU", hidden: !window.llambleNative },
+        { id: "ai", label: "Lend My GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
         { id: "overlay", label: "Overlay" },
         { id: "sessions", label: "Devices" },
         { id: "family", label: "Family", hidden: !!me.is_kid },
-        { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
-        { id: "server", label: "Server", hidden: me.instance_role !== "master" },
+        // the Llamble server itself (the NAS): not the "servers" people chat in
+        { id: "nas-section", label: "Llamble Server (NAS)", section: true, hidden: !me.is_admin },
+        { id: "admin", label: "Accounts", hidden: !me.is_admin },
+        { id: "server", label: "Settings & Updates", hidden: me.instance_role !== "master" },
         { id: "aimodel", label: "AI Model", hidden: me.instance_role !== "master" },
         { id: "remote", label: "Remote Access", hidden: me.instance_role !== "master" },
+        { id: "end-section", label: "", section: true },
         { id: "logout", label: "Log Out", danger: true },
       ]}
     >
@@ -678,7 +718,7 @@ function AiSettings() {
   if (!c.consent) {
     return (
       <div>
-        <h2>AI & GPU</h2>
+        <h2>Lend My GPU</h2>
         <div className="consent-box">
           <h3>Lend this PC's graphics card to the server's AI bot?</h3>
           <ul>
@@ -702,7 +742,7 @@ function AiSettings() {
 
   return (
     <div>
-      <h2>AI & GPU</h2>
+      <h2>Lend My GPU</h2>
       <div className="perm-row">
         <div>
           <div className="bold">Lend my GPU to the AI bot</div>
@@ -959,7 +999,8 @@ function Admin() {
     });
   return (
     <div>
-      <h2>Instance Admin</h2>
+      <h2>Accounts</h2>
+      <p className="muted small">Everyone with an account on this Llamble server (your NAS), across all the chat servers on it.</p>
       <ResetRequests />
       <div className="profile-section">Account invites</div>
       <p className="muted small">Creates an account invite that doesn't join any server (single use). Kid accounts don't need invites: make them in Settings → Family.</p>
@@ -1221,8 +1262,9 @@ function ServerConfig() {
   };
   return (
     <div>
-      <h2>Server</h2>
+      <h2>Llamble Server Settings</h2>
       <p className="muted small">Settings for the Llamble server itself (your NAS). Changes apply right away, no restart.</p>
+      <ServerUpdate />
       <div className={"rs " + (v.state === "running" || v.state === "external" ? "ok" : v.state === "error" ? "err" : "off")}>
         <b>Voice &amp; video</b> {voiceText[v.state] ?? v.state}
       </div>
@@ -1898,4 +1940,33 @@ function OverlaySettings() {
       )}
     </div>
   );
+}
+
+function ServerUpdate() {
+  const sv = useStore((s) => s.config.version) || "unknown";
+  const behind = sv !== "unknown" && __APP_VERSION__ !== "dev" && sv !== __APP_VERSION__ && newer(__APP_VERSION__, sv);
+  return (
+    <div className={"rs " + (behind ? "err" : "ok")}>
+      <b>Version</b> server {sv}, this app {__APP_VERSION__}
+      {behind ? " — the server is out of date." : " — up to date."}
+      {behind && (
+        <ol className="small" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+          <li>
+            On TrueNAS, open <b>Apps</b>, click the Llamble app, and press <b>Update</b> if it's offered.
+          </li>
+          <li>
+            If there's no Update button: <b>Apps → Discover Apps → ⋮ → Manage Container Images → Pull Image</b>, enter <code>ghcr.io/outcomegit/llamble</code> with tag <code>latest</code>, wait for it to finish, then <b>Stop</b> and <b>Start</b> the Llamble app.
+          </li>
+          <li>Your accounts, chats and settings stay. Everyone reconnects by themselves in a few seconds.</li>
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function newer(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
 }

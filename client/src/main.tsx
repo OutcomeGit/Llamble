@@ -10,7 +10,27 @@ import { getRoom, joinVoice, leaveVoice, useVoice } from "./voice";
 import { OverlayApp } from "./OverlayApp";
 
 const isOverlay = location.hash === "#overlay" && !!window.llambleNative?.overlay;
-createRoot(document.getElementById("root")!).render(isOverlay ? <OverlayApp /> : <App />);
+/** Last line of defence: show what broke instead of an empty window. */
+class Crash extends React.Component<{ children: React.ReactNode }, { err: Error | null }> {
+  state = { err: null as Error | null };
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div style={{ padding: 40, color: "#ddd", fontFamily: "sans-serif" }}>
+        <h2>Something went wrong</h2>
+        <p style={{ color: "#aaa" }}>{this.state.err.message}</p>
+        <button className="btn primary" onClick={() => location.reload()}>
+          Reload Llamble
+        </button>
+      </div>
+    );
+  }
+}
+
+createRoot(document.getElementById("root")!).render(isOverlay ? <OverlayApp /> : <Crash><App /></Crash>);
 
 // installable web app (only in browsers served over http(s), not inside Electron)
 if (!isOverlay && !window.llambleNative && "serviceWorker" in navigator && location.protocol.startsWith("http")) {

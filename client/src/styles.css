@@ -630,3 +630,4 @@ html:has(body.overlay-window) { background: transparent !important; }
 .ov-editbar label, .ov-check { text-transform: none; letter-spacing: 0; font-size: 14px; color: #dde; white-space: nowrap; }
 .voice-alert.sharing { background: #2b2d31; color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .call-btn.on[title^="Stop sharing"] { background: #da373c; color: #fff; }
+.settings-nav-title.section { margin-top: 18px; border-top: 1px solid var(--border, #3f4147); padding-top: 14px; }
