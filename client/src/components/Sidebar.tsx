@@ -215,7 +215,7 @@ export function userMenu(e: React.MouseEvent, userId: string, guildId: string | 
   }
   const inVoice = useVoice.getState().channelId && s.voiceStates[userId]?.channel_id === useVoice.getState().channelId;
   if (inVoice && userId !== me.id) {
-    const vol = Number(localStorage.getItem("llamble.vol." + userId) || "1");
+    const vol = Math.min(1, Number(localStorage.getItem("llamble.vol." + userId) || "1"));
     items.push({
       label: "",
       render: () => <VolumeSlider userId={userId} initial={vol} />,
@@ -265,7 +265,7 @@ function VolumeSlider({ userId, initial }: { userId: string; initial: number }) 
       <input
         type="range"
         min={0}
-        max={2}
+        max={1}
         step={0.05}
         defaultValue={initial}
         onChange={(e) => import("../voice").then((v) => v.setUserVolume(userId, Number(e.target.value)))}

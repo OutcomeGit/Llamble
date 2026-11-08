@@ -347,15 +347,22 @@ async function attachChain(r: Room) {
   }
 }
 
+/** Per-person volume, 0..1 (the audio player can't go above 100%; older versions allowed up to 200%). */
 function userVolume(uid: string): number {
-  return Number(prefs.get("vol." + uid, "1")) || 1;
+  const v = Number(prefs.get("vol." + uid, "1"));
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
 }
 
 export function setUserVolume(uid: string, v: number) {
+  v = Math.max(0, Math.min(1, v));
   prefs.set("vol." + uid, String(v));
   const p = room?.remoteParticipants.get(uid);
-  p?.setVolume(v);
-  p?.setVolume(v, Track.Source.ScreenShareAudio);
+  try {
+    p?.setVolume(v);
+    p?.setVolume(v, Track.Source.ScreenShareAudio);
+  } catch (e) {
+    console.warn("volume", e);
+  }
 }
 
 function syncServerState() {
@@ -376,7 +383,11 @@ function attachAudio(track: RemoteTrack, p: RemoteParticipant) {
   const out = prefs.get("audioOutput");
   if (out && "setSinkId" in el) (el as any).setSinkId(out).catch(() => {});
   audioBox.appendChild(el);
-  p.setVolume(userVolume(p.identity));
+  try {
+    p.setVolume(userVolume(p.identity), track.source === Track.Source.ScreenShareAudio ? Track.Source.ScreenShareAudio : Track.Source.Microphone);
+  } catch (e) {
+    console.warn("volume", e); // never let a volume setting stop you hearing someone
+  }
 }
 
 export async function joinVoice(channelId: string) {

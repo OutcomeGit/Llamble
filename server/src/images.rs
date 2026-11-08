@@ -388,22 +388,28 @@ pub async fn start(state: Shared, ch: Channel, uid: String, s: ImageSettings, pr
     };
     let name = crate::models::get_user(&state.db, &uid).await.map(|u| u.display_name).unwrap_or_default();
     let msg = post(&state, &ch, &format!("🎨 Drawing **{prompt}** for {name} {place}…")).await?;
+    let nas_place = || match gpu_access().0.as_str() {
+        "ready" => "the server's graphics".to_string(),
+        _ => "the server's processor".to_string(),
+    };
     tokio::spawn(async move {
-        let png = match worker {
-            Some((conn, _)) => match on_worker(&state, conn, &s, &prompt, w, h, seed).await {
-                Ok(p) => Ok(p),
+        let started = std::time::Instant::now();
+        let (png, ran_on) = match worker {
+            Some((conn, gpu)) => match on_worker(&state, conn, &s, &prompt, w, h, seed).await {
+                Ok(p) => (Ok(p), format!("a lent {gpu}")),
                 // the GPU dropped out: fall back to the server if allowed
                 Err(e) if s.nas && sd_bin().exists() => {
                     tracing::info!("picture on GPU failed ({e:#}); drawing on the server");
-                    on_nas(&state, &s, &prompt, w, h, seed).await
+                    (on_nas(&state, &s, &prompt, w, h, seed).await, nas_place())
                 }
-                Err(e) => Err(e),
+                Err(e) => (Err(e), format!("a lent {gpu}")),
             },
-            None => on_nas(&state, &s, &prompt, w, h, seed).await,
+            None => (on_nas(&state, &s, &prompt, w, h, seed).await, nas_place()),
         };
+        let took = took_text(started.elapsed());
         let content = match &png {
-            Ok(_) => format!("🎨 **{prompt}** — for {name}"),
-            Err(e) => format!("🎨 Couldn't draw **{prompt}**: {e:#}"),
+            Ok(_) => format!("🎨 **{prompt}** — for {name} · ⏱ {took} on {ran_on}"),
+            Err(e) => format!("🎨 Couldn't draw **{prompt}** (after {took}): {e:#}"),
         };
         if let Ok(p) = png {
             match crate::api::files::store_bytes(&state, &state.bot_id, "picture.png", "image/png", &p).await {
@@ -419,6 +425,16 @@ pub async fn start(state: Shared, ch: Channel, uid: String, s: ImageSettings, pr
         }
     });
     Ok(())
+}
+
+/// "8.4 s", "1 min 12 s"
+fn took_text(d: std::time::Duration) -> String {
+    let secs = d.as_secs_f64();
+    if secs < 60.0 {
+        format!("{secs:.1} s")
+    } else {
+        format!("{} min {} s", (secs / 60.0) as u64, (secs as u64) % 60)
+    }
 }
 
 async fn post(state: &Shared, ch: &Channel, text: &str) -> anyhow::Result<String> {
