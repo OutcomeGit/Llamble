@@ -711,10 +711,13 @@ function VoiceSettings() {
           <option value="96000">96 kbps (high)</option>
           <option value="128000">128 kbps (studio)</option>
           <option value="256000">256 kbps (music)</option>
+          <option value="320000">320 kbps (studio mic, stereo)</option>
+          <option value="510000">510 kbps (Opus maximum)</option>
         </select>
       </label>
       <ShareDefault />
       <EncoderSetting />
+      {flag("studioMic", "Studio mic", "Your mic exactly as it is: no noise suppression, echo cancellation or volume leveling, stereo if your mic is stereo, nothing trimmed during quiet moments. Use headphones (others will hear echo otherwise) and pair it with 256 kbps or more.", false)}
       {flag("noiseSuppression", "Noise suppression", "Filter background noise (keyboard, fans)")}
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}

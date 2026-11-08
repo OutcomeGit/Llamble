@@ -83,16 +83,28 @@ async function refreshDevices() {
   }
 }
 
+/** Studio mic: your mic exactly as it sounds — no processing, stereo if the mic is, no voice-call tricks. Needs headphones. */
+export function studioMic(): boolean {
+  return prefs.bool("studioMic", false);
+}
+
 function audioCapture() {
   let dev = prefs.get("audioInput");
   if (dev && knownInputs && !knownInputs.includes(dev)) dev = "";
+  const studio = studioMic();
   return {
     deviceId: dev || undefined,
-    echoCancellation: prefs.bool("echoCancellation"),
-    noiseSuppression: prefs.bool("noiseSuppression"),
-    autoGainControl: prefs.bool("autoGainControl"),
-    channelCount: 1,
+    echoCancellation: !studio && prefs.bool("echoCancellation"),
+    noiseSuppression: !studio && prefs.bool("noiseSuppression"),
+    autoGainControl: !studio && prefs.bool("autoGainControl"),
+    channelCount: studio ? 2 : 1,
+    sampleRate: 48000,
   };
+}
+
+/** How the mic is sent: studio mode drops DTX (cuts quiet parts) and RED (duplicate packets), and keeps stereo. */
+function micPublish() {
+  return studioMic() ? { forceStereo: true, dtx: false, red: false } : {};
 }
 
 function userVolume(uid: string): number {
@@ -270,7 +282,7 @@ async function connect(channelId: string, rejoining: boolean) {
   if (!rejoining) sounds.join();
   if (info.can_speak) {
     try {
-      await r.localParticipant.setMicrophoneEnabled(!vget().muted && !vget().deafened, audioCapture());
+      await r.localParticipant.setMicrophoneEnabled(!vget().muted && !vget().deafened, audioCapture(), micPublish());
     } catch (e: any) {
       micError(e);
     }
@@ -305,7 +317,7 @@ export async function toggleMute() {
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   muted ? sounds.mute() : sounds.unmute();
-  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!muted, audioCapture()).then(() => !muted && vset({ error: null })).catch(micError);
+  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!muted, audioCapture(), micPublish()).then(() => !muted && vset({ error: null })).catch(micError);
   if (room) syncServerState();
   bump();
 }
@@ -317,7 +329,7 @@ export async function toggleDeafen() {
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   deafened ? sounds.mute() : sounds.unmute();
-  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!deafened && !s.muted, audioCapture()).catch(micError);
+  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!deafened && !s.muted, audioCapture(), micPublish()).catch(micError);
   if (room) syncServerState();
   bump();
 }
@@ -559,7 +571,7 @@ async function recoverMic() {
   if (live) return;
   try {
     await r.localParticipant.setMicrophoneEnabled(false);
-    await r.localParticipant.setMicrophoneEnabled(true, audioCapture());
+    await r.localParticipant.setMicrophoneEnabled(true, audioCapture(), micPublish());
     console.warn("microphone restarted");
   } catch (e: any) {
     vset({ error: "Microphone unavailable: " + e.message });
