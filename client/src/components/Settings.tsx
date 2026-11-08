@@ -9,7 +9,7 @@ import { chosenGpu, preparePictures, refreshGpus, saveAiConfig, setLending, star
 import { can, guildPerms, memberName, useStore } from "../store";
 import { GUEST_DENY, P, PERM_LABELS, type Role, type User } from "../types";
 import { closeModal, copy, openModal, toast } from "../ui";
-import { SHARE_LABELS, SHARE_ORDER, applyDevicePrefs, cameraAllowed, defaultShareQuality, prefs, setDefaultShareQuality, shareAllowed, type ShareQuality } from "../voice";
+import { MIC_PRESETS, SHARE_LABELS, SHARE_ORDER, applyDevicePrefs, micPresetId, micSound, reapplyMic, setMicSound, shareAudioBitrate, type MicSound, cameraAllowed, defaultShareQuality, prefs, setDefaultShareQuality, shareAllowed, type ShareQuality } from "../voice";
 import { Avatar, BotTag, GuildIcon, Icon, Toggle } from "./common";
 import { inviteLink } from "./Modals";
 import { logout } from "../App";
@@ -706,40 +706,11 @@ function VoiceSettings() {
           ))}
         </select>
       </label>
-      <label>
-        Voice quality
-        <select value={prefs.get("audioBitrate", "96000")} onChange={(e) => set("audioBitrate", e.target.value)}>
-          <option value="32000">32 kbps (low bandwidth)</option>
-          <option value="64000">64 kbps (Discord default)</option>
-          <option value="96000">96 kbps (high)</option>
-          <option value="128000">128 kbps (studio)</option>
-          <option value="256000">256 kbps (music)</option>
-          <option value="320000">320 kbps (studio mic, stereo)</option>
-          <option value="510000">510 kbps (Opus maximum)</option>
-        </select>
-      </label>
+      <MicSoundSettings />
       <ShareDefault />
+      <ShareAudioSetting />
       <EncoderSetting />
-      <div className="perm-row">
-        <div>
-          <div className="bold">Studio mic</div>
-          <div className="muted small">
-            Sends your mic in stereo (if it's a stereo mic), without trimming quiet moments or adding repair packets. Turning it on also switches off
-            the three cleanup options below; turn any of them back on if you need it. Best with headphones and 256 kbps or more.
-          </div>
-        </div>
-        <Toggle
-          on={prefs.bool("studioMic", false)}
-          onChange={(v) => {
-            if (v) for (const k of ["noiseSuppression", "echoCancellation", "autoGainControl"]) prefs.set(k, "0");
-            set("studioMic", v ? "1" : "0");
-          }}
-        />
-      </div>
-      {flag("noiseSuppression", "Noise suppression", "Filter background noise (keyboard, fans)")}
-      {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
-      {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}
-      <p className="muted small">Changes to processing apply the next time you join voice. Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
+      <p className="muted small">Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
       {(useStore.getState().config as any).voice_ai?.available && <MicTest />}
       {flag("autoWatchStreams", "Watch screen shares automatically", "Off: a shared screen shows a Watch button first (saves bandwidth, like Discord)", false)}
       {flag("autoWatchCameras", "Show cameras automatically", "Off: cameras show a Show video button first")}
@@ -750,6 +721,105 @@ function VoiceSettings() {
       <div className="profile-section">Camera effects</div>
       <CameraFxPicker preview />
     </div>
+  );
+}
+
+const BITRATES: [number, string][] = [
+  [32000, "32 kbps"],
+  [64000, "64 kbps"],
+  [96000, "96 kbps"],
+  [128000, "128 kbps"],
+  [160000, "160 kbps"],
+  [256000, "256 kbps"],
+  [320000, "320 kbps"],
+  [510000, "510 kbps (Opus maximum)"],
+];
+
+function MicSoundSettings() {
+  const [m, setM] = useState<MicSound>(micSound());
+  const preset = micPresetId(m);
+  const info = MIC_PRESETS.find((p) => p.id === preset);
+  const apply = (next: MicSound) => {
+    setM(next);
+    setMicSound(next);
+    reapplyMic();
+  };
+  const sw = (k: keyof MicSound, label: string, desc: string) => (
+    <div className="perm-row">
+      <div>
+        <div className="bold">{label}</div>
+        <div className="muted small">{desc}</div>
+      </div>
+      <Toggle on={!!m[k]} onChange={(v) => apply({ ...m, [k]: v })} />
+    </div>
+  );
+  return (
+    <>
+      <div className="profile-section">Mic sound</div>
+      <label>
+        Preset (lowest to highest fidelity)
+        <select
+          value={preset}
+          onChange={(e) => {
+            const p = MIC_PRESETS.find((x) => x.id === e.target.value);
+            if (p) apply({ ...p.sound });
+          }}
+        >
+          {MIC_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+          {preset === "custom" && <option value="custom">Custom</option>}
+        </select>
+      </label>
+      <p className="muted small" style={{ marginTop: -6 }}>
+        {info ? info.why : "Your own mix of the settings below."} Changes apply right away, even mid-call.
+      </p>
+      <label>
+        Bitrate
+        <select value={m.bitrate} onChange={(e) => apply({ ...m, bitrate: Number(e.target.value) })}>
+          {BITRATES.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </label>
+      {sw("stereo", "Stereo", "Sends both channels if your mic is a stereo mic. Doesn't change anything for normal (mono) headset mics.")}
+      {sw("noiseSuppression", "Noise suppression", "Removes fans, keyboards and hum. Also shaves off some of your voice's character.")}
+      {sw("echoCancellation", "Echo cancellation", "Stops others hearing themselves through your speakers. Not needed with headphones.")}
+      {sw("autoGainControl", "Auto volume", "Evens out loud and quiet. Off: your volume follows how close you are to the mic.")}
+      {sw("trimSilence", "Trim silence", "Sends almost nothing while you're quiet. Saves data; the very start of a word can come through slightly soft.")}
+      {sw("repairPackets", "Repair packets", "Each packet carries a backup of the last one so a lost packet gets rebuilt. Smoother on Wi-Fi; doubles the data.")}
+    </>
+  );
+}
+
+function ShareAudioSetting() {
+  const [b, setB] = useState(shareAudioBitrate());
+  return (
+    <label>
+      Shared sound quality (games, videos, music)
+      <select
+        value={b}
+        onChange={(e) => {
+          setB(Number(e.target.value));
+          prefs.set("shareAudioBitrate", e.target.value);
+        }}
+      >
+        {BITRATES.filter(([v]) => v >= 96000).map(([v, l]) => (
+          <option key={v} value={v}>
+            {l}
+            {v === 160000 ? " (default)" : ""}
+          </option>
+        ))}
+      </select>
+      <span className="muted small">
+        Always stereo and untouched. Show recordings save what's sent, so pick higher when recording music or a game you care about. Applies the next
+        time you start sharing.
+      </span>
+    </label>
   );
 }
 

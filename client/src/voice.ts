@@ -83,28 +83,128 @@ async function refreshDevices() {
   }
 }
 
-/** Studio mic: stereo (if the mic is), no DTX/RED. Turning it on in Settings also switches the cleanup options off; each can be turned back on. */
-export function studioMic(): boolean {
-  return prefs.bool("studioMic", false);
+// ---- mic sound: presets from lowest to highest fidelity; every setting stays adjustable ----
+export interface MicSound {
+  bitrate: number;
+  stereo: boolean;
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+  /** DTX: send almost nothing while you're silent */
+  trimSilence: boolean;
+  /** RED: each packet also carries a copy of the previous one, so a lost packet is rebuilt */
+  repairPackets: boolean;
+}
+
+export const MIC_PRESETS: { id: string; label: string; sound: MicSound; why: string }[] = [
+  {
+    id: "saver",
+    label: "Data saver",
+    sound: { bitrate: 32000, stereo: false, noiseSuppression: true, echoCancellation: true, autoGainControl: true, trimSilence: true, repairPackets: true },
+    why: "Smallest data use, for weak connections or phone data. 32 kbps keeps speech clear but sounds flat. All cleanup on, silence trimmed, repair packets on (they matter most on bad connections).",
+  },
+  {
+    id: "standard",
+    label: "Standard (like Discord)",
+    sound: { bitrate: 64000, stereo: false, noiseSuppression: true, echoCancellation: true, autoGainControl: true, trimSilence: true, repairPackets: true },
+    why: "What most call apps send. Noise suppression removes fans and keyboards (and some of your voice's character), echo cancellation lets you use speakers, auto volume evens you out.",
+  },
+  {
+    id: "high",
+    label: "High (default)",
+    sound: { bitrate: 96000, stereo: false, noiseSuppression: true, echoCancellation: true, autoGainControl: true, trimSilence: true, repairPackets: true },
+    why: "Same cleanup as Standard with more detail in your voice. A safe choice for anyone.",
+  },
+  {
+    id: "natural",
+    label: "Natural",
+    sound: { bitrate: 128000, stereo: false, noiseSuppression: false, echoCancellation: true, autoGainControl: false, trimSilence: true, repairPackets: true },
+    why: "Drops noise suppression and auto volume, the two things that change how you sound most. Keeps echo cancellation, so speakers still work. Room noise comes through.",
+  },
+  {
+    id: "studio",
+    label: "Studio",
+    sound: { bitrate: 256000, stereo: true, noiseSuppression: false, echoCancellation: false, autoGainControl: false, trimSilence: false, repairPackets: false },
+    why: "Your mic as it is: stereo (if your mic is), no cleanup, nothing trimmed in quiet moments, no repair packets (they would double the data). Needs headphones. Good for singing and instruments.",
+  },
+  {
+    id: "max",
+    label: "Maximum",
+    sound: { bitrate: 510000, stereo: true, noiseSuppression: false, echoCancellation: false, autoGainControl: false, trimSilence: false, repairPackets: false },
+    why: "Studio at Opus's highest bitrate. Beyond about 256 kbps most people can't hear a difference; it mostly costs data.",
+  },
+];
+
+export function micSound(): MicSound {
+  // older versions had a single "Studio mic" switch
+  if (prefs.get("studioMic") === "1" && prefs.get("micStereo") === "") {
+    prefs.set("micStereo", "1");
+    prefs.set("trimSilence", "0");
+    prefs.set("repairPackets", "0");
+    prefs.set("studioMic", "");
+  }
+  return {
+    bitrate: Number(prefs.get("audioBitrate", "96000")) || 96000,
+    stereo: prefs.bool("micStereo", false),
+    noiseSuppression: prefs.bool("noiseSuppression"),
+    echoCancellation: prefs.bool("echoCancellation"),
+    autoGainControl: prefs.bool("autoGainControl"),
+    trimSilence: prefs.bool("trimSilence", true),
+    repairPackets: prefs.bool("repairPackets", true),
+  };
+}
+
+export function setMicSound(m: MicSound) {
+  prefs.set("audioBitrate", String(m.bitrate));
+  prefs.set("micStereo", m.stereo ? "1" : "0");
+  prefs.set("noiseSuppression", m.noiseSuppression ? "1" : "0");
+  prefs.set("echoCancellation", m.echoCancellation ? "1" : "0");
+  prefs.set("autoGainControl", m.autoGainControl ? "1" : "0");
+  prefs.set("trimSilence", m.trimSilence ? "1" : "0");
+  prefs.set("repairPackets", m.repairPackets ? "1" : "0");
+}
+
+export function micPresetId(m = micSound()): string {
+  const same = (a: MicSound, b: MicSound) => (Object.keys(a) as (keyof MicSound)[]).every((k) => a[k] === b[k]);
+  return MIC_PRESETS.find((p) => same(p.sound, m))?.id ?? "custom";
+}
+
+/** Use new mic settings right away if you're in a call (a quick mic restart). */
+export async function reapplyMic() {
+  const r = room;
+  const st = vget();
+  if (!r || st.status !== "connected" || !st.canSpeak || st.muted || st.deafened) return;
+  try {
+    await r.localParticipant.setMicrophoneEnabled(false);
+    await r.localParticipant.setMicrophoneEnabled(true, audioCapture(), micPublish());
+  } catch (e) {
+    micError(e);
+  }
+}
+
+/** Sound you share with a screen (games, videos, music): always stereo and untouched; bitrate is yours to pick. */
+export function shareAudioBitrate(): number {
+  return Number(prefs.get("shareAudioBitrate", "160000")) || 160000;
 }
 
 function audioCapture() {
   let dev = prefs.get("audioInput");
   if (dev && knownInputs && !knownInputs.includes(dev)) dev = "";
-  const studio = studioMic();
+  const m = micSound();
   return {
     deviceId: dev || undefined,
     echoCancellation: prefs.bool("echoCancellation"),
     noiseSuppression: prefs.bool("noiseSuppression"),
     autoGainControl: prefs.bool("autoGainControl"),
-    channelCount: studio ? 2 : 1,
+    channelCount: m.stereo ? 2 : 1,
     sampleRate: 48000,
   };
 }
 
-/** How the mic is sent: studio mode drops DTX (cuts quiet parts) and RED (duplicate packets), and keeps stereo. */
+/** How the mic is sent (see MicSound). */
 function micPublish() {
-  return studioMic() ? { forceStereo: true, dtx: false, red: false } : {};
+  const m = micSound();
+  return { forceStereo: m.stereo, dtx: m.trimSilence, red: m.repairPackets, audioPreset: { maxBitrate: m.bitrate } };
 }
 
 function userVolume(uid: string): number {
@@ -453,7 +553,7 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
       // AV1/H.264 on the graphics card when it can, else VP9 (see encoder.ts)
       // shared sound goes out as stereo Opus at music quality, without the voice-call
       // tricks (DTX cuts "silence", RED doubles packets) that suit speech, not game audio
-      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: 160_000 } },
+      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: shareAudioBitrate() } },
     );
     watchEncoder("screen", codec);
     vset({ screen: true, pickerOpen: false });
