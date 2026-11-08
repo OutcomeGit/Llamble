@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Llamble: your own chat, voice &amp; AI server</title>
-<meta name="description" content="Llamble is a self-hosted, open-source chat, voice and show platform with a built-in AI. Run it on your own server; your family and friends join from Windows, phones and Chromebooks." />
+<title>Llamble: chat, show &amp; voice on your own server</title>
+<meta name="description" content="Llamble is a self-hosted, open-source chat, show and voice platform. Run it on your own server; your family and friends join from Windows, phones and Chromebooks." />
 <link rel="icon" href="favicon.png" />
 <meta property="og:title" content="Llamble" />
-<meta property="og:description" content="Your own chat, voice & AI server. Self-hosted and open source." />
+<meta property="og:description" content="Chat, show & voice on your own server. Self-hosted and open source." />
 <meta property="og:image" content="logo.jpg" />
 <style>
   :root {
@@ -81,8 +81,8 @@
 
   <div class="hero">
     <img class="logo" src="logo.jpg" alt="Llamble: Chat, Show &amp; Voice Platform" />
-    <h1>Your own chat, voice &amp; AI server.</h1>
-    <p class="lead">Text channels, crystal-clear voice and video, screen sharing, file sharing, and an AI that lives on your server, not someone else's. Self-hosted and open source.</p>
+    <h1>Chat, show &amp; voice, on your own server.</h1>
+    <p class="lead">Text channels, crystal-clear voice and video calls, screen sharing and file sharing for your family, friends or community, on a server you own. Self-hosted and open source.</p>
     <a class="btn primary" href="https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe" id="dl">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10 4.5v7H3zm8-1.2L21 3v8.5H11zM3 12.5h7v7l-7-1zm8 0h10V21l-10-1.4z"/></svg>
       Download for Windows
@@ -96,7 +96,7 @@
     <div>
       <div class="step-tag">1 · The app</div>
       <h2>Get Llamble for Windows</h2>
-      <p class="sub">The desktop app is the full experience: push-to-talk hotkeys, game-friendly screen sharing with sound, notifications, and lending your GPU to the AI if you want to.</p>
+      <p class="sub">The desktop app is the full experience: push-to-talk hotkeys, game-friendly screen sharing with sound, and notifications.</p>
       <ol class="steps">
         <li>Download and run <b>Llamble-Setup.exe</b>.</li>
         <li>Open the invite link you were sent, or type your server's address.</li>
@@ -131,9 +131,9 @@
     <div class="cards">
       <div class="card"><div class="ico">💬</div><h3>Servers &amp; channels</h3><p>Text channels, DMs, replies, reactions, GIFs, link previews, search, roles and permissions.</p></div>
       <div class="card"><div class="ico">🎙️</div><h3>Voice, video, screens</h3><p>High-quality calls, cameras and screen sharing with sound, built on LiveKit.</p></div>
-      <div class="card"><div class="ico">🦙</div><h3>Built-in AI</h3><p>A llama.cpp-powered assistant in your chats. Pick the model; members can lend their gaming GPU when idle.</p></div>
-      <div class="card"><div class="ico">📁</div><h3>Files</h3><p>Drag in images, video and documents up to the size you choose. Everything stays on your server.</p></div>
+            <div class="card"><div class="ico">📁</div><h3>Files</h3><p>Drag in images, video and documents up to the size you choose. Everything stays on your server.</p></div>
       <div class="card"><div class="ico">🌍</div><h3>Reach from anywhere</h3><p>Direct with your own domain, or through your own relay to keep your home IP private. HTTPS set up for you.</p></div>
+      <div class="card"><div class="ico">🦙</div><h3>Optional AI</h3><p>Want an assistant in your chats? Turn on the built-in llama.cpp AI and pick a model. Members can lend an idle gaming GPU. Off if you don't want it.</p></div>
       <div class="card"><div class="ico">🔓</div><h3>Open source</h3><p>No accounts with us, no ads, no tracking. Your server, your rules, your data.</p></div>
     </div>
   </div>
@@ -143,7 +143,7 @@
   <div class="wrap">
     <div class="step-tag">3 · Host it yourself</div>
     <h2>Run your own Llamble server</h2>
-    <p class="sub">One container with everything inside: the server, the web app, voice and video, and the AI. It sets up its own storage. Create the admin account and pick an AI model the first time you open it.</p>
+    <p class="sub">One container with everything inside: the server, the web app, voice and video (and the optional AI). It sets up its own storage. Create the admin account the first time you open it.</p>
     <div class="tabs">
       <button class="on" data-t="truenas">TrueNAS SCALE</button>
       <button data-t="docker">Docker Compose</button>
@@ -180,7 +180,7 @@ services:
 
 volumes:
   llamble-data:</div>
-    <p style="margin-top:22px">Then open <b>http://YOUR-SERVER-IP:8090</b> to finish setup. Remote access, AI models, GPU sharing and everything else is configured from inside the app by the admin. The full guide is in the <a href="https://github.com/OutcomeGit/Llamble#readme">README</a>.</p>
+    <p style="margin-top:22px">Then open <b>http://YOUR-SERVER-IP:8090</b> to finish setup. Remote access, accounts, the optional AI and everything else are set up from inside the app by the admin. The full guide is in the <a href="https://github.com/OutcomeGit/Llamble#readme">README</a>.</p>
   </div>
 </section>
 
