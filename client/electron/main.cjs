@@ -276,6 +276,7 @@ ipcMain.handle("games-current", () => games.poll());
 ipcMain.handle("games-running", () => games.running());
 ipcMain.handle("games-custom", () => games.custom());
 ipcMain.handle("games-mark", (_e, exe, name) => games.mark(exe, name));
+ipcMain.handle("games-enable", (_e, on) => games.setEnabled(on));
 ipcMain.handle("games-reset", (_e, exe) => games.reset(exe));
 
 // ---- local AI (llama.cpp) ----

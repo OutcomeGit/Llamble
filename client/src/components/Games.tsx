@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { setShowPlaying, showPlaying, useGames } from "../games";
 import { Toggle } from "./common";
 
-type Custom = { games: Record<string, string>; ignored: Record<string, boolean> };
+type Custom = { enabled?: boolean; games: Record<string, string>; ignored: Record<string, boolean> };
 
 /** Settings → Games (Windows app): "Playing X", and fixing what counts as a game. */
 export function GamesSettings() {
@@ -36,6 +36,21 @@ export function GamesSettings() {
         unless the setting below is on.
       </p>
       <div className="perm-row">
+        <div>
+          <div className="bold">Detect games</div>
+          <div className="muted small">
+            Off: Llamble never looks at what's running. Stream buttons and "Playing" go away; screen sharing works the same.
+          </div>
+        </div>
+        <Toggle
+          on={custom.enabled !== false}
+          onChange={async (v) => {
+            const r = await n.enable?.(v);
+            setCustom((c) => ({ ...c, enabled: r ? r.enabled : v }));
+          }}
+        />
+      </div>
+      <div className="perm-row" style={custom.enabled === false ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         <div>
           <div className="bold">Show what I'm playing</div>
           <div className="muted small">People in your servers see "Playing Roblox" under your name. Hidden while you're set to Invisible.</div>

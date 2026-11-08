@@ -53,13 +53,13 @@ let timer = null;
 let current = [];
 let send = () => {};
 let file = null;
-let custom = { games: {}, ignored: {} }; // exe -> name / exe -> true
+let custom = { enabled: true, games: {}, ignored: {} }; // exe -> name / exe -> true
 
 function load(app) {
   file = path.join(app.getPath("userData"), "games.json");
   try {
     const j = JSON.parse(fs.readFileSync(file, "utf8"));
-    custom = { games: j.games || {}, ignored: j.ignored || {} };
+    custom = { enabled: j.enabled !== false, games: j.games || {}, ignored: j.ignored || {} };
   } catch {}
 }
 function save() {
@@ -70,7 +70,7 @@ function save() {
 
 function shell() {
   if (ps && !ps.killed && ps.exitCode === null) return ps;
-  ps = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  ps = spawn(require("./sys.cjs").powershell, ["-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
   buf = "";
   ps.stdout.setEncoding("utf8");
   ps.stdout.on("data", (d) => {
@@ -143,6 +143,7 @@ function classify(w) {
 }
 
 async function poll() {
+  if (!custom.enabled) return [];
   const list = await windows();
   if (!list) return current;
   const seen = new Set();
@@ -165,22 +166,43 @@ async function poll() {
   return found;
 }
 
-function init(app, emit) {
-  if (process.platform !== "win32") return;
-  send = emit;
-  load(app);
+function start() {
+  if (timer) return;
   poll();
   timer = setInterval(poll, 15000);
 }
 
+function init(app, emit) {
+  if (process.platform !== "win32") return;
+  send = emit;
+  load(app);
+  if (custom.enabled) start();
+}
+
 function stop() {
   clearInterval(timer);
+  timer = null;
   try { ps && ps.stdin.end("exit\n"); } catch {}
   try { ps && ps.kill(); } catch {}
+  ps = null;
+}
+
+/** Turn detection off completely: no checks at all, PowerShell closed. */
+function setEnabled(on) {
+  custom.enabled = !!on;
+  save();
+  if (on) start();
+  else {
+    stop();
+    current = [];
+    send("games-update", []);
+  }
+  return custom;
 }
 
 /** Open windows that aren't games, so the person can mark one ("this is a game"). */
 async function running() {
+  if (!custom.enabled) return [];
   const list = (await windows()) || [];
   const out = [];
   const seen = new Set();
@@ -217,4 +239,4 @@ function reset(exe) {
   return custom;
 }
 
-module.exports = { init, stop, poll, running, mark, reset, custom: () => custom, current: () => current, classify };
+module.exports = { init, stop, setEnabled, poll, running, mark, reset, custom: () => custom, current: () => current, classify };

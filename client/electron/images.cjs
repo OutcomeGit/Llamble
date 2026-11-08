@@ -57,7 +57,13 @@ async function download(url, dst, label) {
 
 function unzip(zip, to) {
   return new Promise((resolve, reject) =>
-    execFile("powershell", ["-NoProfile", "-Command", `Expand-Archive -Force -LiteralPath '${zip}' -DestinationPath '${to}'`], { windowsHide: true }, (e) => (e ? reject(e) : resolve())),
+    // paths go in as environment variables, never pasted into the command text
+    execFile(
+      require("./sys.cjs").powershell,
+      ["-NoProfile", "-NonInteractive", "-Command", "Expand-Archive -Force -LiteralPath $env:LLAMBLE_ZIP -DestinationPath $env:LLAMBLE_TO"],
+      { windowsHide: true, env: { ...process.env, LLAMBLE_ZIP: zip, LLAMBLE_TO: to } },
+      (e) => (e ? reject(e) : resolve()),
+    ),
   );
 }
 

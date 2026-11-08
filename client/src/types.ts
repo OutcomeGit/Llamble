@@ -209,9 +209,10 @@ declare global {
       games?: {
         current: () => Promise<DetectedGame[]>;
         running: () => Promise<{ exe: string; title: string; game: string | null }[]>;
-        custom: () => Promise<{ games: Record<string, string>; ignored: Record<string, boolean> }>;
+        custom: () => Promise<{ enabled?: boolean; games: Record<string, string>; ignored: Record<string, boolean> }>;
         mark: (exe: string, name: string | null) => Promise<{ games: Record<string, string>; ignored: Record<string, boolean> }>;
         reset: (exe: string) => Promise<{ games: Record<string, string>; ignored: Record<string, boolean> }>;
+        enable?: (on: boolean) => Promise<{ enabled: boolean }>;
         on: (cb: (g: DetectedGame[]) => void) => () => void;
       };
       /** Windows app overlay (older app versions don't have it) */

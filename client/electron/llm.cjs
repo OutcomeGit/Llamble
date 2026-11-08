@@ -1,3 +1,4 @@
+const sys = require("./sys.cjs");
 // Local llama.cpp manager: detects GPUs, runs llama-server pinned to the chosen card,
 // and streams chat completions for jobs the Llamble server hands to this PC.
 const { execFile, spawn } = require("child_process");
@@ -32,7 +33,7 @@ function run(cmd, args, timeout = 8000) {
 
 async function detectGpus(app) {
   const gpus = [];
-  const smi = await run("nvidia-smi", ["--query-gpu=index,name,memory.total", "--format=csv,noheader,nounits"]);
+  const smi = await run(sys.nvidiaSmi, ["--query-gpu=index,name,memory.total", "--format=csv,noheader,nounits"]);
   if (smi) {
     for (const line of smi.trim().split(/\r?\n/)) {
       const [index, name, mem] = line.split(",").map((s) => s.trim());
@@ -40,7 +41,7 @@ async function detectGpus(app) {
     }
   }
   if (!gpus.length && process.platform === "win32") {
-    const ps = await run("powershell.exe", [
+    const ps = await run(sys.powershell, [
       "-NoProfile", "-Command",
       "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress",
     ]);
@@ -143,7 +144,7 @@ async function start(cfg) {
 
 function killTree(p) {
   if (!p || p.exitCode !== null) return;
-  if (process.platform === "win32") execFile("taskkill", ["/pid", String(p.pid), "/T", "/F"], { windowsHide: true }, () => {});
+  if (process.platform === "win32") execFile(sys.taskkill, ["/pid", String(p.pid), "/T", "/F"], { windowsHide: true }, () => {});
   else p.kill("SIGTERM");
 }
 
@@ -225,7 +226,7 @@ async function chat(job) {
 
 // GPU utilization % for one NVIDIA card (null if unknown)
 async function gpuUtil(index) {
-  const out = await run("nvidia-smi", ["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits", "-i", String(index ?? 0)], 5000);
+  const out = await run(sys.nvidiaSmi, ["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits", "-i", String(index ?? 0)], 5000);
   const n = out ? parseInt(out.trim(), 10) : NaN;
   return Number.isFinite(n) ? n : null;
 }

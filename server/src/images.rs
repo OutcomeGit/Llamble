@@ -84,6 +84,14 @@ pub async fn load_settings(state: &Shared) -> ImageSettings {
     v.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
 }
 
+fn sd_lib_path() -> String {
+    let own = sd_bin().parent().map(|p| p.display().to_string()).unwrap_or_default();
+    match std::env::var("LD_LIBRARY_PATH") {
+        Ok(rest) if !rest.is_empty() => format!("{own}:{rest}"),
+        _ => own,
+    }
+}
+
 fn sd_bin() -> PathBuf {
     PathBuf::from(std::env::var("LLAMBLE_SD_BIN").unwrap_or_else(|_| "/opt/sd/sd-cli".into()))
 }
@@ -234,6 +242,9 @@ async fn on_nas(state: &Shared, s: &ImageSettings, prompt: &str, w: u32, h: u32,
     let res = tokio::time::timeout(
         Duration::from_secs(1200),
         tokio::process::Command::new(sd_bin())
+            // its own ggml first: the image also has llama.cpp's (older) libggml-base on
+            // LD_LIBRARY_PATH, and loading that one leaves every backend unloadable
+            .env("LD_LIBRARY_PATH", sd_lib_path())
             .arg("--diffusion-model")
             .arg(d.join("diffusion.gguf"))
             .arg("--vae")

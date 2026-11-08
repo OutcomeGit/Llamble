@@ -66,13 +66,13 @@ ENV LD_LIBRARY_PATH=/opt/llama:/opt/sherpa/lib \
 RUN /opt/llama/llama-server --version && /opt/livekit/livekit-server --version \
     && ! ldd /opt/sherpa/bin/sherpa-onnx-offline /opt/sherpa/bin/sherpa-onnx-offline-tts | grep -q "not found" \
     && ! ldd /opt/sd/sd-cli | grep -q "not found" \
-    && llamble-sd-check /opt/sd
+    && LD_LIBRARY_PATH=/opt/sd:$LD_LIBRARY_PATH llamble-sd-check /opt/sd
 # Run as TrueNAS's "apps" user (568). The data dir is pre-owned by it, so a fresh
 # Docker-managed volume mounted at /data inherits that ownership automatically.
 RUN mkdir -p /data && chown 568:568 /data
 USER 568:568
 # ...and as the user it really runs as
-RUN llamble-sd-check /opt/sd
+RUN LD_LIBRARY_PATH=/opt/sd:$LD_LIBRARY_PATH llamble-sd-check /opt/sd
 VOLUME /data
 EXPOSE 8080 8443 7881 7882/udp
 CMD ["llamble-server"]

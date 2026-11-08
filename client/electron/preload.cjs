@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("llambleNative", {
     custom: () => ipcRenderer.invoke("games-custom"),
     mark: (exe, name) => ipcRenderer.invoke("games-mark", exe, name),
     reset: (exe) => ipcRenderer.invoke("games-reset", exe),
+    enable: (on) => ipcRenderer.invoke("games-enable", on),
     on: (cb) => {
       const h = (_e, g) => cb(g);
       ipcRenderer.on("games-update", h);
