@@ -113,15 +113,16 @@ function RightNow() {
         .sort((a, b) => (s.users[a]?.display_name || "").localeCompare(s.users[b]?.display_name || ""));
     }),
   );
-  const calls = useStore(
-    useShallow((s) => {
-      const by: Record<string, string[]> = {};
-      for (const v of Object.values(s.voiceStates)) if (s.channels[v.channel_id]?.guild_id) (by[v.channel_id] ||= []).push(v.user_id);
-      return Object.entries(by).map(([cid, users]) => ({ cid, users }));
-    }),
-  );
+  // select the raw store objects (stable) and build the call list only when they change;
+  // building new objects inside the selector makes React re-render forever (error #185)
+  const voiceStates = useStore((s) => s.voiceStates);
   const users = useStore((s) => s.users);
   const channels = useStore((s) => s.channels);
+  const calls = useMemo(() => {
+    const by: Record<string, string[]> = {};
+    for (const v of Object.values(voiceStates)) if (channels[v.channel_id]?.guild_id) (by[v.channel_id] ||= []).push(v.user_id);
+    return Object.entries(by).map(([cid, users]) => ({ cid, users }));
+  }, [voiceStates, channels]);
   const guilds = useStore((s) => s.guilds);
   const games = useStore((s) => s.games);
   const inCall = useVoice((v) => v.channelId);
