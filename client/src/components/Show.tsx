@@ -4,7 +4,15 @@ import { Track } from "livekit-client";
 import { api, media } from "../api";
 import { memberName, useStore } from "../store";
 import { toast } from "../ui";
-import { participants, useVoice } from "../voice";
+import { participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
+import { openModal } from "../ui";
+
+/** Pick a screen, window or app to share (same picker as the Share Screen button). */
+async function pickScreen(replace = false) {
+  if (replace && useVoice.getState().screen) await stopScreenShare();
+  if (window.llambleNative) openModal({ kind: "screenPicker" });
+  else startScreenShare("", true, (localStorage.getItem("llamble.shareQuality") as any) || "1080p30");
+}
 import { Compositor, showApi, useRecorder, useShows, type RecRes, type Show, type Streams } from "../show";
 
 const NONE: Streams = { voice: false, camera: false, screen: false };
@@ -52,6 +60,7 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
         director_id: director,
       });
       onClose();
+      if ((picks[me.id] || ALL).screen && people.includes(me.id) && !useVoice.getState().screen) pickScreen();
     } catch (e: any) {
       toast(e.message, "error");
     }
@@ -144,6 +153,7 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
   const crew = [show.initiator_id, show.recorder_id, show.director_id].includes(me || "");
   const waiting = show.people.filter((p) => !p.consent).map((p) => name(p.user_id));
   const mine = show.people.find((p) => p.user_id === me);
+  const sharing = useVoice((s) => s.screen);
   const secs = show.started_at ? Math.floor((now - show.started_at) / 1000) : 0;
   const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
@@ -170,6 +180,11 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
         {mine && (
           <button className="btn small" onClick={() => openConsent(show.id)}>
             Change mine
+          </button>
+        )}
+        {mine?.consent?.screen && (
+          <button className={"btn small" + (sharing ? "" : " primary")} onClick={() => pickScreen(sharing)} title="Pick which screen, window or app goes in the show">
+            {sharing ? "Change what I share" : "Pick my screen"}
           </button>
         )}
         {show.director_id === me && (
@@ -263,7 +278,15 @@ export function ShowPrompts() {
 function ConsentBox({ show, wanted, current, joining, onDone }: { show: Show; wanted: Streams; current: Streams | null; joining?: boolean; onDone: () => void }) {
   const name = useName();
   const [c, setC] = useState<Streams>(current || wanted);
-  const send = (s: Streams) => showApi.consent(show.id, s).then(onDone).catch((e) => toast(e.message, "error"));
+  const send = (s: Streams) =>
+    showApi
+      .consent(show.id, s)
+      .then(() => {
+        onDone();
+        // they said yes to their screen: let them choose what to show right away
+        if (s.screen && !useVoice.getState().screen) pickScreen();
+      })
+      .catch((e) => toast(e.message, "error"));
   return (
     <PromptBox>
       <b>
@@ -271,7 +294,10 @@ function ConsentBox({ show, wanted, current, joining, onDone }: { show: Show; wa
         {joining ? "This call is being recorded" : `${name(show.initiator_id)} wants to record you`}
         {show.title ? ` for "${show.title}"` : ""}
       </b>
-      <p className="muted small">{joining ? "You're not in it. Want to join in?" : "Pick what can be recorded. You can change this any time."}</p>
+      <p className="muted small">
+        {joining ? "You're not in it. Want to join in?" : "Pick what can be recorded. You can change this any time."}
+        {wanted.screen ? " If you include your screen, you'll pick which screen, window or app next." : ""}
+      </p>
       <div className="row gap">
         {(["voice", "camera", "screen"] as const)
           .filter((k) => wanted[k])
