@@ -88,12 +88,12 @@ with sync_playwright() as p:
     crashed = "() => document.body.innerText.includes('Something went wrong')"
     pages[1].evaluate("() => window.llambleDebug.openHome()")
     note = ok(requests.post(B + f"/api/guilds/{gid}/notes", headers=TA, json={"content": "on around 10 pm tonight", "color": "pink"}))
-    pages[1].wait_for_function("() => document.querySelector('.home') && document.body.innerText.includes('on around 10 pm tonight')", timeout=15000)
+    pages[1].wait_for_function("() => document.querySelector('.hb-board') && document.body.innerText.includes('on around 10 pm tonight')", timeout=15000)
     m = ok(requests.post(B + f"/api/channels/{tc}/messages", headers=TA, json={"content": "highlight me"}))
     ok(requests.post(B + f"/api/guilds/{gid}/highlights", headers=TA, json={"message_id": m["id"]}))
     pages[1].wait_for_function("() => document.body.innerText.includes('highlight me')", timeout=15000)
     pages[1].get_by_text("✓ Dismiss").first.click()
-    pages[1].wait_for_function("() => !document.querySelector('.home-main')?.innerText.includes('on around 10 pm tonight')", timeout=10000)
+    pages[1].wait_for_function("() => !document.querySelector('.hb-board')?.innerText.includes('on around 10 pm tonight')", timeout=10000)
     assert ok(requests.get(B + "/api/home", headers={"Authorization": "Bearer " + b["token"]}))["notes"] == [], "dismissed on the server too"
     for view in ("notes", "highlights"):
         pages[1].evaluate("([g, v]) => window.llambleDebug.openGuildView(g, v)", [gid, view])
@@ -103,6 +103,26 @@ with sync_playwright() as p:
     pages[1].wait_for_timeout(1000)
     assert not pages[1].evaluate(crashed), "Home crashed"
     print("Home: note shown live and dismissed, highlight shown, Notes board and Highlights open fine")
+    # screenshots of the Home board in each style (uploaded by CI as "home-screenshots")
+    ok(requests.post(B + f"/api/guilds/{gid}/notes", headers=TA, json={"content": "Pizza night Friday? Bring the good controller.", "color": "yellow"}))
+    pages[1].set_viewport_size({"width": 1400, "height": 900})
+    for style in ("cork", "chalkboard", "plain"):
+        pages[1].evaluate("s => localStorage.setItem('llamble.homeBoard', s)", style)
+        pages[1].evaluate("([g]) => window.llambleDebug.openGuildView(g, 'notes')", [gid])
+        pages[1].wait_for_timeout(300)
+        pages[1].evaluate("() => window.llambleDebug.openHome()")
+        pages[1].wait_for_function("s => document.querySelector('.hb-board.hb-' + s)", arg=style, timeout=10000)
+        pages[1].wait_for_timeout(800)
+        pages[1].screenshot(path="/tmp/home.png" if style == "cork" else f"/tmp/home-{style}.png", full_page=True)
+        assert not pages[1].evaluate(crashed), f"Home ({style}) crashed"
+    pages[1].evaluate("() => localStorage.setItem('llamble.homeBoard', 'cork')")
+    pages[1].evaluate("([g]) => window.llambleDebug.openGuildView(g)", [gid])
+    pages[1].wait_for_function("() => document.querySelector('.hb-board [data-hb-section=notes]') && document.body.innerText.includes('Pizza night')", timeout=10000)
+    pages[1].wait_for_timeout(800)
+    pages[1].screenshot(path="/tmp/home-server.png", full_page=True)
+    assert not pages[1].evaluate(crashed), "server board crashed"
+    pages[1].evaluate("() => window.llambleDebug.openHome()")
+    print("Board screenshots saved (Home: cork, chalkboard, plain; server board)")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

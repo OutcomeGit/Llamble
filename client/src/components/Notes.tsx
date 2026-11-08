@@ -1,8 +1,9 @@
+import { BOARD_NAME } from "../names";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api";
 import { Markdown } from "../markdown";
-import { ago, deleteNote, dismissNote, editNote, expiresText, loadBoard, markNoteRead, noteReads, postNote } from "../notes";
+import { ago, deleteNote, dismissNote, editNote, expiresText, markNoteRead, noteReads, postNote } from "../notes";
 import { can, memberName, openGuildView, selectChannel, useStore } from "../store";
 import { P, type Note, type NoteColor, type User } from "../types";
 import { openModal, toast } from "../ui";
@@ -21,7 +22,7 @@ export async function replyTo(user: User) {
 }
 
 /** A sticky note. `onHome` adds the "Open board" button and marks it read once seen. */
-export function NoteCard({ note, onHome }: { note: Note; onHome?: boolean }) {
+export function NoteCard({ note, onHome, pinned, serverName }: { note: Note; onHome?: boolean; pinned?: boolean; serverName?: string }) {
   const me = useStore((s) => s.me?.id);
   const mine = note.author.id === me;
   const canDelete = mine || can(note.guild_id, P.MANAGE_MESSAGES);
@@ -56,7 +57,13 @@ export function NoteCard({ note, onHome }: { note: Note; onHome?: boolean }) {
   };
 
   return (
-    <div ref={ref} className={`note-card note-${note.color}` + (note.dismissed ? " dismissed" : "") + (!mine && !note.read ? " unread" : "")} style={{ transform: `rotate(${tilt * 0.6}deg)` }}>
+    <div
+      ref={ref}
+      className={`note-card note-${note.color}` + (note.dismissed ? " dismissed" : "") + (!mine && !note.read ? " unread" : "") + (pinned ? " hb-pinned" : "")}
+      style={{ transform: `rotate(${tilt * (pinned ? 1.1 : 0.6)}deg)` }}
+    >
+      {pinned && <span className={"hb-pin hb-pin-" + ["red", "blue", "green", "yellow"][Math.abs(parseInt(note.id.slice(-3), 36) || 0) % 4]} />}
+      {pinned && serverName && <div className="hb-note-server">{serverName}</div>}
       <div className="note-head">
         <Avatar user={note.author} size={22} />
         <span className="bold ellipsis">{note.author.display_name}</span>
@@ -108,7 +115,7 @@ export function NoteCard({ note, onHome }: { note: Note; onHome?: boolean }) {
             )}
             {onHome && (
               <button className="btn small" onClick={() => openGuildView(note.guild_id, "notes")}>
-                Open board
+                Open {BOARD_NAME}
               </button>
             )}
             {mine && (
@@ -187,7 +194,7 @@ function expiryAt(k: string): number | null {
   return null;
 }
 
-function Composer({ guildId }: { guildId: string }) {
+export function NoteComposer({ guildId, onPosted }: { guildId: string; onPosted?: () => void }) {
   const me = useStore((s) => s.me?.id);
   const members = useStore(
     useShallow((s) =>
@@ -213,6 +220,7 @@ function Composer({ guildId }: { guildId: string }) {
       setText("");
       setPicked([]);
       toast("Note posted");
+      onPosted?.();
     } catch (e: any) {
       toast(e.message, "error");
     }
@@ -271,39 +279,3 @@ function Composer({ guildId }: { guildId: string }) {
   );
 }
 
-/** A server's Notes board: everything I can see there, plus a composer. */
-export function NotesBoard({ guildId }: { guildId: string }) {
-  const guild = useStore((s) => s.guilds[guildId]);
-  const notes = useStore(
-    useShallow((s) =>
-      Object.values(s.notes)
-        .filter((n) => n.guild_id === guildId && (!n.expires_at || n.expires_at > Date.now()))
-        .sort((a, b) => Number(a.dismissed) - Number(b.dismissed) || b.created_at - a.created_at),
-    ),
-  );
-  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
-  useEffect(() => {
-    setState("loading");
-    loadBoard(guildId)
-      .then(() => setState("ok"))
-      .catch(() => setState("error"));
-  }, [guildId]);
-
-  return (
-    <div className="board">
-      <div className="board-head">
-        <h2>📌 Notes · {guild?.name}</h2>
-        <p className="muted small">Sticky notes for everyone here, or for the people you pick. They show on each person's Home until they dismiss them or they expire.</p>
-      </div>
-      <Composer guildId={guildId} />
-      {state === "loading" && <p className="muted">Loading…</p>}
-      {state === "error" && <p className="muted">Couldn't load notes. This Llamble instance may need updating.</p>}
-      {state === "ok" && !notes.length && <p className="muted">No notes here yet. Leave the first one above.</p>}
-      <div className="note-grid">
-        {notes.map((n) => (
-          <NoteCard key={n.id} note={n} />
-        ))}
-      </div>
-    </div>
-  );
-}

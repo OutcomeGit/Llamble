@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { media } from "../api";
 import { Markdown } from "../markdown";
-import { ago, loadHighlights, removeHighlight } from "../notes";
+import { ago, removeHighlight } from "../notes";
 import { can, selectChannel, useStore } from "../store";
 import { P, type Highlight } from "../types";
 import { toast, useUI } from "../ui";
@@ -45,13 +43,19 @@ function Visual({ h }: { h: Highlight }) {
   return null;
 }
 
-export function HighlightCard({ h, showServer }: { h: Highlight; showServer?: boolean }) {
+export function HighlightCard({ h, showServer, polaroid }: { h: Highlight; showServer?: boolean; polaroid?: boolean }) {
   const guild = useStore((s) => s.guilds[h.guild_id]);
   const me = useStore((s) => s.me?.id);
   const canRemove = h.added_by.id === me || can(h.guild_id, P.MANAGE_MESSAGES);
   const title = h.recording ? h.recording.title || "Show recording" : null;
   return (
-    <div className={"hl-card" + (h.message ? " clickable" : "")} onClick={() => openHighlight(h)} title={h.message ? "Go to the message" : undefined}>
+    <div
+      className={"hl-card" + (h.message ? " clickable" : "") + (polaroid ? " hb-polaroid" : "")}
+      style={polaroid ? { transform: `rotate(${((parseInt(h.id.slice(-4), 36) || 0) % 7) * 0.5 - 1.5}deg)` } : undefined}
+      onClick={() => openHighlight(h)}
+      title={h.message ? "Go to the message" : undefined}
+    >
+      {polaroid && <span className="hb-tape" />}
       <Visual h={h} />
       <div className="hl-info">
         {title && <div className="bold">🎬 {title}</div>}
@@ -95,52 +99,3 @@ export function HighlightCard({ h, showServer }: { h: Highlight; showServer?: bo
   );
 }
 
-/** A server's Highlights: everything added there, newest first, loads more on demand. */
-export function HighlightsView({ guildId }: { guildId: string }) {
-  const guild = useStore((s) => s.guilds[guildId]);
-  const list = useStore(
-    useShallow((s) =>
-      Object.values(s.highlights)
-        .filter((h) => h.guild_id === guildId)
-        .sort((a, b) => b.created_at - a.created_at),
-    ),
-  );
-  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
-  const [more, setMore] = useState(true);
-  useEffect(() => {
-    setState("loading");
-    loadHighlights(guildId)
-      .then((l) => (setMore(l.length >= 30), setState("ok")))
-      .catch(() => setState("error"));
-  }, [guildId]);
-  const older = async () => {
-    const last = list[list.length - 1];
-    try {
-      const l = await loadHighlights(guildId, last?.id);
-      setMore(l.length >= 30);
-    } catch (e: any) {
-      toast(e.message, "error");
-    }
-  };
-  return (
-    <div className="board">
-      <div className="board-head">
-        <h2>✨ Highlights · {guild?.name}</h2>
-        <p className="muted small">The best bits of this server. Add any message with its ⋯ menu → Add to Highlights, or a show from Settings → Recordings.</p>
-      </div>
-      {state === "loading" && <p className="muted">Loading…</p>}
-      {state === "error" && <p className="muted">Couldn't load highlights. This Llamble instance may need updating.</p>}
-      {state === "ok" && !list.length && <p className="muted">Nothing here yet.</p>}
-      <div className="hl-grid">
-        {list.map((h) => (
-          <HighlightCard key={h.id} h={h} />
-        ))}
-      </div>
-      {state === "ok" && more && list.length > 0 && (
-        <button className="btn" onClick={older} style={{ marginTop: 12 }}>
-          Load older
-        </button>
-      )}
-    </div>
-  );
-}

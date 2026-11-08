@@ -37,7 +37,10 @@ interface State {
   /** guild id, "@me" (direct messages) or "@home" */
   selectedGuild: string;
   /** a server's Notes board or Highlights is open instead of a channel */
-  guildView: Record<string, "notes" | "highlights" | undefined>;
+  /** "board" while a server's board is open in the main area instead of a channel */
+  guildView: Record<string, "board" | undefined>;
+  /** board section to scroll to once it opens */
+  boardSection: "notes" | "highlights" | null;
   /** notes I can see (Home's "For you" and boards I've opened) */
   notes: Record<string, Note>;
   highlights: Record<string, Highlight>;
@@ -68,6 +71,7 @@ export const useStore = create<State>(() => ({
   // everyone opens the app on Home (notes for you, who's around, highlights)
   selectedGuild: "@home",
   guildView: {},
+  boardSection: null,
   notes: {},
   highlights: {},
   lastChannel: JSON.parse(localStorage.getItem("llamble.lastChannel") || "{}"),
@@ -95,10 +99,10 @@ export function openHome() {
   set({ selectedGuild: "@home" });
 }
 
-/** Open a server's Notes board or Highlights in the main area. */
-export function openGuildView(guildId: string, view: "notes" | "highlights") {
+/** Open a server's board in the main area ("notes"/"highlights" scroll to that section). */
+export function openGuildView(guildId: string, view: "board" | "notes" | "highlights" = "board") {
   localStorage.setItem("llamble.lastGuild", guildId);
-  set({ selectedGuild: guildId, guildView: { ...get().guildView, [guildId]: view } });
+  set({ selectedGuild: guildId, guildView: { ...get().guildView, [guildId]: "board" }, boardSection: view === "board" ? null : view });
 }
 
 /** Notes addressed to me that are still up (Home's "For you"). */

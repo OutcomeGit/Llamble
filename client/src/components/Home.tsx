@@ -1,183 +1,328 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api";
-import { notesForMe, openGuildView, selectChannel, useStore } from "../store";
-import type { Note } from "../types";
+import { loadBoard, loadHighlights } from "../notes";
+import { notesForMe, selectChannel, useStore } from "../store";
 import { openModal, toast } from "../ui";
 import { joinVoice, useVoice } from "../voice";
-import { Avatar, GuildIcon, Icon } from "./common";
+import { Avatar, Icon } from "./common";
 import { HighlightCard } from "./Highlights";
-import { NoteCard } from "./Notes";
+import { NoteCard, NoteComposer } from "./Notes";
+
+/** What a server's board is called everywhere in the app (one place, so it's easy to rename). */
+export { BOARD_NAME } from "../names";
+import { BOARD_NAME } from "../names";
+
+/** "@home" = everything across my servers; a guild id = that one server. */
+type Scope = string;
 
 /** Unread notes for me (the badge on the llama logo). */
 export function useUnreadNotes(): number {
   return useStore((s) => notesForMe(s).filter((n) => !n.read).length);
 }
 
-/** Home: notes for you, who's around right now, recent highlights. */
-export function HomeView() {
+type BoardStyle = "cork" | "chalkboard" | "plain";
+const STYLES: [BoardStyle, string][] = [
+  ["cork", "Cork"],
+  ["chalkboard", "Chalkboard"],
+  ["plain", "Plain"],
+];
+
+function savedStyle(): BoardStyle {
+  try {
+    const v = localStorage.getItem("llamble.homeBoard");
+    if (v === "cork" || v === "chalkboard" || v === "plain") return v;
+  } catch {}
+  return "cork";
+}
+
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
+
+/** The board: Home (scope "@home", all my servers) or one server's board (scope = guild id). */
+export function Board({ scope }: { scope: Scope }) {
+  const home = scope === "@home";
+  const [style, setStyle] = useState<BoardStyle>(savedStyle);
+  const name = useStore((s) => s.me?.display_name || "");
+  const guild = useStore((s) => (home ? undefined : s.guilds[scope]));
+  const section = useStore((s) => s.boardSection);
+  const scroller = useRef<HTMLDivElement>(null);
+  const pick = (v: BoardStyle) => {
+    setStyle(v);
+    try {
+      localStorage.setItem("llamble.homeBoard", v);
+    } catch {}
+  };
+  // a server's board loads its notes and highlights when it opens
+  useEffect(() => {
+    if (home) return;
+    loadBoard(scope).catch(() => {});
+    loadHighlights(scope).catch(() => {});
+  }, [scope, home]);
+  // openGuildView(g, "notes" | "highlights") scrolls to that section
+  useEffect(() => {
+    if (!section) return;
+    const t = window.setTimeout(() => {
+      scroller.current?.querySelector(`[data-hb-section="${section}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+      useStore.setState({ boardSection: null });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [section]);
   return (
-    <div className="home">
-      <div className="home-main">
-        <ForYou />
-        <Highlights />
-      </div>
-      <div className="home-side">
-        <RightNow />
-        <ChatWithBot />
+    <div ref={scroller} className={"hb-board hb-" + style}>
+      <div className="hb-frame">
+        <header className="hb-header">
+          <div>
+            <h1 className="hb-title">{home ? "Home" : `${guild?.name ?? ""} · ${BOARD_NAME}`}</h1>
+            <div className="hb-greet">
+              {greeting()}
+              {name ? `, ${name}` : ""}
+            </div>
+          </div>
+          <div className="hb-style" role="radiogroup" aria-label="Board style">
+            {STYLES.map(([v, label]) => (
+              <button key={v} role="radio" aria-checked={style === v} className={"hb-style-btn" + (style === v ? " on" : "")} onClick={() => pick(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        <div className="hb-top">
+          <RightNow scope={scope} />
+          {home && <ChatWithBot />}
+        </div>
+
+        {/* reserved for News (Llamble, instance and server news) */}
+        <div className="hb-news" />
+
+        {home ? <ForYou /> : <ServerNotes guildId={scope} />}
+        <Highlights scope={scope} />
       </div>
     </div>
   );
 }
 
-function ForYou() {
-  const notes = useStore(useShallow((s) => notesForMe(s).sort((a, b) => b.created_at - a.created_at)));
+/** Small filter chips, shown when there's more than one server. */
+function ServerChips({ ids, only, setOnly }: { ids: string[]; only: string | null; setOnly: (g: string | null) => void }) {
   const guilds = useStore((s) => s.guilds);
-  const order = useStore((s) => s.guildOrder);
-  const groups = useMemo(() => {
-    const by: Record<string, Note[]> = {};
-    for (const n of notes) (by[n.guild_id] ||= []).push(n);
-    return order.filter((g) => by[g]).map((g) => [g, by[g]] as const);
-  }, [notes, order]);
+  if (ids.length < 2) return null;
   return (
-    <section className="home-section">
-      <h2>For you</h2>
-      {!groups.length && <p className="muted">No notes for you right now. Notes people leave you on any server's 📌 Notes board show up here.</p>}
-      {groups.map(([gid, list]) => (
-        <div key={gid} className="home-group">
-          <button className="home-group-head" onClick={() => openGuildView(gid, "notes")} title="Open this server's Notes board">
-            <span className="hl-guild-icon">
-              <GuildIcon name={guilds[gid]?.name || "?"} iconId={guilds[gid]?.icon_file_id ?? null} size={20} />
-            </span>
-            <b>{guilds[gid]?.name}</b>
-            <span className="muted small">{list.length} note{list.length > 1 ? "s" : ""}</span>
-          </button>
-          <div className="note-grid">
-            {list.map((n) => (
-              <NoteCard key={n.id} note={n} onHome />
-            ))}
-          </div>
-        </div>
+    <div className="hb-chips">
+      <button className={"hb-chip" + (!only ? " on" : "")} onClick={() => setOnly(null)}>
+        All
+      </button>
+      {ids.map((g) => (
+        <button key={g} className={"hb-chip" + (only === g ? " on" : "")} onClick={() => setOnly(only === g ? null : g)}>
+          {guilds[g]?.name}
+        </button>
       ))}
-    </section>
+    </div>
   );
 }
 
-function Highlights() {
-  const all = useStore(
-    useShallow((s) =>
-      Object.values(s.highlights)
-        .filter((h) => s.guilds[h.guild_id])
-        .sort((a, b) => b.created_at - a.created_at)
-        .slice(0, 30),
-    ),
-  );
+function ForYou() {
+  // unread first, then newest (store objects are stable, so useShallow is enough here)
+  const notes = useStore(useShallow((s) => notesForMe(s).sort((a, b) => Number(a.read) - Number(b.read) || b.created_at - a.created_at)));
   const guilds = useStore((s) => s.guilds);
   const [only, setOnly] = useState<string | null>(null);
-  const servers = [...new Set(all.map((h) => h.guild_id))];
-  const list = only ? all.filter((h) => h.guild_id === only) : all;
+  const servers = useMemo(() => [...new Set(notes.map((n) => n.guild_id))], [notes]);
+  const list = only ? notes.filter((n) => n.guild_id === only) : notes;
+  const unread = notes.filter((n) => !n.read).length;
   return (
-    <section className="home-section">
-      <h2>Highlights</h2>
-      {servers.length > 1 && (
-        <div className="chips">
-          <button className={"chip" + (!only ? " on" : "")} onClick={() => setOnly(null)}>
-            All
-          </button>
-          {servers.map((g) => (
-            <button key={g} className={"chip" + (only === g ? " on" : "")} onClick={() => setOnly(g)}>
-              {guilds[g]?.name}
-            </button>
-          ))}
-        </div>
-      )}
-      {!list.length && <p className="muted">Nothing highlighted yet. Add a great moment from any message's ⋯ menu → Add to Highlights.</p>}
-      <div className="hl-grid">
-        {list.map((h) => (
-          <HighlightCard key={h.id} h={h} showServer />
+    <section className="hb-section" data-hb-section="notes">
+      <h2 className="hb-label">
+        Notes for you{unread ? <span className="hb-count">{unread} new</span> : null}
+      </h2>
+      <ServerChips ids={servers} only={only} setOnly={setOnly} />
+      <div className="hb-notes">
+        {list.map((n) => (
+          <NoteCard key={n.id} note={n} onHome pinned serverName={guilds[n.guild_id]?.name} />
         ))}
+        {!list.length && (
+          <div className="hb-empty note-card note-yellow hb-pinned">
+            <span className="hb-pin hb-pin-red" />
+            <div className="note-body">No notes for you right now. When someone leaves you one on a server's 📌 Notes board, it gets pinned here.</div>
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-function RightNow() {
+/** A server's notes: mine-to-read pinned first (until dismissed), then the rest; plus "New note". */
+function ServerNotes({ guildId }: { guildId: string }) {
   const me = useStore((s) => s.me?.id);
-  // people who share a server with me and are online
+  const notes = useStore(
+    useShallow((s) => {
+      const now = Date.now();
+      const forMe = (n: (typeof s.notes)[string]) => n.author.id !== me && !n.dismissed && (n.audience === "everyone" || n.to.includes(me || ""));
+      return Object.values(s.notes)
+        .filter((n) => n.guild_id === guildId && (!n.expires_at || n.expires_at > now))
+        .sort(
+          (a, b) =>
+            Number(!forMe(a)) - Number(!forMe(b)) || Number(a.read) - Number(b.read) || Number(a.dismissed) - Number(b.dismissed) || b.created_at - a.created_at,
+        );
+    }),
+  );
+  const [composing, setComposing] = useState(false);
+  const unread = notes.filter((n) => n.author.id !== me && !n.read && !n.dismissed).length;
+  return (
+    <section className="hb-section" data-hb-section="notes">
+      <div className="hb-section-head">
+        <h2 className="hb-label">
+          Notes{unread ? <span className="hb-count">{unread} new</span> : null}
+        </h2>
+        <button className="hb-new" onClick={() => setComposing((v) => !v)}>
+          {composing ? "Close" : "+ New note"}
+        </button>
+      </div>
+      {composing && (
+        <div className="hb-composer">
+          <NoteComposer guildId={guildId} onPosted={() => setComposing(false)} />
+        </div>
+      )}
+      <div className="hb-notes">
+        {notes.map((n) => (
+          <NoteCard key={n.id} note={n} pinned />
+        ))}
+        {!notes.length && (
+          <div className="hb-empty note-card note-yellow hb-pinned">
+            <span className="hb-pin hb-pin-red" />
+            <div className="note-body">No notes here yet. Pin the first one with “+ New note”.</div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Highlights({ scope }: { scope: Scope }) {
+  const home = scope === "@home";
+  const all = useStore(
+    useShallow((s) =>
+      Object.values(s.highlights)
+        .filter((h) => (home ? !!s.guilds[h.guild_id] : h.guild_id === scope))
+        .sort((a, b) => b.created_at - a.created_at)
+        .slice(0, home ? 30 : 500),
+    ),
+  );
+  const [only, setOnly] = useState<string | null>(null);
+  const [more, setMore] = useState(!home);
+  const servers = useMemo(() => [...new Set(all.map((h) => h.guild_id))], [all]);
+  const list = only ? all.filter((h) => h.guild_id === only) : all;
+  const older = async () => {
+    try {
+      const l = await loadHighlights(scope, all[all.length - 1]?.id);
+      setMore(l.length >= 30);
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+  };
+  return (
+    <section className="hb-section" data-hb-section="highlights">
+      <h2 className="hb-label">Highlights</h2>
+      {home && <ServerChips ids={servers} only={only} setOnly={setOnly} />}
+      <div className="hb-photos">
+        {list.map((h) => (
+          <HighlightCard key={h.id} h={h} showServer={home} polaroid />
+        ))}
+        {!list.length && (
+          <div className="hb-empty hl-card hb-polaroid">
+            <span className="hb-tape" />
+            <div className="hb-empty-photo">✨</div>
+            <div className="hl-info">Nothing highlighted yet. Pick a great moment from any message's ⋯ menu → Add to Highlights.</div>
+          </div>
+        )}
+      </div>
+      {more && all.length >= 30 && (
+        <button className="hb-new hb-older" onClick={older}>
+          Load older
+        </button>
+      )}
+    </section>
+  );
+}
+
+function RightNow({ scope }: { scope: Scope }) {
+  const home = scope === "@home";
+  const me = useStore((s) => s.me?.id);
+  // people who share a server with me and are online (an array of ids: safe with useShallow)
   const online = useStore(
     useShallow((s) => {
       const ids = new Set<string>();
-      for (const g of s.guildOrder) for (const uid of Object.keys(s.members[g] || {})) ids.add(uid);
+      for (const g of home ? s.guildOrder : [scope]) for (const uid of Object.keys(s.members[g] || {})) ids.add(uid);
       return [...ids]
         .filter((u) => u !== me && s.presences[u] && s.presences[u] !== "offline" && !s.users[u]?.is_bot)
         .sort((a, b) => (s.users[a]?.display_name || "").localeCompare(s.users[b]?.display_name || ""));
     }),
   );
-  // select the raw store objects (stable) and build the call list only when they change;
-  // building new objects inside the selector makes React re-render forever (error #185)
+  // raw store objects (stable); the call list is built only when they change
+  // (building new objects inside a selector makes React re-render forever, error #185)
   const voiceStates = useStore((s) => s.voiceStates);
   const users = useStore((s) => s.users);
   const channels = useStore((s) => s.channels);
   const calls = useMemo(() => {
     const by: Record<string, string[]> = {};
-    for (const v of Object.values(voiceStates)) if (channels[v.channel_id]?.guild_id) (by[v.channel_id] ||= []).push(v.user_id);
-    return Object.entries(by).map(([cid, users]) => ({ cid, users }));
-  }, [voiceStates, channels]);
+    for (const v of Object.values(voiceStates)) {
+      const g = channels[v.channel_id]?.guild_id;
+      if (g && (home || g === scope)) (by[v.channel_id] ||= []).push(v.user_id);
+    }
+    return Object.entries(by).map(([cid, inIt]) => ({ cid, users: inIt }));
+  }, [voiceStates, channels, home, scope]);
   const guilds = useStore((s) => s.guilds);
   const games = useStore((s) => s.games);
   const inCall = useVoice((v) => v.channelId);
   const profile = (userId: string) => openModal({ kind: "profile", userId, guildId: null });
 
   return (
-    <section className="home-section">
-      <h2>Right now</h2>
-      {calls.length > 0 && (
-        <div className="home-calls">
-          {calls.map(({ cid, users: inIt }) => {
-            const ch = channels[cid];
-            return (
+    <section className="hb-index">
+      <h2 className="hb-index-title">Right now</h2>
+      {calls.map(({ cid, users: inIt }) => {
+        const ch = channels[cid];
+        if (!ch) return null;
+        return (
+          <div key={cid} className="hb-call">
+            <Icon name="speaker" size={14} />
+            <b className="ellipsis">{ch.name}</b>
+            {home && <span className="hb-muted ellipsis">{guilds[ch.guild_id!]?.name}</span>}
+            <span className="hb-call-people">
+              {inIt.map((u) => (
+                <span key={u} title={users[u]?.display_name}>
+                  <Avatar user={users[u]} size={20} />
+                </span>
+              ))}
+            </span>
+            {inCall === cid ? (
+              <span className="hb-in">You're in</span>
+            ) : (
               <button
-                key={cid}
-                className={"home-call" + (inCall === cid ? " on" : "")}
-                title={inCall === cid ? "You're in this call" : "Join this call"}
+                className="hb-join"
                 onClick={() => {
                   selectChannel(ch.guild_id!, cid);
-                  if (inCall !== cid) joinVoice(cid);
+                  joinVoice(cid);
                 }}
               >
-                <div className="row gap center-v">
-                  <Icon name="speaker" size={14} />
-                  <b className="ellipsis">{ch.name}</b>
-                  <span className="muted small ellipsis">{guilds[ch.guild_id!]?.name}</span>
-                </div>
-                <div className="home-call-people">
-                  {inIt.map((u) => (
-                    <span key={u} title={users[u]?.display_name}>
-                      <Avatar user={users[u]} size={22} />
-                    </span>
-                  ))}
-                </div>
+                Join
               </button>
-            );
-          })}
-        </div>
-      )}
-      {!online.length && !calls.length && <p className="muted small">Nobody else is online right now.</p>}
-      <div className="home-online">
+            )}
+          </div>
+        );
+      })}
+      <div className="hb-people">
         {online.map((u) => (
-          <button key={u} className="home-person" onClick={() => profile(u)}>
-            <Avatar user={users[u]} size={28} status />
-            <span className="member-text">
+          <button key={u} className="hb-person" onClick={() => profile(u)} title={users[u]?.display_name}>
+            <Avatar user={users[u]} size={30} status />
+            <span className="hb-person-text">
               <span className="ellipsis">{users[u]?.display_name}</span>
-              {games[u] && (
-                <span className="playing ellipsis">
-                  Playing <b className="ellipsis">{games[u]}</b>
-                </span>
-              )}
+              {games[u] && <span className="hb-playing ellipsis">🎮 {games[u]}</span>}
             </span>
           </button>
         ))}
       </div>
+      {!online.length && !calls.length && <div className="hb-muted">Nobody else is online right now.</div>}
     </section>
   );
 }
@@ -186,60 +331,22 @@ function ChatWithBot() {
   const bot = useStore((s) => s.config.bot);
   if (!bot) return null;
   return (
-    <section className="home-section home-bot">
-      <button
-        className="btn"
-        onClick={async () => {
-          try {
-            const dm = await api("/api/bot/dm", { method: "POST" });
-            selectChannel("@me", dm.id);
-          } catch (e: any) {
-            toast(e.message, "error");
-          }
-        }}
-      >
-        <Icon name="bot" size={16} /> Chat with {bot.name}
-      </button>
-    </section>
-  );
-}
-
-/** Sidebar while Home is open: each server's Notes and Highlights. */
-export function HomeSidebar() {
-  const order = useStore((s) => s.guildOrder);
-  const guilds = useStore((s) => s.guilds);
-  const unread = useStore(
-    useShallow((s) => {
-      const by: Record<string, number> = {};
-      for (const n of notesForMe(s)) if (!n.read) by[n.guild_id] = (by[n.guild_id] || 0) + 1;
-      return by;
-    }),
-  );
-  return (
-    <>
-      <div className="sidebar-header static">
-        <span className="ellipsis">Home</span>
-      </div>
-      <div className="channel-scroll">
-        {order.map((g) =>
-          guilds[g] ? (
-            <div key={g} className="home-side-server">
-              <div className="category-head static" style={{ marginTop: 10 }}>
-                <span className="ellipsis">{guilds[g].name}</span>
-              </div>
-              <div className="channel" onClick={() => openGuildView(g, "notes")}>
-                <span className="channel-emoji">📌</span>
-                <span className="ellipsis">Notes</span>
-                {unread[g] ? <span className="badge inline">{unread[g]}</span> : null}
-              </div>
-              <div className="channel" onClick={() => openGuildView(g, "highlights")}>
-                <span className="channel-emoji">✨</span>
-                <span className="ellipsis">Highlights</span>
-              </div>
-            </div>
-          ) : null,
-        )}
-      </div>
-    </>
+    <button
+      className="hb-bot"
+      onClick={async () => {
+        try {
+          const dm = await api("/api/bot/dm", { method: "POST" });
+          selectChannel("@me", dm.id);
+        } catch (e: any) {
+          toast(e.message, "error");
+        }
+      }}
+    >
+      <img src="./icon-192.png" alt="" draggable={false} />
+      <span>
+        <b>Chat with {bot.name}</b>
+        <span className="hb-muted">Ask anything, draw a picture, check the weather</span>
+      </span>
+    </button>
   );
 }

@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
-import { can, currentChannelId, isUnread, onEvent, openHome, selectChannel, useStore } from "../store";
-import { HighlightsView } from "./Highlights";
-import { HomeView, useUnreadNotes } from "./Home";
-import { NotesBoard } from "./Notes";
+import { can, currentChannelId, isUnread, onEvent, openGuildView, openHome, selectChannel, useStore } from "../store";
+import { Board, useUnreadNotes } from "./Home";
 import { P } from "../types";
 import { copy, openMenu, openModal, toast, useUI } from "../ui";
 import { useVoice } from "../voice";
@@ -81,11 +79,9 @@ export function Shell() {
         <Sidebar />
         <main className="main">
           {selectedGuild === "@home" ? (
-            <HomeView />
-          ) : guildView === "notes" ? (
-            <NotesBoard key={selectedGuild} guildId={selectedGuild} />
-          ) : guildView === "highlights" ? (
-            <HighlightsView key={selectedGuild} guildId={selectedGuild} />
+            <Board key="@home" scope="@home" />
+          ) : guildView ? (
+            <Board key={selectedGuild} scope={selectedGuild} />
           ) : channel ? (
             channel.kind === "voice" ? (
               <VoiceView channel={channel} />
@@ -172,6 +168,8 @@ function GuildBar() {
     return JSON.stringify(out);
   });
   const unread = JSON.parse(unreadByGuild) as Record<string, { unread: boolean; mentions: number }>;
+  // conversations with anything unread (not just mentions), so new DMs are noticeable
+  const unreadDms = useStore((s) => Object.values(s.channels).filter((c) => !c.guild_id && c.kind !== "voice" && c.kind !== "category" && isUnread(c, s)).length);
   const voiceGuild = useStore((s) => {
     const cid = useVoice.getState().channelId;
     return cid ? s.channels[cid]?.guild_id : null;
@@ -191,9 +189,13 @@ function GuildBar() {
         </button>
       </div>
       <div className="guild-sep" />
-      <button className={"guild-btn dms" + (selected === "@me" ? " active" : "")} onClick={() => selectChannel("@me", null)} title="Direct Messages">
+      <button
+        className={"guild-btn dms" + (selected === "@me" ? " active" : "") + (unreadDms ? " has-unread" : "")}
+        onClick={() => selectChannel("@me", null)}
+        title={unreadDms ? `Direct Messages · ${unreadDms} unread` : "Direct Messages"}
+      >
         <Icon name="chat" size={22} />
-        {unread["@me"]?.mentions ? <span className="badge">{unread["@me"].mentions}</span> : null}
+        {unreadDms || unread["@me"]?.mentions ? <span className="badge">{Math.max(unreadDms, unread["@me"]?.mentions || 0)}</span> : null}
       </button>
       <div className="guild-sep" />
       {order.map((id) => {
@@ -206,7 +208,7 @@ function GuildBar() {
             <button
               className={"guild-btn" + (selected === id ? " active" : "") + (g.icon_file_id ? " has-img" : "")}
               title={g.name}
-              onClick={() => selectChannel(id, useStore.getState().lastChannel[id] ?? null)}
+              onClick={() => openGuildView(id)}
               onContextMenu={(e) =>
                 openMenu(e, [
                   { label: "Invite People", onClick: () => openModal({ kind: "invite", guildId: id }), disabled: !can(id, P.CREATE_INVITE) },

@@ -58,6 +58,13 @@ jobs:
           pip install --quiet playwright websocket-client requests
           python -m playwright install --with-deps chromium > /dev/null
           python tests/voice_e2e.py http://localhost:8090 llamble || { docker logs llamble | tail -80; exit 1; }
+      - name: Upload Home screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: home-screenshots
+          path: /tmp/home*.png
+          if-no-files-found: ignore
       - uses: docker/build-push-action@v6
         with:
           context: .

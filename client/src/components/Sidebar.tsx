@@ -8,8 +8,8 @@ import { copy, openMenu, openModal, toggleCollapsed, toast, useUI } from "../ui"
 import { joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
 import { Avatar, BotTag, Icon } from "./common";
 import { markGuildRead } from "./Shell";
-import { HomeSidebar } from "./Home";
 import { useShallow } from "zustand/react/shallow";
+import { BOARD_NAME } from "../names";
 import { logout } from "../App";
 
 export function Sidebar() {
@@ -120,20 +120,16 @@ function ChannelList({ guildId }: { guildId: string }) {
   );
 }
 
-/** "📌 Notes" and "✨ Highlights" at the top of a server's channel list. */
+/** The server's board, at the top of its channel list. */
 function BoardRows({ guildId }: { guildId: string }) {
-  const view = useStore((s) => (s.selectedGuild === guildId ? s.guildView[guildId] : undefined));
-  const unread = useStore(useShallow((s) => notesForMe(s).filter((n) => n.guild_id === guildId && !n.read).length));
+  const open = useStore((s) => s.selectedGuild === guildId && !!s.guildView[guildId]);
+  const unread = useStore((s) => notesForMe(s).filter((n) => n.guild_id === guildId && !n.read).length);
   return (
     <div className="board-rows">
-      <div className={"channel" + (view === "notes" ? " active" : "") + (unread ? " unread" : "")} onClick={() => openGuildView(guildId, "notes")}>
+      <div className={"channel" + (open ? " active" : "") + (unread ? " unread" : "")} onClick={() => openGuildView(guildId)}>
         <span className="channel-emoji">📌</span>
-        <span className="ellipsis">Notes</span>
+        <span className="ellipsis">{BOARD_NAME}</span>
         {unread > 0 && <span className="badge inline">{unread}</span>}
-      </div>
-      <div className={"channel" + (view === "highlights" ? " active" : "")} onClick={() => openGuildView(guildId, "highlights")}>
-        <span className="channel-emoji">✨</span>
-        <span className="ellipsis">Highlights</span>
       </div>
     </div>
   );
@@ -294,6 +290,11 @@ function VolumeSlider({ userId, initial }: { userId: string; initial: number }) 
       />
     </label>
   );
+}
+
+/** Sidebar while Home is open: nothing in the list area, just the bottom panel. */
+function HomeSidebar() {
+  return <div className="channel-scroll" />;
 }
 
 function DmList() {
