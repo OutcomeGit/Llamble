@@ -4,6 +4,7 @@ pub mod files;
 pub mod gifs;
 pub mod highlights;
 pub mod notes;
+pub mod news;
 pub mod guilds;
 pub mod messages;
 pub mod voice;
@@ -62,6 +63,14 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/messages/{mid}", patch(messages::edit_message).delete(messages::delete_message))
         .route("/api/messages/{mid}/share", post(messages::share_message))
         .route("/api/home", get(notes::home))
+        .route("/api/news", get(news::list_instance).post(news::create_instance))
+        .route("/api/news/llamble", get(news::llamble))
+        .route("/api/news/{id}", patch(news::edit).delete(news::delete))
+        .route("/api/guilds/{gid}/news", get(news::list_guild).post(news::create_guild))
+        .route("/api/board-prefs", get(news::get_prefs))
+        .route("/api/board-prefs/{gid}", put(news::put_prefs))
+        .route("/api/admin/users/{uid}/news-writer", put(news::set_news_writer))
+        .route("/api/admin/llamble-news/refresh", post(news::refresh_now))
         .route("/api/guilds/{gid}/notes", get(notes::list).post(notes::create))
         .route("/api/notes/{id}", patch(notes::edit).delete(notes::delete))
         .route("/api/notes/{id}/read", post(notes::read))
@@ -245,14 +254,21 @@ async fn bot_dm(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<V
     Ok(Json(payload))
 }
 
-async fn admin_users(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Vec<UserPublic>>> {
+async fn admin_users(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Vec<Value>>> {
     if !auth.is_admin {
         return Err(AppError::forbidden());
     }
+    let users = sqlx::query_as::<_, UserPublic>(&format!("SELECT {USER_COLS} FROM users ORDER BY created_at")).fetch_all(&state.db).await?;
+    let writers: Vec<String> = sqlx::query_scalar("SELECT id FROM users WHERE news_writer = 1").fetch_all(&state.db).await?;
     Ok(Json(
-        sqlx::query_as::<_, UserPublic>(&format!("SELECT {USER_COLS} FROM users ORDER BY created_at"))
-            .fetch_all(&state.db)
-            .await?,
+        users
+            .into_iter()
+            .map(|u| {
+                let mut v = serde_json::to_value(&u).unwrap_or(Value::Null);
+                v["news_writer"] = json!(writers.contains(&u.id));
+                v
+            })
+            .collect(),
     ))
 }
 

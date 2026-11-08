@@ -80,6 +80,27 @@ pub async fn subject(state: &Shared, uid: &str) -> Option<AuthUser> {
     r.map(|(is_admin, role, is_kid)| AuthUser { id: uid.to_string(), is_admin, is_master: role == "master", is_kid, token_hash: String::new() })
 }
 
+/// What kind of highlight this is: recordings, pictures, videos, links or posts.
+fn kind_of(r: &Row, message: &Value) -> &'static str {
+    if r.kind == "recording" {
+        return "recordings";
+    }
+    let atts = message["attachments"].as_array().cloned().unwrap_or_default();
+    let mime = |a: &Value| a["mime"].as_str().unwrap_or_default().to_string();
+    if atts.iter().any(|a| mime(a).starts_with("image/")) {
+        return "pictures";
+    }
+    let embeds = message["embeds"].as_array().cloned().unwrap_or_default();
+    if atts.iter().any(|a| mime(a).starts_with("video/")) || embeds.iter().any(|e| matches!(e["type"].as_str(), Some("video") | Some("gifv"))) {
+        return "videos";
+    }
+    let content = message["content"].as_str().unwrap_or_default();
+    if !embeds.is_empty() || content.contains("http://") || content.contains("https://") {
+        return "links";
+    }
+    "posts"
+}
+
 /// The highlight as `who` sees it, or None if they can't see its source.
 async fn to_json(state: &Shared, who: &AuthUser, r: &Row) -> Option<Value> {
     let (channel_id, message, recording) = match r.kind.as_str() {
@@ -98,8 +119,9 @@ async fn to_json(state: &Shared, who: &AuthUser, r: &Row) -> Option<Value> {
         _ => return None,
     };
     let added_by = get_user(&state.db, &r.added_by).await.ok().and_then(|u| serde_json::to_value(u).ok()).unwrap_or(Value::Null);
+    let t = kind_of(r, &message);
     Some(json!({
-        "id": r.id, "guild_id": r.guild_id, "kind": r.kind, "added_by": added_by, "auto": r.auto,
+        "id": r.id, "guild_id": r.guild_id, "kind": r.kind, "type": t, "added_by": added_by, "auto": r.auto,
         "created_at": r.created_at, "channel_id": channel_id, "message": message, "recording": recording,
     }))
 }
@@ -151,9 +173,13 @@ async fn insert(state: &Shared, gid: &str, kind: &str, message_id: Option<&str>,
 pub struct ListQ {
     pub before: Option<i64>,
     pub limit: Option<i64>,
+    /// pictures | videos | recordings | links | posts
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
 }
 
-async fn visible_rows(state: &Shared, who: &AuthUser, sql: &str, binds: &[&str], before: i64, limit: usize) -> ApiResult<Vec<Value>> {
+/// `want(guild_id, type)` decides which visible highlights to keep.
+async fn visible_rows(state: &Shared, who: &AuthUser, sql: &str, binds: &[&str], before: i64, limit: usize, want: &(dyn Fn(&str, &str) -> bool + Send + Sync)) -> ApiResult<Vec<Value>> {
     let mut out = vec![];
     let mut cursor = before;
     // some rows may be hidden from this person: keep paging until we have enough
@@ -167,6 +193,9 @@ async fn visible_rows(state: &Shared, who: &AuthUser, sql: &str, binds: &[&str],
         for r in &rows {
             cursor = r.created_at;
             if let Some(v) = to_json(state, who, r).await {
+                if !want(&r.guild_id, v["type"].as_str().unwrap_or_default()) {
+                    continue;
+                }
                 out.push(v);
                 if out.len() >= limit {
                     return Ok(out);
@@ -184,17 +213,27 @@ async fn visible_rows(state: &Shared, who: &AuthUser, sql: &str, binds: &[&str],
 pub async fn list(State(state): State<Shared>, auth: AuthUser, Path(gid): Path<String>, Query(q): Query<ListQ>) -> ApiResult<Json<Value>> {
     require_guild(&state.db, &gid, &auth.id, perms::VIEW).await?;
     let limit = q.limit.unwrap_or(30).clamp(1, 50) as usize;
+    if let Some(k) = &q.kind {
+        if !crate::api::news::HIGHLIGHT_TYPES.contains(&k.as_str()) {
+            return Err(AppError::bad("type must be pictures, videos, recordings, links or posts"));
+        }
+    }
+    let kind = q.kind.clone();
+    let want = move |_g: &str, t: &str| kind.as_deref().map_or(true, |k| k == t);
     let sql = format!("SELECT {COLS} FROM highlights WHERE guild_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?");
-    Ok(Json(json!(visible_rows(&state, &auth, &sql, &[&gid], q.before.unwrap_or(i64::MAX), limit).await?)))
+    Ok(Json(json!(visible_rows(&state, &auth, &sql, &[&gid], q.before.unwrap_or(i64::MAX), limit, &want).await?)))
 }
 
-/// Newest highlights across every server this person is in (for Home).
+/// Newest highlights across every server this person is in (for Home), following their
+/// board preferences (servers with highlights off, kinds they don't want).
 pub async fn for_home(state: &Shared, auth: &AuthUser, limit: usize) -> ApiResult<Vec<Value>> {
+    let prefs = crate::api::news::prefs_for(state, &auth.id).await;
+    let want = move |g: &str, t: &str| prefs.get(g).map_or(true, |p| p.highlights && p.wants_type(t));
     let sql = format!(
         "SELECT {COLS} FROM highlights WHERE guild_id IN (SELECT guild_id FROM members WHERE user_id = ? UNION SELECT id FROM guilds WHERE owner_id = ?)
          AND created_at < ? ORDER BY created_at DESC LIMIT ?"
     );
-    visible_rows(state, auth, &sql, &[&auth.id, &auth.id], i64::MAX, limit).await
+    visible_rows(state, auth, &sql, &[&auth.id, &auth.id], i64::MAX, limit, &want).await
 }
 
 #[derive(Deserialize)]
@@ -205,7 +244,7 @@ pub struct AddReq {
 
 /// POST /api/guilds/{gid}/highlights { message_id } | { show_id }
 pub async fn create(State(state): State<Shared>, auth: AuthUser, Path(gid): Path<String>, Json(req): Json<AddReq>) -> ApiResult<Json<Value>> {
-    require_guild(&state.db, &gid, &auth.id, perms::VIEW).await?;
+    require_guild(&state.db, &gid, &auth.id, perms::ADD_HIGHLIGHTS).await?;
     let (r, _) = match (req.message_id.as_deref(), req.show_id.as_deref()) {
         (Some(mid), None) => {
             let msg = load_message(&state.db, mid).await.map_err(|_| AppError::not_found())?;

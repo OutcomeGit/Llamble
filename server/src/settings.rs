@@ -27,6 +27,10 @@ pub struct ServerSettings {
     pub mic_default_kbps: u32,
     /// highest mic bitrate (kbps) anyone may send
     pub mic_max_kbps: u32,
+    /// show news from the Llamble project on Home (signed; checked every 6 hours)
+    pub llamble_news_enabled: bool,
+    /// where the signed news file lives
+    pub llamble_news_url: String,
 }
 
 /// Opus bitrates offered in the apps (kbps).
@@ -45,6 +49,8 @@ impl ServerSettings {
             max_camera: "2160p".into(),
             mic_default_kbps: 128,
             mic_max_kbps: 510,
+            llamble_news_enabled: true,
+            llamble_news_url: "https://llamble.com/news.json".into(),
         }
     }
     pub fn max_upload_bytes(&self) -> u64 {
@@ -148,6 +154,11 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
     if s.mic_default_kbps > s.mic_max_kbps {
         return Err(AppError::bad("the default mic bitrate can't be above the highest allowed"));
     }
+    s.llamble_news_url = s.llamble_news_url.trim().to_string();
+    let local_test = std::env::var("LLAMBLE_NEWS_TEST_KEY").is_ok() && s.llamble_news_url.starts_with("http://127.0.0.1");
+    if !s.llamble_news_url.starts_with("https://") && !local_test {
+        return Err(AppError::bad("the Llamble news address must start with https://"));
+    }
     s.bot_name = s.bot_name.trim().chars().take(32).collect();
     if s.bot_name.is_empty() {
         s.bot_name = "Llamble".into();
@@ -171,6 +182,10 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
     }
     if before.lan_ip != s.lan_ip {
         crate::voice_server::refresh(state.clone());
+    }
+    if s.llamble_news_enabled && (before.llamble_news_url != s.llamble_news_url || !before.llamble_news_enabled) {
+        let st = state.clone();
+        tokio::spawn(async move { crate::api::news::refresh(&st).await });
     }
     // everyone connected picks up the new limits right away (no reconnect needed)
     let online = state.hub.online_users();

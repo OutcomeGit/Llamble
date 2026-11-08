@@ -124,6 +124,22 @@ with sync_playwright() as p:
     assert not pages[1].evaluate(crashed), "server board crashed"
     pages[1].evaluate("() => window.llambleDebug.openHome()")
     print("Board screenshots saved (Home in 6 colors; server board)")
+
+    # ---- instance news reaches everyone's Home live
+    ok(requests.post(B + "/api/news", headers=TA, json={"title": "Game night is back", "body": "Friday at **8 pm** in General. Bring snacks.", "pinned": True}))
+    pages[1].evaluate("() => window.llambleDebug.openHome()")
+    pages[1].wait_for_function("() => document.querySelector('.hb-newspaper') && document.body.innerText.includes('Game night is back')", timeout=15000)
+    pages[1].wait_for_timeout(800)
+    pages[1].screenshot(path="/tmp/home-news.png", full_page=True)
+    assert not pages[1].evaluate(crashed), "Home with news crashed"
+    pages[1].evaluate("() => window.llambleDebug.openHome('instance-news')")
+    pages[1].wait_for_timeout(800)
+    assert not pages[1].evaluate(crashed), "Instance news view crashed"
+    pages[1].evaluate("() => window.llambleDebug.openHome('llamble-news')")
+    pages[1].wait_for_timeout(800)
+    assert not pages[1].evaluate(crashed), "Llamble news view crashed"
+    pages[1].evaluate("() => window.llambleDebug.openHome()")
+    print("News: instance news shown live on Home; news views open fine")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

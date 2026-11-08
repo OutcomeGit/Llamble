@@ -13,6 +13,8 @@ WORKDIR /src
 COPY server/Cargo.toml server/Cargo.lock ./
 RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm -rf src
 COPY server/src ./src
+# the Llamble news public key (empty until the project fills it in)
+COPY server/news_pubkey.txt ./news_pubkey.txt
 RUN touch src/main.rs && cargo build --release
 
 # llama.cpp's official CPU server build (binary + its shared libs live in /app)

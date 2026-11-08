@@ -1190,6 +1190,19 @@ function Admin() {
                     <option value="admin">Admin</option>
                   </select>
                 )}
+                {!u.is_kid && u.instance_role !== "master" && u.instance_role !== "admin" && (
+                  <button
+                    className={"btn small" + (u.news_writer ? " primary" : "")}
+                    title="News writers can post instance news on everyone's Home"
+                    onClick={() =>
+                      api(`/api/admin/users/${u.id}/news-writer`, { method: "PUT", body: { on: !u.news_writer } })
+                        .then(load)
+                        .catch((e) => toast(e.message, "error"))
+                    }
+                  >
+                    {u.news_writer ? "✓ News writer" : "News writer"}
+                  </button>
+                )}
                 {u.instance_role === "user" &&
                   (u.is_kid ? (
                     <button className="btn small" onClick={() => api(`/api/admin/users/${u.id}/kid`, { body: { is_kid: false } }).then(load)}>
@@ -1515,6 +1528,26 @@ function ServerConfig() {
           ))}
         </select>
       </div>
+
+      <div className="profile-section">Llamble news</div>
+      <p className="muted small">
+        What's new in Llamble, from the Llamble project, shown on everyone's Home. Every story is signed by the project; anything unsigned or tampered with is
+        ignored. People can still hide it for themselves.
+      </p>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Show Llamble news</div>
+          <div className="muted small">Off: this instance never fetches it.</div>
+        </div>
+        <Toggle on={f.llamble_news_enabled ?? true} onChange={(v) => set("llamble_news_enabled", v)} />
+      </div>
+      <details className="muted small">
+        <summary>Advanced</summary>
+        <label>
+          News address
+          <input value={f.llamble_news_url ?? ""} placeholder="(the Llamble project's news)" onChange={(e) => set("llamble_news_url", e.target.value)} />
+        </label>
+      </details>
 
       <div className="profile-section">AI bot</div>
       <label>

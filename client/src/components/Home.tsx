@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api";
-import { loadBoard, loadHighlights } from "../notes";
+import { highlightType, loadBoard, loadGuildNews, loadHighlights, loadInstanceNews } from "../notes";
 import { notesForMe, selectChannel, useStore } from "../store";
 import { openModal, toast } from "../ui";
 import { joinVoice, useVoice } from "../voice";
 import { Avatar, Icon } from "./common";
 import { HighlightCard } from "./Highlights";
 import { NoteCard, NoteComposer } from "./Notes";
+import { NewsSection } from "./News";
+import { BoardCustomize, HIGHLIGHT_TYPES } from "./BoardCustomize";
+import type { HighlightType } from "../types";
 
 /** What a server's board is called everywhere in the app (one place, so it's easy to rename). */
 export { BOARD_NAME } from "../names";
@@ -42,6 +45,14 @@ function savedStyle(): BoardStyle {
   return "cork";
 }
 
+const FILTER_TITLES: Record<string, string> = {
+  notes: "Notes",
+  highlights: "Highlights",
+  news: "News",
+  "instance-news": "Instance news",
+  "llamble-news": "Llamble news",
+};
+
 function greeting(): string {
   const h = new Date().getHours();
   return h < 5 ? "Up late" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
@@ -57,6 +68,7 @@ export function Board({ scope }: { scope: Scope }) {
   const scroller = useRef<HTMLDivElement>(null);
   // what the board shows: picked in the left column (Board / Notes / Highlights)
   const show = useStore((s) => s.boardFilter[scope] ?? "all");
+  const [customizing, setCustomizing] = useState(false);
   const pick = (v: BoardStyle) => {
     setStyle(v);
     try {
@@ -65,9 +77,13 @@ export function Board({ scope }: { scope: Scope }) {
   };
   // a server's board loads its notes and highlights when it opens
   useEffect(() => {
-    if (home) return;
+    if (home) {
+      loadInstanceNews().catch(() => {});
+      return;
+    }
     loadBoard(scope).catch(() => {});
     loadHighlights(scope).catch(() => {});
+    loadGuildNews(scope).catch(() => {});
   }, [scope, home]);
   // openGuildView(g, "notes" | "highlights") scrolls to that section
   useEffect(() => {
@@ -85,13 +101,19 @@ export function Board({ scope }: { scope: Scope }) {
           <div>
             <h1 className="hb-title">
               {home ? "Home" : `${guild?.name ?? ""} · ${BOARD_NAME}`}
-              {show !== "all" && <span className="hb-title-sub"> · {show === "notes" ? "Notes" : "Highlights"}</span>}
+              {show !== "all" && <span className="hb-title-sub"> · {FILTER_TITLES[show]}</span>}
             </h1>
             <div className="hb-greet">
               {greeting()}
               {name ? `, ${name}` : ""}
             </div>
           </div>
+          <div className="hb-header-tools">
+          {home && (
+            <button className="hb-gear" title="Customize what's on your board" onClick={() => setCustomizing(true)}>
+              ⚙ Customize
+            </button>
+          )}
           <div className="hb-style" role="radiogroup" aria-label="Board color">
             {STYLES.map((x) => (
               <button
@@ -106,7 +128,9 @@ export function Board({ scope }: { scope: Scope }) {
               />
             ))}
           </div>
+          </div>
         </header>
+        {customizing && <BoardCustomize onClose={() => setCustomizing(false)} />}
 
         {show === "all" && (
           <div className="hb-top">
@@ -115,11 +139,16 @@ export function Board({ scope }: { scope: Scope }) {
           </div>
         )}
 
-        {/* reserved for News (Llamble, instance and server news) */}
-        {show === "all" && <div className="hb-news" />}
+        {(show === "all" || show === "news") && (
+          <div className="hb-news">
+            <NewsSection scope={scope} />
+          </div>
+        )}
+        {show === "instance-news" && <NewsSection scope={scope} view="instance" />}
+        {show === "llamble-news" && <NewsSection scope={scope} view="llamble" />}
 
-        {show !== "highlights" && (home ? <ForYou /> : <ServerNotes guildId={scope} />)}
-        {show !== "notes" && <Highlights scope={scope} />}
+        {(show === "all" || show === "notes") && (home ? <ForYou /> : <ServerNotes guildId={scope} />)}
+        {(show === "all" || show === "highlights") && <Highlights scope={scope} />}
       </div>
     </div>
   );
@@ -221,21 +250,35 @@ function ServerNotes({ guildId }: { guildId: string }) {
 
 function Highlights({ scope }: { scope: Scope }) {
   const home = scope === "@home";
-  const all = useStore(
-    useShallow((s) =>
-      Object.values(s.highlights)
-        .filter((h) => (home ? !!s.guilds[h.guild_id] : h.guild_id === scope))
-        .sort((a, b) => b.created_at - a.created_at)
-        .slice(0, home ? 30 : 500),
-    ),
-  );
+  const highlights = useStore((s) => s.highlights);
+  const guilds = useStore((s) => s.guilds);
+  const prefs = useStore((s) => s.boardPrefs);
+  const [type, setType] = useState<HighlightType | null>(null);
+  // Home follows my Customize choices (servers and types); a server's board shows all of its own
+  const all = useMemo(() => {
+    const wanted = (gid: string, t: HighlightType) => {
+      if (!home) return true;
+      const p = prefs.guilds[gid];
+      if (!p) return true;
+      return p.highlights && (p.highlight_types === "all" || p.highlight_types.includes(t));
+    };
+    return Object.values(highlights)
+      .filter((h) => (home ? !!guilds[h.guild_id] : h.guild_id === scope) && wanted(h.guild_id, highlightType(h)))
+      .sort((a, b) => b.created_at - a.created_at)
+      .slice(0, home ? 30 : 500);
+  }, [highlights, guilds, prefs, home, scope]);
   const [only, setOnly] = useState<string | null>(null);
   const [more, setMore] = useState(!home);
   const servers = useMemo(() => [...new Set(all.map((h) => h.guild_id))], [all]);
-  const list = only ? all.filter((h) => h.guild_id === only) : all;
+  const list = all.filter((h) => (!only || h.guild_id === only) && (!type || highlightType(h) === type));
+  const pickType = (t: HighlightType | null) => {
+    setType(t);
+    // a server's board asks the server for more of that type
+    if (!home && t) loadHighlights(scope, undefined, 30, t).then((l) => setMore(l.length >= 30)).catch(() => {});
+  };
   const older = async () => {
     try {
-      const l = await loadHighlights(scope, all[all.length - 1]?.id);
+      const l = await loadHighlights(scope, all[all.length - 1]?.created_at, 30, type ?? undefined);
       setMore(l.length >= 30);
     } catch (e: any) {
       toast(e.message, "error");
@@ -244,6 +287,16 @@ function Highlights({ scope }: { scope: Scope }) {
   return (
     <section className="hb-section" data-hb-section="highlights">
       <h2 className="hb-label">Highlights</h2>
+      <div className="hb-chips">
+        <button className={"hb-chip" + (!type ? " on" : "")} onClick={() => pickType(null)}>
+          All
+        </button>
+        {HIGHLIGHT_TYPES.map(([t, label]) => (
+          <button key={t} className={"hb-chip" + (type === t ? " on" : "")} onClick={() => pickType(type === t ? null : t)}>
+            {label}
+          </button>
+        ))}
+      </div>
       {home && <ServerChips ids={servers} only={only} setOnly={setOnly} />}
       <div className="hb-photos">
         {list.map((h) => (

@@ -138,6 +138,9 @@ function BoardRows({ guildId }: { guildId: string }) {
       <div className={"channel sub" + (open && filter === "highlights" ? " active" : "")} onClick={() => openGuildView(guildId, "highlights")}>
         <span className="ellipsis">Highlights</span>
       </div>
+      <div className={"channel sub" + (open && filter === "news" ? " active" : "")} onClick={() => openGuildView(guildId, "news")}>
+        <span className="ellipsis">News</span>
+      </div>
     </div>
   );
 }
@@ -329,8 +332,14 @@ function HomeSidebar() {
           </div>
         </div>
         <div className="sidebar-sep" />
-        {soon("📢", "Instance news", "News from whoever runs this Llamble")}
-        {soon("🦙", "Llamble news", "What's new in Llamble")}
+        <div className={"channel" + (filter === "instance-news" ? " active" : "")} onClick={() => openHome("instance-news")} title="News from whoever runs this Llamble">
+          <span className="channel-emoji">📢</span>
+          <span className="ellipsis">Instance news</span>
+        </div>
+        <div className={"channel" + (filter === "llamble-news" ? " active" : "")} onClick={() => openHome("llamble-news")} title="What's new in Llamble, from the Llamble project">
+          <span className="channel-emoji">🦙</span>
+          <span className="ellipsis">Llamble news</span>
+        </div>
         {soon("🛍️", "Store", "Games and add-ons")}
       </div>
     </>

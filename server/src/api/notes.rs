@@ -49,8 +49,12 @@ async fn note_json(state: &Shared, n: &NoteRow, viewer: &str) -> ApiResult<Value
     let target_count = if n.audience == "people" {
         to.len() as i64
     } else {
-        // people who could read it: members other than the author, not counting bots
-        sqlx::query_scalar("SELECT COUNT(*) FROM members m JOIN users u ON u.id = m.user_id WHERE m.guild_id = ? AND m.user_id != ? AND u.is_bot = 0")
+        // people who could read it: members other than the author, not counting bots or
+        // anyone who turned notes off in this server
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM members m JOIN users u ON u.id = m.user_id WHERE m.guild_id = ?1 AND m.user_id != ?2 AND u.is_bot = 0
+               AND m.user_id NOT IN (SELECT user_id FROM board_prefs WHERE guild_id = ?1 AND notes = 0)",
+        )
             .bind(&n.guild_id)
             .bind(&n.author_id)
             .fetch_one(&state.db)
@@ -67,9 +71,10 @@ async fn note_json(state: &Shared, n: &NoteRow, viewer: &str) -> ApiResult<Value
     }))
 }
 
-/// Everyone who can see the note (author included).
+/// Everyone who can see the note (author included; not people who turned notes off there).
 async fn audience(state: &Shared, n: &NoteRow) -> Vec<String> {
-    let members = crate::state::guild_member_ids(&state.db, &n.guild_id).await;
+    let off = crate::api::news::notes_off(state, &n.guild_id).await;
+    let members: Vec<String> = crate::state::guild_member_ids(&state.db, &n.guild_id).await.into_iter().filter(|m| !off.contains(m)).collect();
     let mut ids: Vec<String> = if n.audience == "people" {
         let t = targets(state, &n.id).await;
         members.into_iter().filter(|m| t.contains(m)).collect()
@@ -119,6 +124,7 @@ async fn visible(state: &Shared, uid: &str, guild: Option<&str>) -> ApiResult<Ve
         Some(_) => "n.guild_id = ?3",
         None => "n.guild_id IN (SELECT guild_id FROM members WHERE user_id = ?1 UNION SELECT id FROM guilds WHERE owner_id = ?1)
                  AND n.author_id != ?1
+                 AND n.guild_id NOT IN (SELECT guild_id FROM board_prefs WHERE user_id = ?1 AND notes = 0)
                  AND NOT EXISTS (SELECT 1 FROM note_reads r WHERE r.note_id = n.id AND r.user_id = ?1 AND r.dismissed_at IS NOT NULL)",
     };
     let sql = format!(
@@ -143,7 +149,8 @@ async fn visible(state: &Shared, uid: &str, guild: Option<&str>) -> ApiResult<Ve
 pub async fn home(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
     let notes = visible(&state, &auth.id, None).await?;
     let highlights = crate::api::highlights::for_home(&state, &auth, 30).await?;
-    Ok(Json(json!({ "notes": notes, "highlights": highlights })))
+    let news = crate::api::news::for_home(&state, &auth.id).await?;
+    Ok(Json(json!({ "notes": notes, "highlights": highlights, "news": news })))
 }
 
 /// GET /api/guilds/{gid}/notes
@@ -213,9 +220,14 @@ pub async fn create(State(state): State<Shared>, auth: AuthUser, Path(gid): Path
         return Err(AppError::bad("a note can go to up to 50 people (or to everyone)"));
     }
     let members = crate::state::guild_member_ids(&state.db, &gid).await;
+    let off = crate::api::news::notes_off(&state, &gid).await;
     for u in &to {
         if !members.contains(u) {
             return Err(AppError::bad("everyone you pick has to be in this server"));
+        }
+        if off.contains(u) {
+            let name = get_user(&state.db, u).await.map(|x| x.display_name).unwrap_or_else(|_| "That person".into());
+            return Err(AppError::bad(format!("{name} isn't taking notes in this server")));
         }
         // kids: the same rule as starting a DM
         if let Err(kid) = crate::kids::dm_allowed(&state, &auth.id, u).await {

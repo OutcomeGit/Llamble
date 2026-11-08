@@ -2,7 +2,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { Track } from "livekit-client";
 import { api, media } from "../api";
-import { memberName, useStore } from "../store";
+import { can, memberName, useStore } from "../store";
+import { P } from "../types";
 import { toast } from "../ui";
 import { addHighlight } from "../notes";
 import { defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
@@ -479,7 +480,7 @@ export function Recordings() {
               <a className="btn small" href={media(`/api/shows/${s.id}/video`)} download>
                 Download
               </a>
-              {guildOf(s.channel_id) && (
+              {guildOf(s.channel_id) && can(guildOf(s.channel_id)!, P.ADD_HIGHLIGHTS) && (
                 <button
                   className="btn small"
                   title="Add this recording to the server's Highlights"

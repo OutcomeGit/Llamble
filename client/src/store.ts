@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Channel, Guild, GuildPayload, Highlight, Member, Message, Note, Role, User, VoiceState } from "./types";
+import type { BoardPrefs, Channel, Guild, GuildBoardPrefs, GuildPayload, Highlight, LlambleNews, Member, Message, NewsItem, Note, Role, User, VoiceState } from "./types";
 import { ALL_PERMS, P } from "./types";
 
 export interface ServerConfig {
@@ -46,6 +46,11 @@ interface State {
   /** notes I can see (Home's "For you" and boards I've opened) */
   notes: Record<string, Note>;
   highlights: Record<string, Highlight>;
+  /** news I can see: instance, servers', and Llamble's (signed by the project) */
+  news: Record<string, NewsItem>;
+  llambleNews: LlambleNews | null;
+  /** what each server puts on my boards */
+  boardPrefs: BoardPrefs;
   lastChannel: Record<string, string>;
   memberListOpen: boolean;
   ringing: { channel_id: string; from: string } | null;
@@ -77,6 +82,9 @@ export const useStore = create<State>(() => ({
   boardFilter: {},
   notes: {},
   highlights: {},
+  news: {},
+  llambleNews: null,
+  boardPrefs: { guilds: {}, llamble_news: true },
   lastChannel: JSON.parse(localStorage.getItem("llamble.lastChannel") || "{}"),
   memberListOpen: true,
   ringing: null,
@@ -97,7 +105,7 @@ export function selectChannel(guildId: string, channelId: string | null) {
   set({ selectedGuild: guildId, lastChannel, guildView });
 }
 
-export type BoardFilter = "all" | "notes" | "highlights";
+export type BoardFilter = "all" | "notes" | "highlights" | "news" | "instance-news" | "llamble-news";
 
 export function openHome(filter: BoardFilter = "all") {
   localStorage.setItem("llamble.lastGuild", "@home");
@@ -105,7 +113,7 @@ export function openHome(filter: BoardFilter = "all") {
 }
 
 /** Open a server's board in the main area, showing everything or just notes / highlights. */
-export function openGuildView(guildId: string, view: "board" | "notes" | "highlights" = "board") {
+export function openGuildView(guildId: string, view: "board" | "notes" | "highlights" | "news" = "board") {
   localStorage.setItem("llamble.lastGuild", guildId);
   const filter: BoardFilter = view === "board" ? "all" : view;
   set({ selectedGuild: guildId, guildView: { ...get().guildView, [guildId]: "board" }, boardSection: null, boardFilter: { ...get().boardFilter, [guildId]: filter } });
@@ -116,8 +124,19 @@ export function notesForMe(s: State = get()): Note[] {
   const me = s.me?.id;
   const now = Date.now();
   return Object.values(s.notes).filter(
-    (n) => n.author.id !== me && !n.dismissed && (!n.expires_at || n.expires_at > now) && !!s.guilds[n.guild_id] && (n.audience === "everyone" || n.to.includes(me || "")),
+    (n) =>
+      n.author.id !== me &&
+      !n.dismissed &&
+      (!n.expires_at || n.expires_at > now) &&
+      !!s.guilds[n.guild_id] &&
+      s.boardPrefs.guilds[n.guild_id]?.notes !== false &&
+      (n.audience === "everyone" || n.to.includes(me || "")),
   );
+}
+
+/** A server's board preferences for me (everything on unless I turned it off). */
+export function guildPrefs(s: State, gid: string): GuildBoardPrefs {
+  return s.boardPrefs.guilds[gid] ?? { notes: true, highlights: true, news: true, highlight_types: "all" };
 }
 
 export function currentChannelId(s: State = get()): string | null {
@@ -445,6 +464,19 @@ export function handleEvent(t: string, d: any) {
       if (n) set({ notes: { ...s.notes, [d.id]: { ...n, read_count: d.read_count } } });
       break;
     }
+    case "NEWS_CREATE":
+    case "NEWS_UPDATE":
+      set({ news: { ...s.news, [d.id]: d } });
+      break;
+    case "NEWS_DELETE": {
+      const news = { ...s.news };
+      delete news[d.id];
+      set({ news });
+      break;
+    }
+    case "LLAMBLE_NEWS":
+      set({ llambleNews: d });
+      break;
     case "HIGHLIGHT_CREATE":
       set({ highlights: { ...s.highlights, [d.id]: d } });
       break;

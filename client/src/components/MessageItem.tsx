@@ -53,7 +53,7 @@ export const MessageItem = memo(function MessageItem({ msg, guildId, compact, re
       { label: "Add Reaction", onClick: () => setPicker(true) },
       { label: "Reply", onClick: () => setReply(msg.channel_id, msg) },
       { label: "Share to…", onClick: () => openModal({ kind: "share", msg }) },
-      ...(guildId && !msg.pending
+      ...(guildId && !msg.pending && can(guildId, P.ADD_HIGHLIGHTS)
         ? [
             {
               label: "Add to Highlights",

@@ -203,6 +203,16 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     // Home → highlights: auto-add AI pictures / finished recordings (per server)
     add_column(pool, "guilds", "highlights_auto_pictures", "INTEGER NOT NULL DEFAULT 1").await?;
     add_column(pool, "guilds", "highlights_auto_recordings", "INTEGER NOT NULL DEFAULT 1").await?;
+    // news: instance "news writers"; per-person show/hide for Llamble news on Home
+    add_column(pool, "users", "news_writer", "INTEGER NOT NULL DEFAULT 0").await?;
+    add_column(pool, "users", "board_llamble_news", "INTEGER NOT NULL DEFAULT 1").await?;
+    // "Add highlights" became a permission: give it once to everyone who already had it
+    // (as an @everyone default), so nothing changes for existing servers
+    let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'migr_add_highlights'").fetch_optional(pool).await.unwrap_or(None);
+    if done.is_none() {
+        sqlx::query("UPDATE roles SET permissions = permissions | ? WHERE id = guild_id").bind(crate::perms::ADD_HIGHLIGHTS).execute(pool).await?;
+        sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('migr_add_highlights', '1')").execute(pool).await?;
+    }
     sqlx::raw_sql(
         r#"
 CREATE TABLE IF NOT EXISTS guardians (

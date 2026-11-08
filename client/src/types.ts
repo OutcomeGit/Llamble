@@ -7,6 +7,8 @@ export interface User {
   is_bot?: boolean;
   /** master | admin | user */
   instance_role?: string;
+  /** may post instance news (set by the instance admin) */
+  news_writer?: boolean;
   is_kid?: boolean;
 }
 
@@ -51,7 +53,11 @@ export interface HighlightRecording {
   duration_ms?: number;
 }
 
+export type HighlightType = "pictures" | "videos" | "recordings" | "links" | "posts";
+
 export interface Highlight {
+  /** what kind of thing it is, for the type filters */
+  type?: HighlightType;
   id: string;
   guild_id: string;
   kind: "message" | "recording";
@@ -61,6 +67,41 @@ export interface Highlight {
   channel_id: string | null;
   message: Message | null;
   recording: HighlightRecording | null;
+}
+
+/** News: from the instance admin (and news writers), a server, or the Llamble project (signed). */
+export interface NewsItem {
+  id: string;
+  scope: "instance" | "guild" | "llamble";
+  guild_id: string | null;
+  author: User | null;
+  title: string;
+  body: string;
+  image: { id: string; url: string; content_type: string; width?: number; height?: number } | null;
+  pinned: boolean;
+  created_at: number;
+  edited_at: number | null;
+  url?: string;
+}
+
+export interface LlambleNews {
+  enabled: boolean;
+  items: NewsItem[];
+  fetched_at: number | null;
+  error: string | null;
+}
+
+/** What each server puts on your boards (missing = everything on). */
+export interface GuildBoardPrefs {
+  notes: boolean;
+  highlights: boolean;
+  news: boolean;
+  highlight_types: HighlightType[] | "all";
+}
+
+export interface BoardPrefs {
+  guilds: Record<string, GuildBoardPrefs>;
+  llamble_news: boolean;
 }
 
 export interface Role {
@@ -198,6 +239,8 @@ export const P = {
   SPEAK: 1 << 13,
   VIDEO: 1 << 14,
   MENTION_EVERYONE: 1 << 15,
+  POST_NEWS: 1 << 16,
+  ADD_HIGHLIGHTS: 1 << 17,
   ADMINISTRATOR: 1 << 30,
 };
 export const ALL_PERMS = 2 ** 31 - 1;
@@ -217,6 +260,8 @@ export const PERM_LABELS: [number, string, string][] = [
   [P.MANAGE_MESSAGES, "Manage Messages", "Delete other people's messages"],
   [P.MANAGE_CHANNELS, "Manage Channels", "Create, edit and delete channels"],
   [P.MANAGE_ROLES, "Manage Roles", "Create roles and assign them"],
+  [P.ADD_HIGHLIGHTS, "Add to Highlights", "Pin messages and recordings to the server's Highlights"],
+  [P.POST_NEWS, "Post news", "Write news for this server's Board"],
   [P.MANAGE_GUILD, "Manage Server", "Rename the server, manage invites and nicknames"],
   [P.KICK, "Kick Members", "Remove members from the server"],
   [P.BAN, "Ban Members", "Permanently ban members"],

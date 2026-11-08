@@ -18,11 +18,15 @@ pub const CONNECT: i64 = 1 << 12;
 pub const SPEAK: i64 = 1 << 13;
 pub const VIDEO: i64 = 1 << 14;
 pub const MENTION_EVERYONE: i64 = 1 << 15;
+/// post news on the server's board ("news people")
+pub const POST_NEWS: i64 = 1 << 16;
+/// add messages and recordings to the server's Highlights
+pub const ADD_HIGHLIGHTS: i64 = 1 << 17;
 pub const ADMINISTRATOR: i64 = 1 << 30;
 pub const ALL: i64 = (1 << 31) - 1;
 
 pub const DEFAULT_EVERYONE: i64 =
-    VIEW | SEND | ATTACH | EMBED_LINKS | REACT | CREATE_INVITE | CONNECT | SPEAK | VIDEO;
+    VIEW | SEND | ATTACH | EMBED_LINKS | REACT | CREATE_INVITE | CONNECT | SPEAK | VIDEO | ADD_HIGHLIGHTS;
 
 /// Effective guild-level permissions for a user. Returns 0 if not a member.
 pub async fn guild_perms(pool: &SqlitePool, guild_id: &str, user_id: &str) -> ApiResult<i64> {

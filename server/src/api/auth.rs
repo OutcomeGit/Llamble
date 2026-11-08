@@ -383,8 +383,10 @@ pub async fn logout(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Js
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn me(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<UserPublic>> {
-    Ok(Json(get_user(&state.db, &auth.id).await?))
+pub async fn me(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<serde_json::Value>> {
+    let mut v = serde_json::to_value(get_user(&state.db, &auth.id).await?).map_err(|e| anyhow::anyhow!(e))?;
+    v["news_writer"] = serde_json::json!(crate::api::news::news_writer_of(&state, &auth.id).await);
+    Ok(Json(v))
 }
 
 #[derive(Deserialize)]

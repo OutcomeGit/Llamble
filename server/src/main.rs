@@ -83,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
 
     shows::migrate(&state.db).await?;
     api::highlights::migrate(&state.db).await?;
+    api::news::migrate(&state.db).await?;
     soundboard::migrate(&state.db).await?;
     voicebot::migrate(&state.db).await?;
     settings::load_into_cache(&state).await;
@@ -100,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(ai::boot(state.clone()));
     voicebot::boot(state.clone());
     images::boot(state.clone());
+    api::news::start(state.clone());
 
     let mut app = api::router(state.clone());
     if let Ok(web) = std::env::var("LLAMBLE_WEB_DIR") {
@@ -209,7 +211,8 @@ async fn janitor(state: Shared) {
              AND NOT EXISTS (SELECT 1 FROM gifs g WHERE g.file_id = f.id)
              AND NOT EXISTS (SELECT 1 FROM users u WHERE u.avatar_file_id = f.id)
              AND NOT EXISTS (SELECT 1 FROM guilds g2 WHERE g2.icon_file_id = f.id)
-             AND NOT EXISTS (SELECT 1 FROM sounds s WHERE s.file_id = f.id)",
+             AND NOT EXISTS (SELECT 1 FROM sounds s WHERE s.file_id = f.id)
+             AND NOT EXISTS (SELECT 1 FROM news n WHERE n.image_file_id = f.id)",
         )
         .bind(cutoff)
         .fetch_all(&state.db)
