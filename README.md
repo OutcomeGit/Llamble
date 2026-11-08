@@ -65,6 +65,32 @@ GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`, pub
 
 Every other server setting is in the app for admins: **Settings → Server** (upload limit, link previews, who can create servers, bot name, recording), **AI Model** (model and GPU sharing), and **Remote Access**.
 
+### Accounts, kids and roles
+
+- **Account levels:**
+  - **Master Admin:** whoever ran setup. Runs the server itself: Server, AI Model, Remote Access, and admin levels. Can hand the role to someone else.
+  - **Admins:** manage accounts, passwords and kid accounts.
+  - **Users.**
+  - **Kids.**
+- **Server roles:** every server gets **Admin / Supervisor / Moderator / Guest** below its Owner.
+  - Supervisor is meant to be tuned: tick the powers you want them to have.
+  - Guest can read and listen but not post or talk.
+- **Kid accounts:** made in **Settings → Family**, no invite needed. Each kid is linked to one or more parent accounts (any regular account). Parents can:
+  - read all the kid's chats, DMs included
+  - approve who the kid may DM, and which servers they may join (servers run by chosen people are OK'd automatically)
+  - take the kid out of any server
+  - set quiet hours and kid-safe AI, and choose whether the kid may delete messages
+- **Forgot password:** three ways back in.
+  - **Recovery code:** shown once at sign-up; make a new one in My Account.
+  - **Ask:** an admin, or a kid's parent, approves, and the waiting screen then sets the new password.
+  - **Email link:** works once the Master Admin adds an email account in Settings → Server.
+- **Clearing messages:**
+  - select-and-delete many
+  - clear a channel
+  - delete everything one person wrote
+  - auto-delete after N days (per channel)
+  - anyone can clear their own AI chat
+
 **Forgot the admin password?** In TrueNAS open **Apps → llamble → Shell** (the `>_` icon next to the container) and run `llamble-server reset-password` to list accounts, then `llamble-server reset-password <username>` for a temporary password. Other users' passwords can be reset by an admin in **Settings → Instance Admin**.
 
 **Updating the server:** push to `main`, wait for the Actions build, then **Update** the app in TrueNAS (`pull_policy: always`). Models and data survive updates.

@@ -12,6 +12,11 @@ pub struct UserPublic {
     pub is_admin: bool,
     #[sqlx(default)]
     pub is_bot: bool,
+    /// master | admin | user
+    #[sqlx(default)]
+    pub instance_role: String,
+    #[sqlx(default)]
+    pub is_kid: bool,
 }
 
 #[derive(Serialize, FromRow, Clone, Debug)]
@@ -32,6 +37,9 @@ pub struct Role {
     pub permissions: i64,
     pub position: i64,
     pub hoist: bool,
+    /// permissions this role takes away (e.g. Guest: read and listen only)
+    #[sqlx(default)]
+    pub deny: i64,
 }
 
 #[derive(Serialize, FromRow, Clone, Debug)]
@@ -46,6 +54,9 @@ pub struct Channel {
     pub created_at: i64,
     #[sqlx(default)]
     pub last_message_id: Option<String>,
+    /// messages older than this many days are deleted automatically
+    #[sqlx(default)]
+    pub retention_days: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -143,7 +154,7 @@ pub struct MessageRow {
     pub created_at: i64,
 }
 
-pub const USER_COLS: &str = "id, username, display_name, avatar_file_id, is_admin, is_bot";
+pub const USER_COLS: &str = "id, username, display_name, avatar_file_id, is_admin, is_bot, instance_role, is_kid";
 
 pub async fn load_users(pool: &SqlitePool, ids: &[String]) -> sqlx::Result<HashMap<String, UserPublic>> {
     let mut out = HashMap::new();
@@ -263,6 +274,8 @@ pub async fn hydrate_messages(pool: &SqlitePool, rows: Vec<MessageRow>) -> sqlx:
                 avatar_file_id: None,
                 is_admin: false,
                 is_bot: false,
+                instance_role: "user".into(),
+                is_kid: false,
             });
             Message {
                 reply_to: r.reply_to.as_ref().and_then(|id| replies.get(id).cloned()).or_else(|| {
@@ -297,8 +310,8 @@ pub async fn load_message(pool: &SqlitePool, id: &str) -> sqlx::Result<Message> 
 }
 
 pub async fn load_members(pool: &SqlitePool, guild_id: &str) -> sqlx::Result<Vec<Member>> {
-    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, bool, bool, Option<String>, i64)>(
-        "SELECT u.id, u.username, u.display_name, u.avatar_file_id, u.is_admin, u.is_bot, m.nickname, m.joined_at
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, bool, bool, Option<String>, i64, String, bool)>(
+        "SELECT u.id, u.username, u.display_name, u.avatar_file_id, u.is_admin, u.is_bot, m.nickname, m.joined_at, u.instance_role, u.is_kid
          FROM members m JOIN users u ON u.id = m.user_id WHERE m.guild_id = ?",
     )
     .bind(guild_id)
@@ -316,10 +329,10 @@ pub async fn load_members(pool: &SqlitePool, guild_id: &str) -> sqlx::Result<Vec
     }
     Ok(rows
         .into_iter()
-        .map(|(id, username, display_name, avatar_file_id, is_admin, is_bot, nickname, joined_at)| Member {
+        .map(|(id, username, display_name, avatar_file_id, is_admin, is_bot, nickname, joined_at, instance_role, is_kid)| Member {
             guild_id: guild_id.to_string(),
             roles: rmap.remove(&id).unwrap_or_default(),
-            user: UserPublic { id, username, display_name, avatar_file_id, is_admin, is_bot },
+            user: UserPublic { id, username, display_name, avatar_file_id, is_admin, is_bot, instance_role, is_kid },
             nickname,
             joined_at,
         })
@@ -350,7 +363,7 @@ pub async fn load_member(pool: &SqlitePool, guild_id: &str, user_id: &str) -> sq
     })
 }
 
-pub const CHANNEL_COLS: &str = "c.id, c.guild_id, c.kind, c.name, c.topic, c.parent_id, c.position, c.created_at,
+pub const CHANNEL_COLS: &str = "c.id, c.guild_id, c.kind, c.name, c.topic, c.parent_id, c.position, c.created_at, c.retention_days,
     (SELECT MAX(m.id) FROM messages m WHERE m.channel_id = c.id) AS last_message_id";
 
 pub async fn load_channel(pool: &SqlitePool, id: &str) -> sqlx::Result<Channel> {
@@ -362,9 +375,16 @@ pub async fn load_channel(pool: &SqlitePool, id: &str) -> sqlx::Result<Channel> 
 
 pub async fn load_roles(pool: &SqlitePool, guild_id: &str) -> sqlx::Result<Vec<Role>> {
     sqlx::query_as::<_, Role>(
-        "SELECT id, guild_id, name, color, permissions, position, hoist FROM roles WHERE guild_id = ? ORDER BY position",
+        "SELECT id, guild_id, name, color, permissions, position, hoist, deny FROM roles WHERE guild_id = ? ORDER BY position",
     )
     .bind(guild_id)
     .fetch_all(pool)
     .await
+}
+
+pub async fn load_channels(pool: &SqlitePool, guild_id: &str) -> sqlx::Result<Vec<Channel>> {
+    sqlx::query_as::<_, Channel>(&format!("SELECT {CHANNEL_COLS} FROM channels c WHERE c.guild_id = ? ORDER BY c.position, c.created_at"))
+        .bind(guild_id)
+        .fetch_all(pool)
+        .await
 }

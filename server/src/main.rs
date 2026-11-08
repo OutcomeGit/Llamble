@@ -3,8 +3,10 @@ mod api;
 mod bot;
 mod config;
 mod db;
+mod email;
 mod error;
 mod gateway;
+mod kids;
 mod models;
 mod perms;
 mod relay;
@@ -75,6 +77,15 @@ async fn main() -> anyhow::Result<()> {
     });
 
     settings::load_into_cache(&state).await;
+    // once: give servers made before role presets existed the standard roles
+    let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'presets_v1'").fetch_optional(&state.db).await?;
+    if done.is_none() {
+        let gids: Vec<String> = sqlx::query_scalar("SELECT id FROM guilds").fetch_all(&state.db).await?;
+        for g in gids {
+            let _ = api::guilds::add_preset_roles(&state, &g).await;
+        }
+        sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('presets_v1', '1')").execute(&state.db).await?;
+    }
     bootstrap(&state).await?;
     tokio::spawn(janitor(state.clone()));
     tokio::spawn(ai::boot(state.clone()));
@@ -201,6 +212,10 @@ async fn janitor(state: Shared) {
             tracing::info!("janitor: removed {} orphaned uploads", orphans.len());
         }
         let _ = sqlx::query("DELETE FROM invites WHERE expires_at IS NOT NULL AND expires_at < ?").bind(now_ms()).execute(&state.db).await;
+        let removed = api::messages::apply_retention(&state).await;
+        if removed > 0 {
+            tracing::info!("auto-delete: removed {removed} old messages");
+        }
         let _ = sqlx::query("DELETE FROM sessions WHERE last_seen < ?").bind(now_ms() - 90 * day).execute(&state.db).await;
         let _ = sqlx::query("DELETE FROM embed_cache WHERE fetched_at < ?").bind(now_ms() - 7 * day).execute(&state.db).await;
         if let Ok(mut rd) = tokio::fs::read_dir(state.cfg.proxy_dir()).await {

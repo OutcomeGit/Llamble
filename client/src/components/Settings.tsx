@@ -3,13 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import { api, formatBytes, upload } from "../api";
 import { chosenGpu, refreshGpus, saveAiConfig, setLending, startLocalModel, stopLocalModel, useAi, type AiConfig } from "../aiWorker";
 import { can, guildPerms, memberName, useStore } from "../store";
-import { P, PERM_LABELS, type Role, type User } from "../types";
+import { GUEST_DENY, P, PERM_LABELS, type Role, type User } from "../types";
 import { closeModal, copy, openModal, toast } from "../ui";
 import { applyDevicePrefs, prefs } from "../voice";
 import { Avatar, BotTag, GuildIcon, Icon, Toggle } from "./common";
 import { inviteLink } from "./Modals";
 import { logout } from "../App";
 import { ModelPicker } from "./ModelPicker";
+import { Family, ResetRequests } from "./Family";
+import { RecoveryCodeSection } from "./Recovery";
 
 function SettingsFrame({ tabs, tab, setTab, children, title }: { tabs: { id: string; label: string; hidden?: boolean; danger?: boolean }[]; tab: string; setTab: (t: string) => void; children: React.ReactNode; title: string }) {
   return (
@@ -158,6 +160,15 @@ function Roles({ guildId }: { guildId: string }) {
           <button className="btn primary small" onClick={create}>
             <Icon name="plus" size={14} /> Create Role
           </button>
+          {!["Admin", "Supervisor", "Moderator", "Guest"].every((n) => roles.some((r) => r.name === n)) && (
+            <button
+              className="btn small"
+              title="Admin, Supervisor, Moderator and Guest"
+              onClick={() => api(`/api/guilds/${guildId}/roles/presets`, { method: "POST" }).then((r) => toast(r.added.length ? `Added ${r.added.join(", ")}` : "Already there"))}
+            >
+              Add standard roles
+            </button>
+          )}
           {sorted.map((r) => (
             <button key={r.id} className={"role-item" + (r.id === sel ? " on" : "")} onClick={() => setSel(r.id)}>
               <span className="role-dot" style={{ background: r.color ? hex(r.color) : "#99aab5" }} />
@@ -188,6 +199,16 @@ function Roles({ guildId }: { guildId: string }) {
                 </div>
               </>
             )}
+            {role.id !== guildId && (
+              <div className="perm-row">
+                <div>
+                  <div className="bold">Guest (read & listen only)</div>
+                  <div className="muted small">People with this role can read and join voice to listen, but can't post, react, talk or share video, whatever other roles they have.</div>
+                </div>
+                <Toggle on={((role.deny || 0) & GUEST_DENY) === GUEST_DENY} onChange={(on) => patch({ deny: on ? GUEST_DENY : 0 })} />
+              </div>
+            )}
+            {role.name === "Supervisor" && <p className="muted small">Supervisor is meant to be tuned: switch on whichever admin powers you want your supervisors to have.</p>}
             <div className="perm-list">
               {PERM_LABELS.map(([bit, label, desc]) => (
                 <div key={bit} className="perm-row">
@@ -425,10 +446,11 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "ai", label: "AI & GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
         { id: "sessions", label: "Devices" },
+        { id: "family", label: "Family", hidden: !!me.is_kid },
         { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
-        { id: "server", label: "Server", hidden: !me.is_admin },
-        { id: "aimodel", label: "AI Model", hidden: !me.is_admin },
-        { id: "remote", label: "Remote Access", hidden: !me.is_admin },
+        { id: "server", label: "Server", hidden: me.instance_role !== "master" },
+        { id: "aimodel", label: "AI Model", hidden: me.instance_role !== "master" },
+        { id: "remote", label: "Remote Access", hidden: me.instance_role !== "master" },
         { id: "logout", label: "Log Out", danger: true },
       ]}
     >
@@ -438,6 +460,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "notifications" && <NotifSettings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
+      {tab === "family" && <Family />}
       {tab === "remote" && <RemoteAccess />}
       {tab === "server" && <ServerConfig />}
       {tab === "aimodel" && (
@@ -524,6 +547,7 @@ function Account() {
       >
         Change Password
       </button>
+      <RecoveryCodeSection />
     </div>
   );
 }
@@ -897,25 +921,54 @@ function Sessions() {
   );
 }
 
+function levelLabel(u: User) {
+  if (u.is_bot) return null;
+  if (u.instance_role === "master") return <span className="role-chip has master">Master Admin</span>;
+  if (u.instance_role === "admin" || u.is_admin) return <span className="role-chip has">admin</span>;
+  if (u.is_kid) return <span className="role-chip kid">kid</span>;
+  return null;
+}
+
 function Admin() {
+  const me = useStore((s) => s.me)!;
+  const isMaster = me.instance_role === "master";
   const [users, setUsers] = useState<User[]>([]);
   const [code, setCode] = useState("");
   const load = () => api("/api/admin/users").then(setUsers);
   useEffect(() => {
     load();
   }, []);
+  const setRole = (u: User, role: string) =>
+    api(`/api/admin/users/${u.id}/role`, { body: { role } })
+      .then(load)
+      .catch((e) => toast(e.message, "error"));
+  const makeKid = (u: User) =>
+    openModal({
+      kind: "prompt",
+      title: `Make ${u.display_name} a kid account`,
+      label: "Parent usernames (comma-separated)",
+      placeholder: "mom, dad",
+      confirmLabel: "Make kid account",
+      onSubmit: (v: string) =>
+        api(`/api/admin/users/${u.id}/kid`, { body: { is_kid: true, guardians: v.split(",").map((x) => x.trim()).filter(Boolean) } })
+          .then(load)
+          .catch((e) => toast(e.message, "error")),
+    });
   return (
     <div>
       <h2>Instance Admin</h2>
+      <ResetRequests />
       <div className="profile-section">Account invites</div>
-      <p className="muted small">Creates an account invite that doesn't join any server (single use).</p>
+      <p className="muted small">Creates an account invite that doesn't join any server (single use). Kid accounts don't need invites: make them in Settings → Family.</p>
       <div className="row gap">
         <button className="btn" onClick={() => api("/api/admin/invites", { body: { max_uses: 1 } }).then((r) => setCode(r.code))}>
           New account invite
         </button>
-        <button className="btn" onClick={() => api("/api/admin/invites", { body: { max_uses: 1, grants_admin: true } }).then((r) => setCode(r.code))}>
-          New admin invite
-        </button>
+        {isMaster && (
+          <button className="btn" onClick={() => api("/api/admin/invites", { body: { max_uses: 1, grants_admin: true } }).then((r) => setCode(r.code))}>
+            New admin invite
+          </button>
+        )}
         {code && (
           <button className="btn primary" onClick={() => copy(inviteLink(code), "Invite copied")}>
             Copy {code}
@@ -923,31 +976,72 @@ function Admin() {
         )}
       </div>
       <div className="profile-section">Users — {users.length}</div>
+      <p className="muted small">
+        <b>Master Admin</b> runs the server itself (Server, AI Model, Remote Access) and sets admin levels. <b>Admins</b> manage accounts, passwords and kid accounts.
+      </p>
       <div className="member-table">
         {users.map((u) => (
           <div key={u.id} className="member-trow">
             <Avatar user={u} size={28} />
             <span className="grow">
-              <b>{u.display_name}</b> <span className="muted">@{u.username}</span> {u.is_admin && <span className="role-chip has">admin</span>} {u.is_bot && <BotTag />}
+              <b>{u.display_name}</b> <span className="muted">@{u.username}</span> {levelLabel(u)} {u.is_bot && <BotTag />}
             </span>
-            {!u.is_bot && (
+            {!u.is_bot && u.id !== me.id && (
               <>
-                <button
-                  className="btn small"
-                  onClick={() =>
-                    api(`/api/admin/users/${u.id}/reset-password`, { method: "POST" }).then((r) =>
-                      openModal({ kind: "confirm", title: "Temporary password", body: `Give ${u.username} this password: ${r.temporary_password}`, confirmLabel: "Copy & close", onConfirm: () => copy(r.temporary_password) }),
-                    )
-                  }
-                >
-                  Reset password
-                </button>
-                <button
-                  className="btn small red"
-                  onClick={() => openModal({ kind: "confirm", title: `Delete ${u.username}?`, body: "Their messages stay (as Deleted User); they can't sign in.", danger: true, confirmLabel: "Delete", onConfirm: () => api(`/api/admin/users/${u.id}`, { method: "DELETE" }).then(load) })}
-                >
-                  Delete
-                </button>
+                {isMaster && u.instance_role !== "master" && !u.is_kid && (
+                  <select value={u.instance_role === "admin" ? "admin" : "user"} onChange={(e) => setRole(u, e.target.value)} style={{ width: 110 }}>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                )}
+                {u.instance_role === "user" &&
+                  (u.is_kid ? (
+                    <button className="btn small" onClick={() => api(`/api/admin/users/${u.id}/kid`, { body: { is_kid: false } }).then(load)}>
+                      Not a kid
+                    </button>
+                  ) : (
+                    <button className="btn small" onClick={() => makeKid(u)}>
+                      Make kid
+                    </button>
+                  ))}
+                {(u.instance_role !== "master" || isMaster) && (
+                  <button
+                    className="btn small"
+                    onClick={() =>
+                      api(`/api/admin/users/${u.id}/reset-password`, { method: "POST" }).then((r) =>
+                        openModal({ kind: "confirm", title: "Temporary password", body: `Give ${u.username} this password: ${r.temporary_password}`, confirmLabel: "Copy & close", onConfirm: () => copy(r.temporary_password) }),
+                      )
+                    }
+                  >
+                    Reset password
+                  </button>
+                )}
+                {isMaster && !u.is_kid && (
+                  <button
+                    className="btn small"
+                    title="Hand over the Master Admin role"
+                    onClick={() =>
+                      openModal({
+                        kind: "confirm",
+                        title: `Make ${u.display_name} the Master Admin?`,
+                        body: "They'll control the server itself (remote access, AI model, server settings, admin levels). You become a regular admin. They can hand it back.",
+                        confirmLabel: "Hand over",
+                        danger: true,
+                        onConfirm: () => api("/api/admin/transfer-master", { body: { user_id: u.id } }).catch((e) => toast(e.message, "error")),
+                      })
+                    }
+                  >
+                    Make Master
+                  </button>
+                )}
+                {u.instance_role !== "master" && (
+                  <button
+                    className="btn small red"
+                    onClick={() => openModal({ kind: "confirm", title: `Delete ${u.username}?`, body: "Their messages stay (as Deleted User); they can't sign in.", danger: true, confirmLabel: "Delete", onConfirm: () => api(`/api/admin/users/${u.id}`, { method: "DELETE" }).then(load) })}
+                  >
+                    Delete
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1183,7 +1277,88 @@ function ServerConfig() {
           Save changes
         </button>
       </div>
+      <EmailSettings />
     </div>
+  );
+}
+
+function EmailSettings() {
+  const [f, setF] = useState<any>(null);
+  const [pw, setPw] = useState("");
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/api/admin/smtp").then(setF).catch(() => {});
+  }, []);
+  if (!f) return null;
+  const set = (k: string, v: any) => setF({ ...f, [k]: v });
+  const save = () =>
+    api("/api/admin/smtp", { method: "PUT", body: { ...f, port: Number(f.port) || 0, password: pw } })
+      .then(() => {
+        setPw("");
+        toast("Email settings saved");
+        api("/api/admin/smtp").then(setF);
+      })
+      .catch((e) => toast(e.message, "error"));
+  return (
+    <>
+      <div className="profile-section">Email (optional)</div>
+      <p className="muted small">
+        Lets people reset a forgotten password by email (they add their address in My Account). Use any email account that allows SMTP sign-in, e.g. a Gmail address with an
+        "app password", or your email provider's SMTP settings.
+      </p>
+      <div className="row gap">
+        <label className="grow">
+          SMTP server
+          <input value={f.host} onChange={(e) => set("host", e.target.value)} placeholder="smtp.gmail.com" />
+        </label>
+        <label style={{ width: 110 }}>
+          Port
+          <input value={f.port || ""} onChange={(e) => set("port", e.target.value)} placeholder={f.security === "tls" ? "465" : "587"} />
+        </label>
+        <label style={{ width: 170 }}>
+          Security
+          <select value={f.security} onChange={(e) => set("security", e.target.value)}>
+            <option value="starttls">STARTTLS (587)</option>
+            <option value="tls">TLS (465)</option>
+            <option value="none">None (local only)</option>
+          </select>
+        </label>
+      </div>
+      <div className="row gap">
+        <label className="grow">
+          Username
+          <input value={f.username} onChange={(e) => set("username", e.target.value)} placeholder="you@gmail.com" />
+        </label>
+        <label className="grow">
+          Password {f.has_password && <span className="green">· saved</span>}
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={f.has_password ? "(leave blank to keep)" : ""} />
+        </label>
+      </div>
+      <label>
+        Send as
+        <input value={f.from} onChange={(e) => set("from", e.target.value)} placeholder="Llamble <you@gmail.com>" />
+      </label>
+      <div className="row gap center-v">
+        <button className="btn" onClick={save}>
+          Save email settings
+        </button>
+        <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="send a test to…" style={{ width: 220 }} />
+        <button
+          className="btn"
+          disabled={!to || busy}
+          onClick={() => {
+            setBusy(true);
+            api("/api/admin/smtp/test", { body: { to } })
+              .then(() => toast("Test email sent"))
+              .catch((e) => toast(e.message, "error"))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Send test
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -1567,6 +1742,7 @@ function RemoteAccess() {
                     ? "not yet: Let's Encrypt couldn't reach this server. Check that port 443 is forwarded (step 3). It retries automatically."
                     : "not yet: waiting for the relay and your address to point at the VPS. It retries automatically."
                   : "off"}
+            {st.tls_state === "error" && st.tls_error && <div className="muted small">Details: {st.tls_error}</div>}
           </div>
           {st.tls_state === "ready" ? (
             <p className="small">

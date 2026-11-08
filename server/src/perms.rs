@@ -49,19 +49,21 @@ pub async fn guild_perms(pool: &SqlitePool, guild_id: &str, user_id: &str) -> Ap
         .fetch_optional(pool)
         .await?
         .unwrap_or(DEFAULT_EVERYONE);
-    let extra: Vec<i64> = sqlx::query_scalar(
-        "SELECT r.permissions FROM member_roles mr JOIN roles r ON r.id = mr.role_id
+    let extra: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT r.permissions, r.deny FROM member_roles mr JOIN roles r ON r.id = mr.role_id
          WHERE mr.guild_id = ? AND mr.user_id = ?",
     )
     .bind(guild_id)
     .bind(user_id)
     .fetch_all(pool)
     .await?;
-    let p = extra.into_iter().fold(everyone, |a, b| a | b);
+    let p = extra.iter().fold(everyone, |a, (b, _)| a | b);
     if p & ADMINISTRATOR != 0 {
         return Ok(ALL);
     }
-    Ok(p)
+    // Guest-style roles take things away (viewing always stays)
+    let deny = extra.iter().fold(0, |a, (_, d)| a | d) & !VIEW;
+    Ok(p & !deny)
 }
 
 pub async fn require_guild(pool: &SqlitePool, guild_id: &str, user_id: &str, need: i64) -> ApiResult<i64> {

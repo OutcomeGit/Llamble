@@ -314,6 +314,15 @@ export function handleEvent(t: string, d: any) {
         set({ messages: { ...s.messages, [d.channel_id]: s.messages[d.channel_id].filter((m) => m.id !== d.id) } });
       }
       break;
+    case "MESSAGE_DELETE_BULK":
+      if (s.messages[d.channel_id]) {
+        const gone = new Set<string>(d.ids);
+        set({ messages: { ...s.messages, [d.channel_id]: s.messages[d.channel_id].filter((m) => !gone.has(m.id)) } });
+      }
+      break;
+    case "CHANNEL_CLEARED":
+      if (s.messages[d.channel_id]) set({ messages: { ...s.messages, [d.channel_id]: [] }, hasMore: { ...s.hasMore, [d.channel_id]: false } });
+      break;
     case "REACTION_ADD":
     case "REACTION_REMOVE": {
       const list = s.messages[d.channel_id];

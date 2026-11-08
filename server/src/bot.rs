@@ -215,7 +215,7 @@ pub fn job_event(state: &Shared, conn: u64, v: &Value) {
 // ---------- admin: GPU sharing ----------
 
 pub async fn get_gpu_pool(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(crate::error::AppError::forbidden());
     }
     let mut rows: Vec<(String, String, i64, String, bool, String, usize)> = state
@@ -254,7 +254,7 @@ pub struct GpuPolicy {
 }
 
 pub async fn set_gpu_policy(State(state): State<Shared>, auth: AuthUser, Json(req): Json<GpuPolicy>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(crate::error::AppError::forbidden());
     }
     if !["off", "admins", "members"].contains(&req.policy.as_str()) {
@@ -382,6 +382,13 @@ async fn build_messages(state: &Shared, ch: &Channel, trigger: &str) -> anyhow::
     .await?;
     rows.reverse();
     let mut ids: Vec<String> = rows.iter().map(|r| r.author_id.clone()).collect();
+    // a kid in the conversation (with kid-safe AI on) keeps the whole reply kid-appropriate
+    let mut kid_present = false;
+    for a in ids.iter().collect::<std::collections::HashSet<_>>() {
+        if crate::kids::is_kid(state, a).await && crate::kids::settings(state, a).await.kid_safe_bot {
+            kid_present = true;
+        }
+    }
     static MENTION: Lazy<Regex> = Lazy::new(|| Regex::new(r"<@([0-9a-z]{26})>").unwrap());
     for r in &rows {
         for c in MENTION.captures_iter(&r.content) {
@@ -484,6 +491,10 @@ async fn build_messages(state: &Shared, ch: &Channel, trigger: &str) -> anyhow::
     if !custom.trim().is_empty() {
         system.push_str("\n\n");
         system.push_str(custom.trim());
+    }
+    if kid_present {
+        system.push_str("\n\n");
+        system.push_str(crate::kids::KID_SAFE_PROMPT);
     }
     let mut out = vec![json!({ "role": "system", "content": system })];
     for (a, t) in merged {

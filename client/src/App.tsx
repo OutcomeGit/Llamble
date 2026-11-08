@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { EmailResetLanding } from "./components/Recovery";
 import { api, session, setSession } from "./api";
 import { initAiWorker } from "./aiWorker";
 import { connectGateway, disconnectGateway } from "./gateway";
@@ -20,8 +21,18 @@ const webInvite = (() => {
   return code;
 })();
 
+// an emailed password-reset link: ?reset=ID.SECRET
+const emailReset = (() => {
+  const v = new URLSearchParams(location.search).get("reset");
+  if (!v || !v.includes(".")) return null;
+  history.replaceState(null, "", location.pathname);
+  const [id, secret] = v.split(".", 2);
+  return { id, secret };
+})();
+
 export default function App() {
   const [token, setToken] = useState(session.token);
+  const [resetDone, setResetDone] = useState(false);
 
   // already signed in: offer to join right away
   useEffect(() => {
@@ -99,6 +110,7 @@ export default function App() {
     [],
   );
 
+  if (emailReset && !resetDone) return <EmailResetLanding server={location.origin} id={emailReset.id} secret={emailReset.secret} onDone={(t) => (setResetDone(true), setToken(t))} />;
   if (!token || !session.server) return <Login onDone={(t) => setToken(t)} />;
   return <Shell />;
 }

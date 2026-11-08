@@ -169,5 +169,75 @@ pub async fn connect(data_dir: &Path) -> anyhow::Result<SqlitePool> {
         .busy_timeout(std::time::Duration::from_secs(10));
     let pool = SqlitePoolOptions::new().max_connections(8).connect_with(opts).await?;
     sqlx::raw_sql(SCHEMA).execute(&pool).await?;
+    migrate(&pool).await?;
     Ok(pool)
+}
+
+async fn add_column(pool: &SqlitePool, table: &str, col: &str, def: &str) -> anyhow::Result<()> {
+    let cols: Vec<String> = sqlx::query_scalar(&format!("SELECT name FROM pragma_table_info('{table}')")).fetch_all(pool).await?;
+    if !cols.iter().any(|c| c == col) {
+        sqlx::query(&format!("ALTER TABLE {table} ADD COLUMN {col} {def}")).execute(pool).await?;
+    }
+    Ok(())
+}
+
+/// Changes to existing installs. Each step is safe to run again.
+async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
+    // account levels: master | admin | user  (is_admin stays in sync = master or admin)
+    add_column(pool, "users", "instance_role", "TEXT NOT NULL DEFAULT 'user'").await?;
+    add_column(pool, "users", "is_kid", "INTEGER NOT NULL DEFAULT 0").await?;
+    add_column(pool, "users", "recovery_hash", "TEXT").await?;
+    add_column(pool, "users", "email", "TEXT").await?;
+    sqlx::query("UPDATE users SET instance_role = 'admin' WHERE is_admin = 1 AND instance_role = 'user' AND is_bot = 0").execute(pool).await?;
+    let has_master: Option<i64> = sqlx::query_scalar("SELECT 1 FROM users WHERE instance_role = 'master'").fetch_optional(pool).await?;
+    if has_master.is_none() {
+        // the oldest admin is the one who set the server up
+        sqlx::query("UPDATE users SET instance_role = 'master' WHERE id = (SELECT id FROM users WHERE is_admin = 1 AND is_bot = 0 ORDER BY created_at LIMIT 1)")
+            .execute(pool)
+            .await?;
+    }
+    // guest-style roles take permissions away
+    add_column(pool, "roles", "deny", "INTEGER NOT NULL DEFAULT 0").await?;
+    // auto-delete old messages per channel
+    add_column(pool, "channels", "retention_days", "INTEGER").await?;
+    sqlx::raw_sql(
+        r#"
+CREATE TABLE IF NOT EXISTS guardians (
+    kid_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    guardian_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (kid_id, guardian_id)
+);
+CREATE INDEX IF NOT EXISTS idx_guardians_g ON guardians(guardian_id);
+CREATE TABLE IF NOT EXISTS kid_settings (
+    kid_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kid_contacts (
+    kid_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (kid_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS kid_requests (
+    id TEXT PRIMARY KEY,
+    kid_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,          -- dm | join
+    target TEXT NOT NULL,        -- user id (dm) or guild id (join)
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    decided_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_kid_requests ON kid_requests(kid_id, status);
+CREATE TABLE IF NOT EXISTS reset_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    secret_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | denied | done
+    created_at INTEGER NOT NULL,
+    decided_by TEXT
+);
+"#,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }

@@ -1,4 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
+import { KidChats } from "./Family";
+import { RecoveryCodeNotice } from "./Recovery";
 import { useEffect, useState } from "react";
 import { api, media, session } from "../api";
 import { can, memberName, roleColor, selectChannel, useStore } from "../store";
@@ -57,6 +59,12 @@ function ModalBody({ m }: { m: ModalSpec }) {
       return <ServerSettings guildId={m.guildId} tab={m.tab} />;
     case "userSettings":
       return <UserSettings tab={m.tab} />;
+    case "prompt":
+      return <Prompt {...m} />;
+    case "kidChats":
+      return <KidChats kidId={m.kidId} name={m.name} />;
+    case "recoveryCode":
+      return <RecoveryCodeNotice code={m.code} />;
   }
 }
 
@@ -119,6 +127,11 @@ function JoinInvite({ code: initial }: { code?: string }) {
   const { busy, error, run } = useSubmit(async () => {
     const c = /invite\/([^@/?#\s]+)/.exec(code)?.[1] || code.trim();
     const r = await api(`/api/invites/${encodeURIComponent(c)}`, { method: "POST" });
+    if (r.pending) {
+      toast("A parent needs to OK this server first. They've been asked.");
+      closeModal();
+      return;
+    }
     if (r.guild_id) selectChannel(r.guild_id, null);
   });
   return (
@@ -208,7 +221,8 @@ function EditChannel({ channelId }: { channelId: string }) {
   const [name, setName] = useState(ch?.name || "");
   const [topic, setTopic] = useState(ch?.topic || "");
   const [position, setPosition] = useState(ch?.position ?? 0);
-  const { busy, error, run } = useSubmit(() => api(`/api/channels/${channelId}`, { method: "PATCH", body: { name, topic, position } }));
+  const [retention, setRetention] = useState<number>(ch?.retention_days ?? 0);
+  const { busy, error, run } = useSubmit(() => api(`/api/channels/${channelId}`, { method: "PATCH", body: { name, topic, position, retention_days: retention } }));
   if (!ch) return null;
   return (
     <form className="modal" onSubmit={run}>
@@ -221,6 +235,19 @@ function EditChannel({ channelId }: { channelId: string }) {
         <label>
           Topic
           <textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={3} maxLength={1024} />
+        </label>
+      )}
+      {ch.kind === "text" && (
+        <label>
+          Auto-delete messages
+          <select value={retention} onChange={(e) => setRetention(Number(e.target.value))}>
+            <option value={0}>Never (keep everything)</option>
+            <option value={1}>After 1 day</option>
+            <option value={7}>After 7 days</option>
+            <option value={30}>After 30 days</option>
+            <option value={90}>After 90 days</option>
+            <option value={365}>After 1 year</option>
+          </select>
         </label>
       )}
       <label>
@@ -314,6 +341,32 @@ function InviteModal({ guildId }: { guildId: string }) {
         </button>
       </div>
     </div>
+  );
+}
+
+function Prompt(m: Extract<ModalSpec, { kind: "prompt" }>) {
+  const [v, setV] = useState(m.initial || "");
+  const { busy, error, run } = useSubmit(async () => {
+    await m.onSubmit(v);
+    closeModal();
+  });
+  return (
+    <form className="modal" onSubmit={run}>
+      <h2>{m.title}</h2>
+      <label>
+        {m.label}
+        <input type={m.password ? "password" : "text"} value={v} onChange={(e) => setV(e.target.value)} placeholder={m.placeholder} autoFocus />
+      </label>
+      {error && <div className="form-error">{error}</div>}
+      <div className="modal-foot">
+        <button type="button" className="btn link" onClick={closeModal}>
+          Cancel
+        </button>
+        <button className="btn primary" disabled={busy || !v.trim()}>
+          {m.confirmLabel || "OK"}
+        </button>
+      </div>
+    </form>
   );
 }
 

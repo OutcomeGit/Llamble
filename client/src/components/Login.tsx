@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { api, normalizeServer, session, setSession } from "../api";
 import { Setup } from "./Setup";
 import { useStore } from "../store";
+import { openModal } from "../ui";
+import { ForgotPassword } from "./Recovery";
 
 export function Login({ onDone }: { onDone: (token: string) => void }) {
   const linked = sessionStorage.getItem("llamble.invite");
   const [mode, setMode] = useState<"login" | "register">(linked ? "register" : "login");
+  const [forgot, setForgot] = useState(false);
   const [server, setServer] = useState(linked && !window.llambleNative ? location.origin : session.server || "");
   const [invite, setInvite] = useState(linked || "");
   const [username, setUsername] = useState("");
@@ -83,6 +86,7 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
           : await api("/api/auth/register", { server: srv, token: null, body: { invite, username, password, display_name: display || undefined, device_name: device } });
       setSession(srv, res.token);
       sessionStorage.removeItem("llamble.invite");
+      if (res.recovery_code) setTimeout(() => openModal({ kind: "recoveryCode", code: res.recovery_code }), 800);
       // joined through a server invite: open that server first
       if (mode === "register" && preview?.guild?.id) {
         localStorage.setItem("llamble.lastGuild", preview.guild.id);
@@ -96,6 +100,13 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
     }
   };
 
+  if (forgot) {
+    return (
+      <div className="login-bg">
+        <ForgotPassword server={normalizeServer(server)} initialUser={username} onDone={onDone} onCancel={() => setForgot(false)} />
+      </div>
+    );
+  }
   if (inSetup && needsSetup) {
     return <Setup server={needsSetup} onDone={onDone} onCancel={() => setInSetup(false)} />;
   }
@@ -160,6 +171,10 @@ export function Login({ onDone }: { onDone: (token: string) => void }) {
         <p className="muted small">
           {mode === "login" ? (
             <>
+              <a href="#" onClick={(e) => (e.preventDefault(), normalizeServer(server) ? setForgot(true) : setError("Enter your server address first"))}>
+                Forgot password?
+              </a>
+              {" · "}
               Have an invite?{" "}
               <a href="#" onClick={(e) => (e.preventDefault(), setMode("register"))}>
                 Register

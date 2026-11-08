@@ -230,7 +230,11 @@ impl AppState {
 #[derive(Clone, Debug)]
 pub struct AuthUser {
     pub id: String,
+    /// Master Admin or Instance Admin
     pub is_admin: bool,
+    /// Master Admin: the only one who can change the server (NAS) itself
+    pub is_master: bool,
+    pub is_kid: bool,
     pub token_hash: String,
 }
 
@@ -248,13 +252,14 @@ pub fn token_from_parts(parts: &Parts) -> Option<String> {
 
 pub async fn auth_token(state: &AppState, token: &str) -> Result<AuthUser, AppError> {
     let hash = sha256_hex(token.as_bytes());
-    let row: Option<(String, bool, i64)> = sqlx::query_as(
-        "SELECT s.user_id, u.is_admin, s.last_seen FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
+    let row: Option<(String, bool, i64, String, bool)> = sqlx::query_as(
+        "SELECT s.user_id, u.is_admin, s.last_seen, u.instance_role, u.is_kid FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
     )
     .bind(&hash)
     .fetch_optional(&state.db)
     .await?;
-    let Some((id, is_admin, last_seen)) = row else { return Err(AppError::unauthorized()) };
+    let Some((id, is_admin, last_seen, role, is_kid)) = row else { return Err(AppError::unauthorized()) };
+    let is_master = role == "master";
     let now = now_ms();
     if now - last_seen > 60_000 {
         let _ = sqlx::query("UPDATE sessions SET last_seen = ? WHERE token_hash = ?")
@@ -263,7 +268,7 @@ pub async fn auth_token(state: &AppState, token: &str) -> Result<AuthUser, AppEr
             .execute(&state.db)
             .await;
     }
-    Ok(AuthUser { id, is_admin, token_hash: hash })
+    Ok(AuthUser { id, is_admin: is_admin || is_master, is_master, is_kid, token_hash: hash })
 }
 
 impl FromRequestParts<Shared> for AuthUser {

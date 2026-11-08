@@ -77,7 +77,7 @@ h2 { font-size: 20px; }
 .btn:hover:not(:disabled) { background: #6d6f78; }
 .btn.primary { background: var(--brand); }
 .btn.primary:hover:not(:disabled) { background: var(--brand-hover); }
-.btn.red { background: #da373c; }
+.btn.red { background: #da373c; color: #fff !important; }
 .btn.red:hover:not(:disabled) { background: #a12828; }
 .btn.green { background: var(--green); }
 .btn.green:hover:not(:disabled) { background: #1a7f45; }
@@ -557,3 +557,34 @@ input.switch { width: 40px; height: 22px; accent-color: var(--accent, #5865f2); 
 .login-logo { display: block; width: 220px; max-width: 70%; margin: -8px auto 12px; border-radius: 12px; }
 a.update-pill { text-decoration: none; }
 .update-pill.subtle { background: var(--bg-3, #3a3c42); color: var(--text-muted, #b5bac1); font-weight: 500; }
+
+/* ---------- accounts, family, recovery, clearing ---------- */
+.role-chip.master { background: #f2792b; color: #fff; }
+.role-chip.kid { background: #2d7d46; color: #fff; }
+.request-box { background: var(--bg-2, #2b2d31); border-left: 3px solid #f2792b; border-radius: 8px; padding: 4px 12px 10px; margin: 10px 0 16px; }
+.kid-card { background: var(--bg-2, #2b2d31); border-radius: 10px; margin: 10px 0; padding: 10px 14px; }
+.kid-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.kid-body { margin-top: 6px; }
+.kid-body .member-trow { padding: 4px 0; }
+.sub-row { margin: -4px 0 10px 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sub-row .days { display: inline-flex; gap: 8px; margin-left: 10px; }
+.sub-row .days .check { margin: 0; font-size: 13px; }
+.recovery-code { font: 600 22px ui-monospace, Consolas, monospace; letter-spacing: 2px; text-align: center; background: #1e1f22; border-radius: 8px; padding: 16px; margin: 12px 0; cursor: copy; user-select: all; }
+.waiting { display: flex; gap: 14px; align-items: flex-start; }
+.waiting .spinner { flex: none; margin-top: 4px; }
+.login-switch { margin-top: 12px; font-size: 14px; }
+.login-switch a { cursor: pointer; }
+.kid-chats { width: min(1000px, 94vw); }
+.kid-chats-body { display: grid; grid-template-columns: 240px 1fr; gap: 14px; height: 65vh; }
+.kid-chats-list { overflow: auto; border-right: 1px solid #3f4147; padding-right: 8px; }
+.kid-chats-list .role-item { width: 100%; text-align: left; }
+.kid-chats-msgs { overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.kid-msg { padding: 6px 10px; border-radius: 8px; background: #2b2d31; }
+.kid-msg.theirs { background: #1f3a2a; }
+.kid-msg-text { white-space: pre-wrap; word-break: break-word; }
+.msg.selectable { cursor: pointer; }
+.msg.picked { background: rgba(242, 63, 67, 0.12); }
+.msg-pick { position: absolute; left: 4px; top: 8px; width: 16px; height: 16px; accent-color: #f23f43; }
+.msg { position: relative; }
+.select-bar { display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; padding: 8px 12px; background: #2b2d31; border-radius: 8px; }
+@media (max-width: 700px) { .kid-chats-body { grid-template-columns: 1fr; height: auto; } }

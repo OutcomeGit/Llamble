@@ -13,7 +13,10 @@ export type ModalSpec =
   | { kind: "confirm"; title: string; body: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void | Promise<void> }
   | { kind: "profile"; userId: string; guildId: string | null }
   | { kind: "screenPicker" }
-  | { kind: "saveGif"; fileId?: string; url?: string; preview?: string };
+  | { kind: "saveGif"; fileId?: string; url?: string; preview?: string }
+  | { kind: "prompt"; title: string; label: string; placeholder?: string; initial?: string; password?: boolean; confirmLabel?: string; onSubmit: (v: string) => void | Promise<void> }
+  | { kind: "kidChats"; kidId: string; name: string }
+  | { kind: "recoveryCode"; code: string };
 
 export interface MenuItem {
   label: string;
@@ -33,6 +36,8 @@ interface Toast {
 interface UI {
   modals: ModalSpec[];
   menu: { x: number; y: number; items: MenuItem[] } | null;
+  /** "Select messages" mode: the channel and the picked message ids */
+  selecting: { channelId: string; ids: string[] } | null;
   lightbox: { items: FileObj[]; index: number } | null;
   replyTo: Record<string, Message | undefined>;
   editing: string | null;
@@ -44,6 +49,7 @@ interface UI {
 export const useUI = create<UI>(() => ({
   modals: [],
   menu: null,
+  selecting: null,
   lightbox: null,
   replyTo: {},
   editing: null,

@@ -94,7 +94,7 @@ pub async fn learn_lan_ip(state: &Shared, headers: &HeaderMap) {
 }
 
 pub async fn get_settings(State(state): State<Shared>, auth: AuthUser, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     learn_lan_ip(&state, &headers).await;
@@ -105,7 +105,7 @@ pub async fn get_settings(State(state): State<Shared>, auth: AuthUser, headers: 
 }
 
 pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req): Json<Value>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     let mut cur = serde_json::to_value(get(&state).await).unwrap();

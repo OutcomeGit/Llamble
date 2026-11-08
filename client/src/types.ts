@@ -5,6 +5,9 @@ export interface User {
   avatar_file_id: string | null;
   is_admin: boolean;
   is_bot?: boolean;
+  /** master | admin | user */
+  instance_role?: string;
+  is_kid?: boolean;
 }
 
 export interface Guild {
@@ -23,6 +26,8 @@ export interface Role {
   permissions: number;
   position: number;
   hoist: boolean;
+  /** permissions this role takes away (Guest) */
+  deny?: number;
 }
 
 export type ChannelKind = "text" | "voice" | "category" | "dm";
@@ -38,6 +43,7 @@ export interface Channel {
   created_at: number;
   last_message_id: string | null;
   recipients?: User[];
+  retention_days?: number | null;
 }
 
 export interface Member {
@@ -150,6 +156,8 @@ export const P = {
   ADMINISTRATOR: 1 << 30,
 };
 export const ALL_PERMS = 2 ** 31 - 1;
+/** what the Guest role takes away: read and listen only */
+export const GUEST_DENY = P.SEND | P.ATTACH | P.EMBED_LINKS | P.REACT | P.SPEAK | P.VIDEO | P.CREATE_INVITE | P.MENTION_EVERYONE;
 
 export const PERM_LABELS: [number, string, string][] = [
   [P.VIEW, "View Channels", "See channels and read messages"],

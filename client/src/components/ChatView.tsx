@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { api } from "../api";
 import { can, memberName, setMessages, useStore } from "../store";
 import { P, type Channel, type Message } from "../types";
-import { useUI } from "../ui";
+import { openMenu, openModal, toast, useUI } from "../ui";
 import { Composer, type ComposerHandle } from "./Composer";
 import { Avatar, BotTag, Icon, formatDay } from "./common";
 import { MessageItem } from "./MessageItem";
@@ -69,6 +69,47 @@ export function ChatView({ channel }: { channel: Channel }) {
             <Icon name="users" size={20} />
           </button>
         )}
+        <button
+          className="icon-btn"
+          title="More"
+          onClick={(e) => {
+            const items: { label: string; onClick: () => void; danger?: boolean }[] = [
+              { label: "Select messages to delete", onClick: () => useUI.setState({ selecting: { channelId: channel.id, ids: [] } }) },
+            ];
+            if (channel.guild_id && can(channel.guild_id, P.MANAGE_GUILD))
+              items.push({
+                label: "Clear all messages in this channel",
+                danger: true,
+                onClick: () =>
+                  openModal({
+                    kind: "confirm",
+                    title: `Clear #${channel.name}?`,
+                    body: "Every message in this channel is deleted for everyone. This can't be undone.",
+                    danger: true,
+                    confirmLabel: "Clear channel",
+                    onConfirm: () => api(`/api/channels/${channel.id}/messages/all`, { method: "DELETE" }),
+                  }),
+              });
+            if (otherUser?.is_bot)
+              items.push({
+                label: "Clear this AI conversation",
+                danger: true,
+                onClick: () =>
+                  openModal({
+                    kind: "confirm",
+                    title: "Clear your chat with the AI?",
+                    body: "Deletes the whole conversation. The AI starts fresh.",
+                    danger: true,
+                    confirmLabel: "Clear",
+                    onConfirm: () => api(`/api/channels/${channel.id}/messages/all`, { method: "DELETE" }),
+                  }),
+              });
+            const r = e.currentTarget.getBoundingClientRect();
+            openMenu({ clientX: r.left - 180, clientY: r.bottom + 4 }, items);
+          }}
+        >
+          <Icon name="more" size={20} />
+        </button>
         <div className="search-box">
           <input
             placeholder="Search"
@@ -89,6 +130,7 @@ export function ChatView({ channel }: { channel: Channel }) {
         <div className="chat-col">
           <MessageList channel={channel} />
           <TypingBar channelId={channel.id} guildId={channel.guild_id} />
+          <SelectBar channelId={channel.id} />
           <Composer ref={composer} channel={channel} placeholder={channel.kind === "dm" ? `Message @${title}` : `Message #${channel.name}`} />
         </div>
         {results && (
@@ -305,6 +347,34 @@ function ChannelStart({ channel }: { channel: Channel }) {
           <p className="muted">This is the start of the #{channel.name} channel.{bot ? ` Mention @${bot.name} to ask the AI (if it's enabled here).` : ""}</p>
         </>
       )}
+    </div>
+  );
+}
+
+function SelectBar({ channelId }: { channelId: string }) {
+  const sel = useUI((s) => (s.selecting?.channelId === channelId ? s.selecting : null));
+  if (!sel) return null;
+  const done = () => useUI.setState({ selecting: null });
+  return (
+    <div className="select-bar">
+      <span className="grow">{sel.ids.length ? `${sel.ids.length} selected` : "Click messages to select them"}</span>
+      <button
+        className="btn small red"
+        disabled={!sel.ids.length}
+        onClick={() =>
+          api(`/api/channels/${channelId}/messages/bulk-delete`, { body: { ids: sel.ids } })
+            .then((r) => {
+              toast(`Deleted ${r.deleted} message${r.deleted === 1 ? "" : "s"}`);
+              done();
+            })
+            .catch((e) => toast(e.message, "error"))
+        }
+      >
+        Delete {sel.ids.length || ""}
+      </button>
+      <button className="btn small" onClick={done}>
+        Cancel
+      </button>
     </div>
   );
 }

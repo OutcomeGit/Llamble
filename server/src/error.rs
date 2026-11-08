@@ -18,6 +18,9 @@ impl AppError {
     pub fn forbidden() -> Self {
         AppError(StatusCode::FORBIDDEN, "missing permissions".into())
     }
+    pub fn forbidden_msg(m: impl Into<String>) -> Self {
+        AppError(StatusCode::FORBIDDEN, m.into())
+    }
     pub fn not_found() -> Self {
         AppError(StatusCode::NOT_FOUND, "not found".into())
     }

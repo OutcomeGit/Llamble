@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { openModal } from "../ui";
 import { api, setSession } from "../api";
 import { useStore } from "../store";
 import { ModelPicker } from "./ModelPicker";
 
 /** First-run wizard: shown when the server has no accounts yet. */
+// shown once the admin finishes setup
+let recoveryCode = "";
+
 export function Setup({ server, onDone, onCancel }: { server: string; onDone: (token: string) => void; onCancel?: () => void }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [username, setUsername] = useState("");
@@ -30,6 +34,7 @@ export function Setup({ server, onDone, onCancel }: { server: string; onDone: (t
       });
       setToken(r.token);
       setGuildId(r.guild_id);
+      recoveryCode = r.recovery_code || "";
       setStep(2);
     } catch (err: any) {
       setError(err.message);
@@ -46,6 +51,7 @@ export function Setup({ server, onDone, onCancel }: { server: string; onDone: (t
     }
     setSession(server, token);
     onDone(token);
+    if (recoveryCode) setTimeout(() => openModal({ kind: "recoveryCode", code: recoveryCode }), 800);
   };
 
   return (

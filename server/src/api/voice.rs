@@ -53,6 +53,7 @@ pub async fn leave_voice(state: &Shared, user_id: &str) {
 }
 
 pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, headers: axum::http::HeaderMap) -> ApiResult<Json<Value>> {
+    crate::kids::check_quiet(&state, &auth.id).await?;
     if !crate::voice_server::enabled(&state) {
         return Err(AppError::bad("voice isn't available on this server"));
     }

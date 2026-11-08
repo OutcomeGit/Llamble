@@ -237,6 +237,20 @@ export function userMenu(e: React.MouseEvent, userId: string, guildId: string | 
           openModal({ kind: "confirm", title: `Ban ${user?.display_name}`, body: "They will be removed and can't rejoin.", danger: true, confirmLabel: "Ban", onConfirm: () => api(`/api/guilds/${guildId}/bans/${userId}`, { method: "PUT", body: {} }) }),
       });
   }
+  if (guildId && can(guildId, P.MANAGE_GUILD) && userId !== useStore.getState().me?.id)
+    items.push({
+      label: `Delete all of ${user?.display_name}'s messages`,
+      danger: true,
+      onClick: () =>
+        openModal({
+          kind: "confirm",
+          title: `Delete everything ${user?.display_name} wrote here?`,
+          body: "Removes all their messages in every channel of this server. This can't be undone.",
+          danger: true,
+          confirmLabel: "Delete all",
+          onConfirm: () => api(`/api/guilds/${guildId}/members/${userId}/messages`, { method: "DELETE" }).then((r) => toast(`Deleted ${r.deleted} messages`)),
+        }),
+    });
   items.push({ separator: true, label: "" }, { label: "Copy User ID", onClick: () => copy(userId, "ID copied") });
   openMenu(e, items);
 }

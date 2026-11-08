@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
-import { can, currentChannelId, isUnread, selectChannel, useStore } from "../store";
+import { can, currentChannelId, isUnread, onEvent, selectChannel, useStore } from "../store";
 import { P } from "../types";
-import { copy, openMenu, openModal, useUI } from "../ui";
+import { copy, openMenu, openModal, toast, useUI } from "../ui";
 import { useVoice } from "../voice";
 import { ChatView } from "./ChatView";
 import { ContextMenu, GuildIcon, Icon, Toasts } from "./common";
 import { MemberList } from "./MemberList";
 import { Modals } from "./Modals";
+import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
 import { VoiceView } from "./VoiceView";
 
@@ -20,6 +21,23 @@ export function Shell() {
   const selectedGuild = useStore((s) => s.selectedGuild);
   const ringing = useStore((s) => s.ringing);
   const [update, setUpdate] = useState<string | null>(null);
+  // family & account notices
+  useEffect(
+    () =>
+      onEvent((t, d) => {
+        const me = useStore.getState().me;
+        if (t === "KID_REQUEST") {
+          const what = d.kind === "dm" ? `wants to chat with ${d.target?.display_name}` : `wants to join ${d.target?.name}`;
+          toast(`${d.kid?.display_name} ${what}. Open Settings → Family to answer.`);
+        }
+        if (t === "KID_REQUEST_DONE" && d.kid?.id === me?.id) {
+          const what = d.kind === "dm" ? `chat with ${d.target?.display_name}` : `join ${d.target?.name}`;
+          toast(d.status === "approved" ? `A parent said yes: you can ${what} now!` : `A parent said no to: ${what}.`);
+        }
+        if (t === "RESET_REQUEST") notifyResetRequest(d);
+      }),
+    [],
+  );
   useEffect(() => window.llambleNative?.onUpdateReady((v) => setUpdate(v ?? "")), []);
 
   useEffect(() => {

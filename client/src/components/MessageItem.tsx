@@ -12,6 +12,8 @@ export const MessageItem = memo(function MessageItem({ msg, guildId, compact, re
   const me = useStore((s) => s.me)!;
   const author = useStore((s) => s.users[msg.author.id]) || msg.author;
   const editing = useUI((s) => s.editing === msg.id);
+  const selecting = useUI((s) => (s.selecting?.channelId === msg.channel_id ? s.selecting : null));
+  const picked = !!selecting?.ids.includes(msg.id);
   const [picker, setPicker] = useState(false);
   const color = roleColor(guildId, author.id);
   const mine = author.id === me.id;
@@ -62,9 +64,20 @@ export const MessageItem = memo(function MessageItem({ msg, guildId, compact, re
   return (
     <div
       id={"msg-" + msg.id}
-      className={"msg" + (compact ? " compact" : "") + (msg.pending ? " pending" : "") + (mentioned ? " mentioned" : "")}
-      onContextMenu={readOnly ? undefined : more}
+      className={"msg" + (compact ? " compact" : "") + (msg.pending ? " pending" : "") + (mentioned ? " mentioned" : "") + (picked ? " picked" : "") + (selecting ? " selectable" : "")}
+      onContextMenu={readOnly || selecting ? undefined : more}
+      onClickCapture={
+        selecting && !readOnly && (mine || canManage)
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const ids = picked ? selecting.ids.filter((x) => x !== msg.id) : [...selecting.ids, msg.id];
+              useUI.setState({ selecting: { ...selecting, ids } });
+            }
+          : undefined
+      }
     >
+      {selecting && !readOnly && (mine || canManage) && <input type="checkbox" className="msg-pick" checked={picked} readOnly />}
       {msg.reply_to && (
         <div className="reply-ref" onClick={() => useUI.setState({ jumpTo: msg.reply_to!.id })}>
           <span className="reply-spine" />

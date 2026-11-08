@@ -82,9 +82,61 @@ pub async fn create_guild(State(state): State<Shared>, auth: AuthUser, Json(req)
             .execute(&mut *tx).await?;
     }
     tx.commit().await?;
+    add_preset_roles(&state, &id).await?;
     let payload = guild_payload(&state, &id).await?;
     state.hub.send_user(&auth.id, "GUILD_CREATE", &payload);
     Ok(Json(payload))
+}
+
+/// The standard ladder below the server's Owner. Supervisor is meant to be tuned: tick the
+/// admin powers you want them to have. Guest can read and listen but not post or talk.
+pub const GUEST_DENY: i64 = perms::SEND | perms::ATTACH | perms::EMBED_LINKS | perms::REACT | perms::SPEAK | perms::VIDEO | perms::CREATE_INVITE | perms::MENTION_EVERYONE;
+
+pub async fn add_preset_roles(state: &Shared, gid: &str) -> ApiResult<Vec<String>> {
+    let presets: [(&str, i64, i64, i64, bool, i64); 4] = [
+        ("Admin", perms::ADMINISTRATOR, 0, 0xe74c3c, true, 40),
+        ("Supervisor", perms::MANAGE_MESSAGES | perms::KICK | perms::BAN | perms::MANAGE_CHANNELS | perms::CREATE_INVITE | perms::MENTION_EVERYONE, 0, 0xe67e22, true, 30),
+        ("Moderator", perms::MANAGE_MESSAGES | perms::KICK, 0, 0x3498db, true, 20),
+        ("Guest", 0, GUEST_DENY, 0x95a5a6, false, 10),
+    ];
+    let existing: Vec<String> = sqlx::query_scalar("SELECT name FROM roles WHERE guild_id = ?").bind(gid).fetch_all(&state.db).await?;
+    let mut added = vec![];
+    for (name, p, deny, color, hoist, pos) in presets {
+        if existing.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        let rid = new_id();
+        sqlx::query("INSERT INTO roles (id, guild_id, name, color, permissions, position, hoist, deny) VALUES (?,?,?,?,?,?,?,?)")
+            .bind(&rid)
+            .bind(gid)
+            .bind(name)
+            .bind(color)
+            .bind(p)
+            .bind(pos)
+            .bind(hoist)
+            .bind(deny)
+            .execute(&state.db)
+            .await?;
+        if let Ok(role) = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist, deny FROM roles WHERE id = ?").bind(&rid).fetch_one(&state.db).await {
+            state.emit_guild(gid, "ROLE_UPDATE", &role).await;
+        }
+        added.push(name.to_string());
+    }
+    Ok(added)
+}
+
+pub async fn add_presets(State(state): State<Shared>, auth: AuthUser, Path(gid): Path<String>) -> ApiResult<Json<Value>> {
+    require_guild(&state.db, &gid, &auth.id, perms::MANAGE_ROLES).await?;
+    Ok(Json(json!({ "added": add_preset_roles(&state, &gid).await? })))
+}
+
+/// Used by parents (and kicks/bans) to take someone out of a server.
+pub async fn remove_member(state: &Shared, gid: &str, uid: &str) -> ApiResult<()> {
+    let owner: Option<String> = sqlx::query_scalar("SELECT owner_id FROM guilds WHERE id = ?").bind(gid).fetch_optional(&state.db).await?;
+    if owner.as_deref() == Some(uid) {
+        return Err(AppError::bad("they own that server; it has to be deleted or handed to someone else"));
+    }
+    remove_member_inner(state, gid, uid).await
 }
 
 #[derive(Deserialize)]
@@ -168,6 +220,8 @@ pub struct UpdateChannel {
     pub topic: Option<String>,
     pub parent_id: Option<Option<String>>,
     pub position: Option<i64>,
+    /// auto-delete messages older than N days; null turns it off
+    pub retention_days: Option<Option<i64>>,
 }
 
 pub async fn update_channel(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, Json(req): Json<UpdateChannel>) -> ApiResult<Json<Channel>> {
@@ -187,6 +241,10 @@ pub async fn update_channel(State(state): State<Shared>, auth: AuthUser, Path(ci
         if ch.kind != "category" {
             sqlx::query("UPDATE channels SET parent_id = ? WHERE id = ?").bind(p).bind(&cid).execute(&state.db).await?;
         }
+    }
+    if let Some(r) = req.retention_days {
+        let r = r.filter(|d| *d > 0).map(|d| d.min(3650));
+        sqlx::query("UPDATE channels SET retention_days = ? WHERE id = ?").bind(r).bind(&cid).execute(&state.db).await?;
     }
     if let Some(p) = req.position {
         sqlx::query("UPDATE channels SET position = ? WHERE id = ?").bind(p).bind(&cid).execute(&state.db).await?;
@@ -215,6 +273,8 @@ pub struct RoleReq {
     pub permissions: Option<i64>,
     pub position: Option<i64>,
     pub hoist: Option<bool>,
+    /// permissions the role takes away (Guest-style)
+    pub deny: Option<i64>,
 }
 
 pub async fn create_role(State(state): State<Shared>, auth: AuthUser, Path(gid): Path<String>, Json(req): Json<RoleReq>) -> ApiResult<Json<Role>> {
@@ -228,7 +288,7 @@ pub async fn create_role(State(state): State<Shared>, auth: AuthUser, Path(gid):
         .bind(req.name.unwrap_or_else(|| "new role".into()).chars().take(64).collect::<String>())
         .bind(req.color.unwrap_or(0)).bind(p).bind(pos).bind(req.hoist.unwrap_or(false))
         .execute(&state.db).await?;
-    let role = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist FROM roles WHERE id = ?")
+    let role = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist, deny FROM roles WHERE id = ?")
         .bind(&id).fetch_one(&state.db).await?;
     state.emit_guild(&gid, "ROLE_UPDATE", &role).await;
     Ok(Json(role))
@@ -236,7 +296,7 @@ pub async fn create_role(State(state): State<Shared>, auth: AuthUser, Path(gid):
 
 pub async fn update_role(State(state): State<Shared>, auth: AuthUser, Path((gid, rid)): Path<(String, String)>, Json(req): Json<RoleReq>) -> ApiResult<Json<Role>> {
     let mine = require_guild(&state.db, &gid, &auth.id, perms::MANAGE_ROLES).await?;
-    let role = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist FROM roles WHERE id = ? AND guild_id = ?")
+    let role = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist, deny FROM roles WHERE id = ? AND guild_id = ?")
         .bind(&rid).bind(&gid).fetch_one(&state.db).await?;
     if let Some(n) = req.name {
         if rid != gid {
@@ -257,7 +317,13 @@ pub async fn update_role(State(state): State<Shared>, auth: AuthUser, Path((gid,
     if let Some(h) = req.hoist {
         sqlx::query("UPDATE roles SET hoist = ? WHERE id = ?").bind(h).bind(&rid).execute(&state.db).await?;
     }
-    let role = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist FROM roles WHERE id = ?")
+    if let Some(d) = req.deny {
+        if rid == gid {
+            return Err(AppError::bad("@everyone can't take permissions away; use a Guest role"));
+        }
+        sqlx::query("UPDATE roles SET deny = ? WHERE id = ?").bind(d & perms::ALL & !perms::VIEW).bind(&rid).execute(&state.db).await?;
+    }
+    let role = sqlx::query_as::<_, Role>("SELECT id, guild_id, name, color, permissions, position, hoist, deny FROM roles WHERE id = ?")
         .bind(&rid).fetch_one(&state.db).await?;
     state.emit_guild(&gid, "ROLE_UPDATE", &role).await;
     Ok(Json(role))
@@ -433,10 +499,17 @@ pub async fn preview_invite(State(state): State<Shared>, Path(code): Path<String
 
 pub async fn accept_invite(State(state): State<Shared>, auth: AuthUser, Path(code): Path<String>) -> ApiResult<Json<Value>> {
     let (gid, grants_admin) = crate::api::auth::check_invite(&state, &code).await?;
-    if grants_admin {
-        sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&auth.id).execute(&state.db).await?;
+    if grants_admin && !auth.is_kid {
+        sqlx::query("UPDATE users SET is_admin = 1, instance_role = CASE WHEN instance_role = 'master' THEN 'master' ELSE 'admin' END WHERE id = ?")
+            .bind(&auth.id)
+            .execute(&state.db)
+            .await?;
     }
     if let Some(g) = &gid {
+        if !crate::kids::join_allowed(&state, &auth.id, g).await? {
+            crate::api::auth::consume_invite(&state, &code).await?;
+            return Ok(Json(json!({ "guild_id": gid, "pending": true })));
+        }
         add_member(&state, g, &auth.id).await?;
     }
     crate::api::auth::consume_invite(&state, &code).await?;

@@ -12,6 +12,7 @@ use crate::state::{AuthUser, Shared};
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub fn router(state: Shared) -> Router<Shared> {
@@ -69,6 +70,37 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/admin/users", get(admin_users))
         .route("/api/admin/users/{uid}", delete(admin_delete_user))
         .route("/api/admin/users/{uid}/reset-password", post(admin_reset_password))
+        .route("/api/admin/users/{uid}/role", post(admin_set_role))
+        .route("/api/admin/users/{uid}/kid", post(crate::kids::admin_set_kid))
+        .route("/api/admin/transfer-master", post(admin_transfer_master))
+        // password recovery
+        .route("/api/auth/recover", post(auth::recover_with_code))
+        .route("/api/auth/reset-email", post(crate::email::reset_by_email))
+        .route("/api/admin/smtp", get(crate::email::get_smtp).put(crate::email::put_smtp))
+        .route("/api/admin/smtp/test", post(crate::email::test_smtp))
+        .route("/api/auth/reset-request", post(auth::request_reset))
+        .route("/api/auth/reset-request/{id}", post(auth::poll_reset))
+        .route("/api/me/recovery-code", post(auth::regen_recovery_code))
+        .route("/api/me/email", get(auth::my_email))
+        .route("/api/reset-requests", get(auth::list_reset_requests))
+        .route("/api/reset-requests/{id}", post(auth::decide_reset))
+        // kids & parents
+        .route("/api/kids", get(crate::kids::list_kids).post(crate::kids::create_kid))
+        .route("/api/kids/{kid}/settings", post(crate::kids::update_kid_settings))
+        .route("/api/kids/{kid}/guardians", post(crate::kids::add_guardian))
+        .route("/api/kids/{kid}/guardians/{g}", delete(crate::kids::remove_guardian))
+        .route("/api/kids/{kid}/contacts", post(crate::kids::add_contact))
+        .route("/api/kids/{kid}/contacts/{u}", delete(crate::kids::remove_contact))
+        .route("/api/kids/{kid}/password", post(crate::kids::set_kid_password))
+        .route("/api/kids/{kid}/guilds", post(crate::kids::add_to_guild))
+        .route("/api/kids/{kid}/guilds/{gid}", delete(crate::kids::remove_from_guild))
+        .route("/api/kids/{kid}/channels", get(crate::kids::kid_channels))
+        .route("/api/kid-requests/{rid}", post(crate::kids::decide_request))
+        // roles & clearing
+        .route("/api/guilds/{gid}/roles/presets", post(guilds::add_presets))
+        .route("/api/channels/{cid}/messages/bulk-delete", post(messages::bulk_delete))
+        .route("/api/channels/{cid}/messages/all", delete(messages::clear_channel))
+        .route("/api/guilds/{gid}/members/{uid}/messages", delete(messages::delete_user_messages))
         .route("/api/admin/invites", post(guilds::create_instance_invite))
         .route("/api/gateway", get(crate::gateway::upgrade))
         .route("/api/bot", get(crate::bot::status))
@@ -111,7 +143,7 @@ async fn setup(State(state): State<Shared>, Json(req): Json<SetupReq>) -> ApiRes
     let id = crate::error::new_id();
     let display: String = req.display_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(&username).chars().take(32).collect();
     let hash = auth::hash_password(req.password.clone()).await?;
-    sqlx::query("INSERT INTO users (id, username, display_name, password_hash, is_admin, created_at) VALUES (?,?,?,?,1,?)")
+    sqlx::query("INSERT INTO users (id, username, display_name, password_hash, is_admin, instance_role, created_at) VALUES (?,?,?,?,1,'master',?)")
         .bind(&id).bind(&username).bind(&display).bind(&hash).bind(crate::error::now_ms())
         .execute(&state.db).await?;
     // the bootstrap invite is no longer needed
@@ -121,7 +153,7 @@ async fn setup(State(state): State<Shared>, Json(req): Json<SetupReq>) -> ApiRes
 
     let mut guild_id = None;
     if let Some(name) = req.server_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let auth_user = AuthUser { id: id.clone(), is_admin: true, token_hash: String::new() };
+        let auth_user = AuthUser { id: id.clone(), is_admin: true, is_master: true, is_kid: false, token_hash: String::new() };
         let g = guilds::create_guild(State(state.clone()), auth_user, Json(guilds::CreateGuild { name: name.to_string() })).await?;
         let gid = g.0["guild"]["id"].as_str().unwrap_or_default().to_string();
         sqlx::query("INSERT OR REPLACE INTO bot_settings (guild_id, enabled, system_prompt, always_channels) VALUES (?,1,'','[]')")
@@ -129,8 +161,9 @@ async fn setup(State(state): State<Shared>, Json(req): Json<SetupReq>) -> ApiRes
         guilds::add_member(&state, &gid, &state.bot_id).await?;
         guild_id = Some(gid);
     }
+    let recovery_code = auth::new_recovery_code(&state, &id).await?;
     let user = crate::models::get_user(&state.db, &id).await?;
-    Ok(Json(json!({ "token": token, "user": user, "guild_id": guild_id })))
+    Ok(Json(json!({ "token": token, "user": user, "guild_id": guild_id, "recovery_code": recovery_code })))
 }
 
 async fn invite_redirect(Path(code): Path<String>) -> axum::response::Redirect {
@@ -145,6 +178,7 @@ async fn info(State(state): State<Shared>) -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "voice_enabled": crate::voice_server::enabled(&state),
         "version": crate::config::server_version(),
+        "email_reset": crate::email::configured(&state).await,
         "max_upload_bytes": state.s().max_upload_bytes(),
         "bot_name": state.s().bot_name,
     }))
@@ -184,9 +218,69 @@ async fn admin_users(State(state): State<Shared>, auth: AuthUser) -> ApiResult<J
     ))
 }
 
+async fn role_of(state: &Shared, uid: &str) -> ApiResult<String> {
+    Ok(sqlx::query_scalar("SELECT instance_role FROM users WHERE id = ?").bind(uid).fetch_optional(&state.db).await?.ok_or_else(AppError::not_found)?)
+}
+
+#[derive(Deserialize)]
+struct SetRole {
+    /// admin | user
+    role: String,
+}
+
+/// Master Admin only: make someone an Instance Admin, or a regular user again.
+async fn admin_set_role(State(state): State<Shared>, auth: AuthUser, Path(uid): Path<String>, Json(req): Json<SetRole>) -> ApiResult<Json<Value>> {
+    if !auth.is_master {
+        return Err(AppError::forbidden_msg("only the Master Admin can change admin levels"));
+    }
+    if role_of(&state, &uid).await? == "master" {
+        return Err(AppError::bad("use 'make Master Admin' to hand over the Master role"));
+    }
+    if !["admin", "user"].contains(&req.role.as_str()) {
+        return Err(AppError::bad("role must be admin or user"));
+    }
+    if req.role == "admin" && crate::kids::is_kid(&state, &uid).await {
+        return Err(AppError::bad("kid accounts can't be admins"));
+    }
+    sqlx::query("UPDATE users SET instance_role = ?, is_admin = ? WHERE id = ? AND is_bot = 0")
+        .bind(&req.role)
+        .bind(req.role == "admin")
+        .bind(&uid)
+        .execute(&state.db)
+        .await?;
+    state.hub.kick_user(&uid);
+    Ok(Json(json!({ "user": crate::models::get_user(&state.db, &uid).await? })))
+}
+
+#[derive(Deserialize)]
+struct Transfer {
+    user_id: String,
+}
+
+/// Master Admin hands the Master role to someone else (and becomes an Instance Admin).
+async fn admin_transfer_master(State(state): State<Shared>, auth: AuthUser, Json(req): Json<Transfer>) -> ApiResult<Json<Value>> {
+    if !auth.is_master || req.user_id == auth.id {
+        return Err(AppError::forbidden());
+    }
+    let (kid, bot): (bool, bool) = sqlx::query_as("SELECT is_kid, is_bot FROM users WHERE id = ?").bind(&req.user_id).fetch_optional(&state.db).await?.ok_or_else(AppError::not_found)?;
+    if kid || bot {
+        return Err(AppError::bad("that account can't be the Master Admin"));
+    }
+    let mut tx = state.db.begin().await?;
+    sqlx::query("UPDATE users SET instance_role = 'admin', is_admin = 1 WHERE id = ?").bind(&auth.id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE users SET instance_role = 'master', is_admin = 1 WHERE id = ?").bind(&req.user_id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    state.hub.kick_user(&auth.id);
+    state.hub.kick_user(&req.user_id);
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn admin_delete_user(State(state): State<Shared>, auth: AuthUser, Path(uid): Path<String>) -> ApiResult<Json<Value>> {
     if !auth.is_admin || uid == auth.id {
         return Err(AppError::forbidden());
+    }
+    if role_of(&state, &uid).await? == "master" {
+        return Err(AppError::forbidden_msg("the Master Admin can't be deleted"));
     }
     let owns: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM guilds WHERE owner_id = ?").bind(&uid).fetch_one(&state.db).await?;
     if owns > 0 {
@@ -204,6 +298,9 @@ async fn admin_delete_user(State(state): State<Shared>, auth: AuthUser, Path(uid
 async fn admin_reset_password(State(state): State<Shared>, auth: AuthUser, Path(uid): Path<String>) -> ApiResult<Json<Value>> {
     if !auth.is_admin {
         return Err(AppError::forbidden());
+    }
+    if role_of(&state, &uid).await? == "master" && !auth.is_master {
+        return Err(AppError::forbidden_msg("only the Master Admin can reset the Master Admin's password"));
     }
     let temp = random_token(9);
     let hash = auth::hash_password(temp.clone()).await?;

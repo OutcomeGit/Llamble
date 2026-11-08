@@ -473,7 +473,7 @@ async fn relay_loop(state: Shared, c: RemoteConfig, gen: u64) {
 // ---------- admin API ----------
 
 pub async fn get_remote(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     let c = load(&state).await;
@@ -535,7 +535,7 @@ async fn save(state: &Shared, c: &RemoteConfig) -> ApiResult<()> {
 }
 
 pub async fn set_remote(State(state): State<Shared>, auth: AuthUser, Json(req): Json<SetRemote>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     let domain = req.domain.trim().trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_lowercase();

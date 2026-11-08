@@ -435,7 +435,7 @@ fn disk_free(path: &Path) -> Option<u64> {
 }
 
 pub async fn get_status(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     let catalog: Vec<Value> = CATALOG
@@ -458,7 +458,7 @@ pub struct QuantsQ {
 }
 
 pub async fn get_quants(State(_state): State<Shared>, auth: AuthUser, axum::extract::Query(q): axum::extract::Query<QuantsQ>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     let repo = q.repo.trim().trim_start_matches("https://huggingface.co/").trim_end_matches('/').to_string();
@@ -477,7 +477,7 @@ pub struct SetModel {
 }
 
 pub async fn set_model(State(state): State<Shared>, auth: AuthUser, Json(req): Json<SetModel>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     if state.cfg.llama_url.is_some() {
@@ -500,7 +500,7 @@ pub struct DisableQ {
 }
 
 pub async fn disable(State(state): State<Shared>, auth: AuthUser, axum::extract::Query(q): axum::extract::Query<DisableQ>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     state.ai.generation.fetch_add(1, Ordering::SeqCst);
@@ -518,7 +518,7 @@ pub async fn disable(State(state): State<Shared>, auth: AuthUser, axum::extract:
 
 /// Every model on disk, grouped by repo + quantization, with what's complete and what's in use.
 pub async fn list_models(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     let active = load_choice(&state).await;
@@ -593,7 +593,7 @@ pub struct DeleteModelQ {
 }
 
 pub async fn delete_model(State(state): State<Shared>, auth: AuthUser, axum::extract::Query(q): axum::extract::Query<DeleteModelQ>) -> ApiResult<Json<Value>> {
-    if !auth.is_admin {
+    if !auth.is_master {
         return Err(AppError::forbidden());
     }
     if q.repo.contains("..") || q.repo.starts_with('/') || q.quant.as_deref().map(|x| x.contains('/') || x.contains("..")).unwrap_or(false) {
