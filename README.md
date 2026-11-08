@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/logo.jpg" width="420" alt="Llamble: Chat, Show & Voice Platform"></p>
 
-A self-hosted Discord-style chat server for your clients. Rust server on TrueNAS, Windows desktop app (Electron), voice/video/screen share through LiveKit (bundled), and an AI bot powered by llama.cpp.
+A self-hosted chat server for your clients: text, voice and video. Rust server on TrueNAS, Windows desktop app (Electron), voice/video/screen share through LiveKit (bundled), and an AI bot powered by llama.cpp.
 
 ```
 llamble/
@@ -21,7 +21,7 @@ llamble/
 - **Files**: drag-drop or paste, up to 10 per message, upload progress, spoilers, image grid and lightbox, inline video (seekable, with range requests and ffmpeg poster frames), audio player, file cards. Thumbnails are generated server-side.
 - **Link previews**: OpenGraph cards, direct image/video/GIF links, YouTube (plays via youtube-nocookie only after you click). Previews and images go through an SSRF-safe, HMAC-signed proxy, so clients' IPs never reach outside sites.
 - **GIFs**: a self-hosted, searchable GIF library with favorites. You can save any GIF from chat, or import from a Tenor/Giphy link (it's downloaded once). No GIF API is called at runtime.
-- **Voice/video**: Discord-style voice channels, DM calls with ringing, camera, screen share (pick a screen or window, up to 1440p30 or 1080p60, with system audio on Windows), per-user volume, speaking rings, mute/deafen, global hotkeys (Ctrl+Shift+M / Ctrl+Shift+D), and device picker with mic test. Opus at 96 kbps by default (configurable up to 256).
+- **Voice/video**: voice channels, DM calls with ringing, camera, screen share (pick a screen or window, up to 1440p30 or 1080p60, with system audio on Windows), per-user volume, speaking rings, mute/deafen, global hotkeys (Ctrl+Shift+M / Ctrl+Shift+D), and device picker with mic test. Opus at 96 kbps by default (configurable up to 256).
 - **Desktop**: tray, minimize to tray, notifications plus taskbar flash for DMs and mentions, unread count in the title, `llamble://invite/CODE@host` links, spellcheck menu, autostart option
 - **AI bot** (see below)
 - **Admin**: one-time admin invite on first boot, account invites, password resets, user deletion, device list. A janitor cleans orphaned uploads, stale cache and expired invites.

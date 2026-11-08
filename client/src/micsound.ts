@@ -61,9 +61,12 @@ export interface Level {
 /** Lowest to highest fidelity. */
 export const LEVELS: Level[] = [
   { id: "saver", label: "Data saver", bitrate: 32000, about: "For weak connections or phone data. Speech stays clear but sounds flat." },
-  { id: "standard", label: "Standard", bitrate: 96000, about: "Clearly better than most call apps (Discord's normal is 64 kbps)." },
-  { id: "rich", label: "Rich", bitrate: 256000, about: "Full, detailed voice. What Discord allows on servers with 7 boosts." },
-  { id: "high", label: "High", bitrate: 448000, about: "Above Discord's maximum (384 kbps, only on servers with 14 boosts)." },
+  { id: "basic", label: "Basic", bitrate: 64000, about: "What most voice chat apps send by default." },
+  { id: "standard", label: "Standard", bitrate: 96000, about: "A clear step up from Basic, still light on data." },
+  { id: "clear", label: "Clear", bitrate: 128000, about: "Crisp, natural voice. A good everyday choice." },
+  { id: "rich", label: "Rich", bitrate: 256000, about: "Full, detailed voice; music starts sounding right." },
+  { id: "studio", label: "Studio", bitrate: 384000, about: "Top-tier voice quality, about where premium voice chat tops out." },
+  { id: "high", label: "High", bitrate: 448000, about: "Above that again, for singing and instruments." },
   { id: "max", label: "Maximum", bitrate: 510000, about: "The most Opus can send. Few people can hear a difference from High." },
 ];
 

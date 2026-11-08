@@ -508,7 +508,7 @@ async fn build_messages(state: &Shared, ch: &Channel, trigger: &str) -> anyhow::
         "You are {bot}, an AI assistant participating in a group chat on a private, self-hosted chat server{place}. \
          Each human message is prefixed with the sender's name, like \"Name: message\". \
          Reply naturally and conversationally as {bot}. Do NOT prefix your reply with your own name. \
-         Keep replies concise unless asked for detail. You can use Discord-style markdown (**bold**, `code`, ```code blocks```). \
+         Keep replies concise unless asked for detail. You can use markdown (**bold**, `code`, ```code blocks```). \
          Today's date is {}.",
         civil_date(now_ms())
     );

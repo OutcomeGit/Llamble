@@ -14,7 +14,7 @@ import {
   type NoiseMode,
   type PushToTalk,
 } from "../micsound";
-import { followsServerDefault, micLimits, micSound, prefs, pushToTalk, setMicSound, setPushToTalk, useServerDefault } from "../voice";
+import { followsServerDefault, micChannels, micLimits, micSound, prefs, pushToTalk, setMicSound, setPushToTalk, useServerDefault } from "../voice";
 import { useStore } from "../store";
 import { Toggle } from "./common";
 
@@ -126,7 +126,7 @@ export function MicSoundPanel() {
                 <option key={b} value={b} disabled={b > limits.max}>
                   {b / 1000} kbps
                   {b === limits.def ? " (server default)" : ""}
-                  {b === 64000 ? " (Discord's normal)" : b === 384000 ? " (Discord's maximum)" : b === 510000 ? " (Opus maximum)" : ""}
+                  {b === 510000 ? " (Opus maximum)" : ""}
                   {b > limits.max ? " (above server limit)" : ""}
                 </option>
               ))}
@@ -154,6 +154,13 @@ export function MicSoundPanel() {
           {sw("trimSilence", "Trim silence", "Sends almost nothing while you're quiet. Saves data; the very start of a word can come through slightly soft.")}
           {sw("repairPackets", "Repair packets", "Each packet carries a backup of the previous one so a lost packet gets rebuilt. Smoother on Wi-Fi; doubles the data.")}
           {sw("stereo", "Stereo", "Sends both channels if your mic is stereo. No difference for normal headset mics.")}
+          {m.stereo && (m.echoCancellation || m.autoGainControl || m.noise === "browser") && (
+            <div className="mic-warn">
+              Stereo can't take effect yet: the browser's own cleanup (echo cancellation, auto volume, built-in noise suppression) only works on one
+              channel, so while any of those is on your mic is recorded in mono. AI noise suppression is fine with stereo.
+            </div>
+          )}
+          <LiveChannels />
 
           <div className="profile-section">Shaping</div>
           {slider("gainDb", "Mic volume", -20, 20)}
@@ -185,6 +192,17 @@ export function MicSoundPanel() {
       <PushToTalkSettings />
     </div>
   );
+}
+
+/** What the mic is really being recorded in during a call (measured, not guessed). */
+function LiveChannels() {
+  const [n, setN] = useState<number | undefined>(micChannels());
+  useEffect(() => {
+    const t = setInterval(() => setN(micChannels()), 1500);
+    return () => clearInterval(t);
+  }, []);
+  if (n === undefined) return null;
+  return <div className="muted small">In this call your mic is being recorded in {n >= 2 ? "stereo" : "mono"} right now.</div>;
 }
 
 /** Play your processed mic back to you (use headphones) with a level meter. */

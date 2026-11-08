@@ -715,7 +715,7 @@ function VoiceSettings() {
       <EncoderSetting />
       <p className="muted small">Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
       {(useStore.getState().config as any).voice_ai?.available && <MicTest />}
-      {flag("autoWatchStreams", "Watch screen shares automatically", "Off: a shared screen shows a Watch button first (saves bandwidth, like Discord)", false)}
+      {flag("autoWatchStreams", "Watch screen shares automatically", "Off: a shared screen shows a Watch button first (saves bandwidth)", false)}
       {flag("autoWatchCameras", "Show cameras automatically", "Off: cameras show a Show video button first")}
       <label>
         Llamble's voice volume (in calls)
@@ -1467,7 +1467,7 @@ function ServerConfig() {
         <select value={f.mic_default_kbps ?? 128} onChange={(e) => set("mic_default_kbps", Number(e.target.value))} style={{ width: 200 }}>
           {BITRATES.map((b) => b / 1000).map((k) => (
             <option key={k} value={k} disabled={k > (f.mic_max_kbps ?? 510)}>
-              {k} kbps{k === 64 ? " (Discord's normal)" : k === 384 ? " (Discord's maximum)" : ""}
+              {k} kbps
             </option>
           ))}
         </select>

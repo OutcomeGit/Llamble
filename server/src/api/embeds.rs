@@ -36,7 +36,7 @@ pub fn extract_urls(content: &str) -> Vec<String> {
     for m in URL_RE.find_iter(&clean) {
         let s = m.as_str();
         if s.starts_with('<') && s.ends_with('>') {
-            continue; // <url> suppresses embeds, like Discord
+            continue; // <url> suppresses embeds
         }
         let s = s.trim_start_matches('<').trim_end_matches('>');
         let mut s = s.trim_end_matches(|c: char| ".,!?;:'\"".contains(c)).to_string();

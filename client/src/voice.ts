@@ -140,6 +140,13 @@ export function micSound(): MicSound {
   return m;
 }
 
+/** How many channels the mic is really being recorded in right now (in a call), as the browser reports it. */
+export function micChannels(): number | undefined {
+  const t = room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack;
+  const n = t?.getSettings().channelCount;
+  return typeof n === "number" ? n : undefined;
+}
+
 /** Go back to following the server's default. */
 export function useServerDefault() {
   const before = micSound();
@@ -546,7 +553,7 @@ export async function toggleMute() {
   const s = vget();
   let muted = !s.muted;
   let deafened = s.deafened;
-  if (!muted && deafened) deafened = false; // unmuting also undeafens, like Discord
+  if (!muted && deafened) deafened = false; // unmuting also undeafens
   vset({ muted, deafened });
   localStorage.setItem("llamble.muted", muted ? "1" : "0");
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
@@ -905,7 +912,7 @@ async function syncCameraFx() {
 import("./camerafx").then((fx) => fx.useFx.subscribe(() => syncCameraFx()));
 
 // ---------------------------------------------------------------- choosing what to watch
-// Like Discord: screen shares aren't downloaded until you click "Watch"; cameras show
+// Screen shares aren't downloaded until you click "Watch"; cameras show
 // unless you hide them. Your choices last for the call (per person and per kind).
 
 /** your choice per person+kind for this call: true = watch, false = hide */
