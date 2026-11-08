@@ -89,7 +89,7 @@ async function refreshDevices() {
 }
 
 // ---- mic sound (see micsound.ts for presets, micfx.ts for the audio chain) ----
-/** The server's mic bitrates (Settings → Llamble Server → Settings & Updates). */
+/** The instance's mic bitrates (Settings → My Llamble Instance → Settings & Updates). */
 export function micLimits(media = useStore.getState().config.media): { def: number; max: number } {
   const max = (media?.mic_max_kbps ?? 510) * 1000;
   return { def: Math.min((media?.mic_default_kbps ?? 128) * 1000, max), max };
@@ -148,7 +148,7 @@ export function micChannels(): number | undefined {
 }
 
 /** Go back to following the server's default. */
-export function useServerDefault() {
+export function applyServerDefault() {
   const before = micSound();
   prefs.set("micSound", "");
   reapplyMic(before, micSound());

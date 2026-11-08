@@ -19,6 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check React hook rules (a hook after an early return crashes the app)
+        run: |
+          mkdir -p /tmp/hookcheck && cd /tmp/hookcheck
+          npm init -y > /dev/null
+          npm i --silent --no-audit --no-fund eslint@9 eslint-plugin-react-hooks@5 typescript-eslint@8 typescript@5
+          cp -r "$GITHUB_WORKSPACE/client/src" src
+          cp "$GITHUB_WORKSPACE/client/scripts/hooks-check.eslint.config.mjs" eslint.config.mjs
+          npx eslint -c eslint.config.mjs src
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:

@@ -51,6 +51,7 @@ export const MessageItem = memo(function MessageItem({ msg, guildId, compact, re
     openMenu(e, [
       { label: "Add Reaction", onClick: () => setPicker(true) },
       { label: "Reply", onClick: () => setReply(msg.channel_id, msg) },
+      { label: "Share to…", onClick: () => openModal({ kind: "share", msg }) },
       ...(mine ? [{ label: "Edit Message", onClick: () => useUI.setState({ editing: msg.id }) }] : []),
       ...(gif ? [{ label: "Save GIF to library", onClick: () => openModal({ kind: "saveGif", ...gif }) }] : []),
       { label: "Copy Text", onClick: () => copy(msg.content) },
@@ -169,6 +170,9 @@ export const MessageItem = memo(function MessageItem({ msg, guildId, compact, re
           </button>
           <button onClick={() => setReply(msg.channel_id, msg)} title="Reply">
             <Icon name="reply" size={18} />
+          </button>
+          <button onClick={() => openModal({ kind: "share", msg })} title="Share to…">
+            <Icon name="share" size={18} />
           </button>
           {mine && (
             <button onClick={() => useUI.setState({ editing: msg.id })} title="Edit">

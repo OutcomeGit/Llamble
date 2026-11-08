@@ -58,6 +58,7 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/voice/leave", post(voice::leave))
         .route("/api/voice/state", patch(voice::update))
         .route("/api/messages/{mid}", patch(messages::edit_message).delete(messages::delete_message))
+        .route("/api/messages/{mid}/share", post(messages::share_message))
         .route("/api/messages/{mid}/reactions/{emoji}", put(messages::add_reaction).delete(messages::remove_reaction))
         .route("/api/files", post(files::upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/api/files/{id}", get(files::get_file_handler))

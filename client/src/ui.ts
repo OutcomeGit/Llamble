@@ -16,7 +16,8 @@ export type ModalSpec =
   | { kind: "saveGif"; fileId?: string; url?: string; preview?: string }
   | { kind: "prompt"; title: string; label: string; placeholder?: string; initial?: string; password?: boolean; confirmLabel?: string; onSubmit: (v: string) => void | Promise<void> }
   | { kind: "kidChats"; kidId: string; name: string }
-  | { kind: "recoveryCode"; code: string };
+  | { kind: "recoveryCode"; code: string }
+  | { kind: "share"; msg: import("./types").Message };
 
 export interface MenuItem {
   label: string;

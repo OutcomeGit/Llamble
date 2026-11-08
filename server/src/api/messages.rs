@@ -68,6 +68,10 @@ pub struct CreateMsg {
     pub nonce: Option<String>,
     /// a screen effect to play for everyone watching (confetti, fireworks...)
     pub effect: Option<String>,
+    /// set by share_message only (never from a client): the message being shared, whose
+    /// attachments may be re-posted by someone who can see it
+    #[serde(skip)]
+    pub shared_from: Option<String>,
 }
 
 /// screen effects a message can carry
@@ -107,6 +111,13 @@ pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(ci
     }
     for a in &req.attachments {
         let f = get_file(&state.db, &a.id).await.map_err(|_| AppError::bad("unknown attachment"))?;
+        if let Some(src) = &req.shared_from {
+            let on_source: Option<i64> = sqlx::query_scalar("SELECT 1 FROM message_attachments WHERE message_id = ? AND file_id = ?")
+                .bind(src).bind(&a.id).fetch_optional(&state.db).await?;
+            if on_source.is_some() {
+                continue;
+            }
+        }
         if f.uploader_id != auth.id {
             let is_gif: Option<i64> = sqlx::query_scalar("SELECT 1 FROM gifs WHERE file_id = ?")
                 .bind(&a.id).fetch_optional(&state.db).await?;
@@ -153,6 +164,52 @@ pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(ci
     }
     crate::bot::maybe_respond(&state, &ch, &id, &auth.id, &content, reply_to.as_deref()).await;
     Ok(Json(payload))
+}
+
+#[derive(Deserialize)]
+pub struct ShareMsg {
+    pub channel_id: String,
+    #[serde(default)]
+    pub comment: String,
+}
+
+/// "Share to…": post a message (its text, links and attachments) into another channel or DM,
+/// credited to whoever wrote it. Goes through create_message, so every normal rule applies
+/// (permissions, kids' quiet hours and DM approvals); you must be able to see the original.
+pub async fn share_message(State(state): State<Shared>, auth: AuthUser, Path(mid): Path<String>, headers: axum::http::HeaderMap, Json(req): Json<ShareMsg>) -> ApiResult<Json<Value>> {
+    let (row, ch) = get_msg_and_channel(&state, &mid).await?;
+    require_channel(&state.db, &ch, &auth.id, perms::VIEW).await?;
+    let author = crate::models::get_user(&state.db, &row.author_id).await.map(|u| u.display_name).unwrap_or_else(|_| "someone".into());
+    let place = match &ch.guild_id {
+        Some(g) => {
+            let gname: String = sqlx::query_scalar("SELECT name FROM guilds WHERE id = ?").bind(g).fetch_one(&state.db).await.unwrap_or_default();
+            format!("#{} ({gname})", ch.name)
+        }
+        None => "a direct message".into(),
+    };
+    let comment = req.comment.trim();
+    let mut quoted: String = row.content.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n");
+    let head = format!("{}↪ Shared from **{author}** in {place}", if comment.is_empty() { String::new() } else { format!("{comment}\n\n") });
+    let room = 3900usize.saturating_sub(head.chars().count());
+    if quoted.chars().count() > room {
+        quoted = quoted.chars().take(room.saturating_sub(1)).collect::<String>() + "…";
+    }
+    let content = if quoted.is_empty() { head } else { format!("{head}\n{quoted}") };
+    let attachments: Vec<AttachRef> = sqlx::query_as::<_, (String, bool)>("SELECT file_id, spoiler FROM message_attachments WHERE message_id = ? ORDER BY position")
+        .bind(&mid)
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|(id, spoiler)| AttachRef { id, spoiler })
+        .collect();
+    create_message(
+        State(state),
+        auth,
+        Path(req.channel_id),
+        headers,
+        Json(CreateMsg { content, reply_to: None, attachments, nonce: None, effect: None, shared_from: Some(mid) }),
+    )
+    .await
 }
 
 async fn get_msg_and_channel(state: &Shared, mid: &str) -> ApiResult<(MessageRow, Channel)> {

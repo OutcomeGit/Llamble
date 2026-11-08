@@ -773,3 +773,11 @@ body.pop-body > .pop { height: 100vh; }
 .gif-del:hover { background: var(--red, #e5484d); }
 .camfx-chip.danger { color: var(--red, #e5484d); }
 .mic-warn { font-size: 13px; padding: 8px 10px; border-radius: 6px; background: rgba(250, 166, 26, 0.12); border: 1px solid rgba(250, 166, 26, 0.5); }
+.share-modal { width: 460px; display: flex; flex-direction: column; gap: 8px; }
+.share-preview { padding: 8px; border-radius: 6px; background: var(--bg-tertiary, rgba(127,127,127,.15)); overflow: hidden; }
+.share-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; }
+.share-group { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin: 8px 0 2px; }
+.share-dest { width: 100%; text-align: left; padding: 6px 8px; border-radius: 4px; background: none; border: 0; color: inherit; cursor: pointer; }
+.share-dest:hover { background: var(--bg-hover, rgba(127,127,127,.15)); }
+.share-dest.on { background: var(--accent, #5865f2); color: #fff; }
+.mic-divider { border: 0; border-top: 1px solid var(--border, rgba(127,127,127,.3)); margin: 6px 0 2px; }

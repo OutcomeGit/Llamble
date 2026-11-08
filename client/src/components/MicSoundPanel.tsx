@@ -14,7 +14,7 @@ import {
   type NoiseMode,
   type PushToTalk,
 } from "../micsound";
-import { followsServerDefault, micChannels, micLimits, micSound, prefs, pushToTalk, setMicSound, setPushToTalk, useServerDefault } from "../voice";
+import { followsServerDefault, micChannels, micLimits, micSound, prefs, pushToTalk, setMicSound, setPushToTalk, applyServerDefault } from "../voice";
 import { useStore } from "../store";
 import { Toggle } from "./common";
 
@@ -42,9 +42,17 @@ export function MicSoundPanel() {
     setMicSound(next);
   };
   const kbps = (b: number) => Math.round(b / 1000);
-  const title = following ? `Server default · with helpers (${kbps(limits.def)} kbps)` : presetLabel(m);
-  const set = <K extends keyof MicSound>(k: K, v: MicSound[K]) => apply({ ...m, [k]: v });
-  const sw = (k: "stereo" | "echoCancellation" | "autoGainControl" | "trimSilence" | "repairPackets" | "lowCut" | "compressor", label: string, desc: string) => (
+  const title = following ? `Instance default · with helpers (${kbps(limits.def)} kbps)` : presetLabel(m);
+  // the browser's own cleanup only works on one channel: turning any of it on means mono
+  const set = <K extends keyof MicSound>(k: K, v: MicSound[K]) => {
+    const next = { ...m, [k]: v };
+    if (next.echoCancellation || next.autoGainControl || next.noise === "browser") next.stereo = false;
+    apply(next);
+  };
+  const monoBecause = [m.echoCancellation && "echo cancellation", m.autoGainControl && "auto volume", m.noise === "browser" && "the browser's noise suppression"].filter(
+    Boolean,
+  ) as string[];
+  const sw = (k: "echoCancellation" | "autoGainControl" | "trimSilence" | "repairPackets" | "lowCut" | "compressor", label: string, desc: string) => (
     <div className="perm-row">
       <div>
         <div className="bold">{label}</div>
@@ -69,24 +77,28 @@ export function MicSoundPanel() {
         <div className="mic-presets">
           <div className={"mic-level" + (following ? " on" : "")}>
             <div className="mic-level-head">
-              <span className="bold">Server default</span>
+              <span className="bold">Instance default</span>
               <span className="muted small">{kbps(limits.def)} kbps</span>
             </div>
-            <div className="muted small">With helpers, at the bitrate this server's admin chose. Follows it if they change it.</div>
+            <div className="muted small">With helpers, at the bitrate your Llamble instance's admin chose. Follows it if they change it.</div>
             <div className="mic-level-btns">
               <button
                 className={"btn small" + (following ? " primary" : "")}
                 onClick={() => {
-                  useServerDefault();
+                  applyServerDefault();
                   setFollowing(true);
                   setM(micSound());
                 }}
               >
-                Use server default
+                Use instance default
               </button>
             </div>
           </div>
-          <div className="muted small">Lowest to highest fidelity · this server allows up to {kbps(limits.max)} kbps</div>
+          <hr className="mic-divider" />
+          <div className="bold" style={{ fontSize: 13 }}>
+            Presets
+          </div>
+          <div className="muted small">Lowest to highest fidelity · this instance allows up to {kbps(limits.max)} kbps</div>
           {LEVELS.map((l) => (
             <div key={l.id} className={"mic-level" + (preset?.level.id === l.id ? " on" : "")}>
               <div className="mic-level-head">
@@ -100,7 +112,7 @@ export function MicSoundPanel() {
                     key={p.id}
                     className={"btn small" + (preset?.id === p.id ? " primary" : "")}
                     disabled={l.bitrate > limits.max}
-                    title={l.bitrate > limits.max ? `Above this server's limit (${kbps(limits.max)} kbps)` : undefined}
+                    title={l.bitrate > limits.max ? `Above this instance's limit (${kbps(limits.max)} kbps)` : undefined}
                     onClick={() => apply({ ...p.sound })}
                   >
                     {p.raw ? "Raw" : "With helpers"}
@@ -116,7 +128,7 @@ export function MicSoundPanel() {
         <div className="mic-settings">
           <div className="mic-current">{title}</div>
           {m.bitrate > limits.max && (
-            <div className="mic-warn">This server's limit is {kbps(limits.max)} kbps, so you're sent at {kbps(limits.max)} kbps for now.</div>
+            <div className="mic-warn">This instance's limit is {kbps(limits.max)} kbps, so you're sent at {kbps(limits.max)} kbps for now.</div>
           )}
           <p className="muted small">Change anything here and it becomes Custom. Changes apply right away, even mid-call.</p>
           <label>
@@ -125,9 +137,9 @@ export function MicSoundPanel() {
               {BITRATES.map((b) => (
                 <option key={b} value={b} disabled={b > limits.max}>
                   {b / 1000} kbps
-                  {b === limits.def ? " (server default)" : ""}
+                  {b === limits.def ? " (instance default)" : ""}
                   {b === 510000 ? " (Opus maximum)" : ""}
-                  {b > limits.max ? " (above server limit)" : ""}
+                  {b > limits.max ? " (above instance limit)" : ""}
                 </option>
               ))}
             </select>
@@ -138,29 +150,33 @@ export function MicSoundPanel() {
               {NOISE.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
-                  {v === "browser" && m.stereo ? " (records in mono)" : ""}
+                  {v === "browser" ? " (mono only)" : ""}
                 </option>
               ))}
             </select>
             <span className="muted small">{NOISE.find(([v]) => v === m.noise)?.[2]}</span>
           </label>
-          {sw("echoCancellation", "Echo cancellation", "Stops others hearing themselves through your speakers. Not needed with headphones." + (m.stereo ? " Records in mono." : ""))}
+          {sw("echoCancellation", "Echo cancellation", "Stops others hearing themselves through your speakers. Not needed with headphones.")}
           {!m.echoCancellation && (
             <div className="mic-warn">
               Echo cancellation is off: if you listen on speakers (not headphones), everyone will hear their own voice repeated back. Two devices in the same
               room cause the same echo even with it on.
             </div>
           )}
-          {sw("autoGainControl", "Auto volume", "Evens out loud and quiet. Off: your volume follows how close you are to the mic." + (m.stereo ? " Records in mono." : ""))}
+          {sw("autoGainControl", "Auto volume", "Evens out loud and quiet. Off: your volume follows how close you are to the mic.")}
           {sw("trimSilence", "Trim silence", "Sends almost nothing while you're quiet. Saves data; the very start of a word can come through slightly soft.")}
           {sw("repairPackets", "Repair packets", "Each packet carries a backup of the previous one so a lost packet gets rebuilt. Smoother on Wi-Fi; doubles the data.")}
-          {sw("stereo", "Stereo", "Sends both channels if your mic is stereo. No difference for normal headset mics.")}
-          {m.stereo && (m.echoCancellation || m.autoGainControl || m.noise === "browser") && (
-            <div className="mic-warn">
-              Stereo can't take effect yet: the browser's own cleanup (echo cancellation, auto volume, built-in noise suppression) only works on one
-              channel, so while any of those is on your mic is recorded in mono. AI noise suppression is fine with stereo.
+          <div className="perm-row">
+            <div>
+              <div className="bold">Stereo</div>
+              <div className="muted small">
+                {monoBecause.length
+                  ? `Needs ${monoBecause.join(" and ")} off (the browser's cleanup only works in mono). AI noise suppression is fine with stereo.`
+                  : "Sends both channels if your mic is stereo. No difference for normal headset mics."}
+              </div>
             </div>
-          )}
+            <Toggle on={m.stereo && !monoBecause.length} disabled={monoBecause.length > 0} onChange={(v) => set("stereo", v)} />
+          </div>
           <LiveChannels />
 
           <div className="profile-section">Shaping</div>

@@ -1,6 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
 import { KidChats } from "./Family";
 import { RecoveryCodeNotice } from "./Recovery";
+import { ShareModal } from "./Share";
 import { useEffect, useState } from "react";
 import { api, media, session } from "../api";
 import { can, memberName, roleColor, selectChannel, useStore } from "../store";
@@ -65,6 +66,8 @@ function ModalBody({ m }: { m: ModalSpec }) {
       return <KidChats kidId={m.kidId} name={m.name} />;
     case "recoveryCode":
       return <RecoveryCodeNotice code={m.code} />;
+    case "share":
+      return <ShareModal msg={m.msg} />;
   }
 }
 

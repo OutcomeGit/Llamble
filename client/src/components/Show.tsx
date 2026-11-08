@@ -149,11 +149,12 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+  // every hook must run on every render, show or not (React crashes otherwise)
+  const sharing = useVoice((s) => s.screen);
   if (!show) return null;
   const crew = [show.initiator_id, show.recorder_id, show.director_id].includes(me || "");
   const waiting = show.people.filter((p) => !p.consent).map((p) => name(p.user_id));
   const mine = show.people.find((p) => p.user_id === me);
-  const sharing = useVoice((s) => s.screen);
   const secs = show.started_at ? Math.floor((now - show.started_at) / 1000) : 0;
   const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 

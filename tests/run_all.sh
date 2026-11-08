@@ -42,5 +42,6 @@ run voicebot LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk4.ya
 run images LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 LLAMBLE_HF_ENDPOINT=http://127.0.0.1:8093 LLAMBLE_SD_BIN=$T/fake_sd.py -- images_test.py http://127.0.0.1:8099
 run presence_race -- presence_race_test.py http://127.0.0.1:8099
 run activity -- activity_test.py http://127.0.0.1:8099
+run share -- share_test.py http://127.0.0.1:8099
 run login_guard LLAMBLE_BIND=0.0.0.0:8099 -- login_guard_test.py http://${LAN_IP:-127.0.0.1}:8099
 exit $FAIL

@@ -500,7 +500,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "sessions", label: "Devices" },
         { id: "family", label: "Family", hidden: !!me.is_kid },
         // the Llamble server itself (the NAS): not the "servers" people chat in
-        { id: "nas-section", label: "Llamble Server (NAS)", section: true, hidden: !me.is_admin },
+        { id: "nas-section", label: "My Llamble Instance (NAS)", section: true, hidden: !me.is_admin },
         { id: "admin", label: "Accounts", hidden: !me.is_admin },
         { id: "server", label: "Settings & Updates", hidden: me.instance_role !== "master" },
         { id: "aimodel", label: "AI Model", hidden: me.instance_role !== "master" },
