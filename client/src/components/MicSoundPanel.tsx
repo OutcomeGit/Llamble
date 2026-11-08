@@ -138,19 +138,20 @@ export function MicSoundPanel() {
               {NOISE.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
+                  {v === "browser" && m.stereo ? " (records in mono)" : ""}
                 </option>
               ))}
             </select>
             <span className="muted small">{NOISE.find(([v]) => v === m.noise)?.[2]}</span>
           </label>
-          {sw("echoCancellation", "Echo cancellation", "Stops others hearing themselves through your speakers. Not needed with headphones.")}
+          {sw("echoCancellation", "Echo cancellation", "Stops others hearing themselves through your speakers. Not needed with headphones." + (m.stereo ? " Records in mono." : ""))}
           {!m.echoCancellation && (
             <div className="mic-warn">
               Echo cancellation is off: if you listen on speakers (not headphones), everyone will hear their own voice repeated back. Two devices in the same
               room cause the same echo even with it on.
             </div>
           )}
-          {sw("autoGainControl", "Auto volume", "Evens out loud and quiet. Off: your volume follows how close you are to the mic.")}
+          {sw("autoGainControl", "Auto volume", "Evens out loud and quiet. Off: your volume follows how close you are to the mic." + (m.stereo ? " Records in mono." : ""))}
           {sw("trimSilence", "Trim silence", "Sends almost nothing while you're quiet. Saves data; the very start of a word can come through slightly soft.")}
           {sw("repairPackets", "Repair packets", "Each packet carries a backup of the previous one so a lost packet gets rebuilt. Smoother on Wi-Fi; doubles the data.")}
           {sw("stereo", "Stereo", "Sends both channels if your mic is stereo. No difference for normal headset mics.")}
