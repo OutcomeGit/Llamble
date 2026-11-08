@@ -65,7 +65,8 @@ export const useStore = create<State>(() => ({
   games: {},
   voiceStates: {},
   typing: {},
-  selectedGuild: localStorage.getItem("llamble.lastGuild") || "@home",
+  // everyone opens the app on Home (notes for you, who's around, highlights)
+  selectedGuild: "@home",
   guildView: {},
   notes: {},
   highlights: {},

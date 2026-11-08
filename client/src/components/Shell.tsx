@@ -191,7 +191,7 @@ function GuildBar() {
         </button>
       </div>
       <div className="guild-sep" />
-      <button className={"guild-btn home" + (selected === "@me" ? " active" : "")} onClick={() => selectChannel("@me", null)} title="Direct Messages">
+      <button className={"guild-btn dms" + (selected === "@me" ? " active" : "")} onClick={() => selectChannel("@me", null)} title="Direct Messages">
         <Icon name="chat" size={22} />
         {unread["@me"]?.mentions ? <span className="badge">{unread["@me"].mentions}</span> : null}
       </button>
