@@ -1,3 +1,4 @@
+import { listeningIn, useListen } from "../listen";
 import { useShows } from "../show";
 import { api } from "../api";
 import { sendGateway } from "../gateway";
@@ -355,6 +356,7 @@ function VoicePanel() {
         </button>
       </div>
       {v.error && <div className="voice-error small">{v.error}</div>}
+      <ListeningLine channelId={v.channelId} />
       <div className="voice-panel-btns">
         <button className={"vbtn" + (v.camera ? " on" : "")} disabled={!v.canVideo} onClick={toggleCamera} title="Camera">
           <Icon name={v.camera ? "video" : "videoOff"} size={18} /> Video
@@ -413,4 +415,17 @@ function UserPanel() {
 function RecBadge({ channelId }: { channelId: string }) {
   const st = useShows((s) => s.status[channelId]);
   return st === "recording" ? <span className="rec-badge" title="This call is being recorded">REC</span> : null;
+}
+
+/** Always visible while in a call where Llamble listens (even from a text channel). */
+function ListeningLine({ channelId }: { channelId: string | null }) {
+  useStore((s) => s.config);
+  const heard = useListen((s) => s.heard);
+  const bot = useStore((s) => s.config.bot?.name || "Llamble");
+  if (!listeningIn(channelId)) return null;
+  return (
+    <div className="listen-side small" title={heard ? `Last heard from you: "${heard.text}"` : `Say "Hey ${bot}"`}>
+      👂 {bot} is listening
+    </div>
+  );
 }

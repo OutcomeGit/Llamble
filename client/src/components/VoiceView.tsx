@@ -69,6 +69,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
           </button>
         </div>
       )}
+      <LlambleVoice channel={channel} />
       {v.audioBlocked && (
         <button className="voice-alert clickable" onClick={enableAudio}>
           🔇 Your browser paused call sound. <b>Click here to hear everyone.</b>
@@ -101,7 +102,6 @@ export function VoiceView({ channel }: { channel: Channel }) {
         </div>
       )}
       <ShowBanner onDirect={() => setShowPanel("director")} />
-      <LlambleVoice channel={channel} />
       <SoundboardTicker guildId={channel.guild_id} />
       <div className="call-controls">
         {showPanel === "start" && !liveShow && <StartShow channelId={channel.id} onClose={() => setShowPanel(null)} />}

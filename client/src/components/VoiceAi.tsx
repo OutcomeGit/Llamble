@@ -101,6 +101,7 @@ export function VoiceAiAdmin() {
               {busy ? "Speaking…" : "▶ Hear it"}
             </button>
           </div>
+          <ListeningWhere />
           <MicTest />
           <div className="muted small">
             Since the server started: {d.activity.received} bits of speech received, {d.activity.recognized} understood, {d.activity.wakes} times called by name, {d.activity.answers} answers.
@@ -179,5 +180,17 @@ export function MicTest() {
         </div>
       )}
     </div>
+  );
+}
+
+function ListeningWhere() {
+  const cfg = useStore((s) => (s.config as any).voice_ai);
+  const guilds = useStore((s) => s.guilds);
+  if (!cfg) return <p className="error-text small">This app doesn't see the voice settings yet — reload the app.</p>;
+  const names = (cfg.guilds as string[]).map((g) => guilds[g]?.name || "a server you're not in");
+  return (
+    <p className="small">
+      {cfg.available ? (names.length ? <>Listening in: <b>{names.join(", ")}</b></> : "Not listening in any server yet: turn it on in Server Settings → AI Bot.") : "Not available yet (models still getting ready)."}
+    </p>
   );
 }
