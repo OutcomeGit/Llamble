@@ -730,3 +730,4 @@ body.pop-body > .pop { height: 100vh; }
 .listen-convo { color: #c9cdfb; }
 .tile-watch { flex-direction: column; gap: 14px; }
 .tile-show { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); }
+.yaml-snippet { background: #111214; padding: 8px 10px; border-radius: 6px; font-size: 12px; margin: 6px 0; white-space: pre; }

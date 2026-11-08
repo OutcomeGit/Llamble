@@ -224,6 +224,7 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   llm.init((channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); });
+  require("./images.cjs").init((channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); });
 
   setupAutoUpdate();
   globalShortcut.register("CommandOrControl+Shift+M", () => win && win.webContents.send("hotkey", "mute"));
@@ -270,6 +271,10 @@ ipcMain.on("set-autostart", (_e, on) => app.setLoginItemSettings({ openAtLogin: 
 
 // ---- local AI (llama.cpp) ----
 ipcMain.handle("llm-gpus", () => llm.detectGpus(app));
+const pictures = require("./images.cjs");
+ipcMain.handle("img-status", () => pictures.status());
+ipcMain.handle("img-prepare", (_e, cfg) => pictures.prepare(cfg));
+ipcMain.handle("img-generate", (_e, job, gpu) => pictures.generate(job, gpu));
 // idle + GPU-busy signals for "only lend when I'm away / not gaming"
 ipcMain.handle("sys-state", async (_e, gpuIndex) => {
   const { powerMonitor } = require("electron");

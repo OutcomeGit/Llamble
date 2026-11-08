@@ -64,6 +64,16 @@ contextBridge.exposeInMainWorld("llambleNative", {
       return () => ipcRenderer.removeListener("overlay-edit", h);
     },
   },
+  images: {
+    status: () => ipcRenderer.invoke("img-status"),
+    prepare: (cfg) => ipcRenderer.invoke("img-prepare", cfg),
+    generate: (job, gpu) => ipcRenderer.invoke("img-generate", job, gpu),
+    on: (cb) => {
+      const h = (_e, s) => cb(s);
+      ipcRenderer.on("img-status", h);
+      return () => ipcRenderer.removeListener("img-status", h);
+    },
+  },
   readAsset: (name) => ipcRenderer.invoke("read-asset", name),
   pickFile: (opts) => ipcRenderer.invoke("pick-file", opts),
   onInvite: (cb) => {

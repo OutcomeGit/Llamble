@@ -2,7 +2,7 @@ import { closePopout, openPopout, popoutSupported, setOverlayPrefs, setWidget, u
 import { useShallow } from "zustand/react/shallow";
 import React, { useEffect, useRef, useState } from "react";
 import { api, formatBytes, upload } from "../api";
-import { chosenGpu, refreshGpus, saveAiConfig, setLending, startLocalModel, stopLocalModel, useAi, type AiConfig } from "../aiWorker";
+import { chosenGpu, preparePictures, refreshGpus, saveAiConfig, setLending, startLocalModel, stopLocalModel, useAi, type AiConfig } from "../aiWorker";
 import { can, guildPerms, memberName, useStore } from "../store";
 import { GUEST_DENY, P, PERM_LABELS, type Role, type User } from "../types";
 import { closeModal, copy, openModal, toast } from "../ui";
@@ -14,6 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
 import { CameraFxPicker } from "./CameraFx";
+import { PicturesAdmin } from "./PicturesAdmin";
 import { BotToolsAdmin, GuildVoiceListen, MicTest, VoiceAiAdmin } from "./VoiceAi";
 import { Recordings } from "./Show";
 
@@ -520,6 +521,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
           <ServerModels />
           <GpuSharing />
           <BotToolsAdmin />
+          <PicturesAdmin />
           <VoiceAiAdmin />
         </div>
       )}
@@ -820,6 +822,7 @@ function AiSettings() {
         <Toggle on={c.pauseWhenBusy} onChange={(v) => set({ pauseWhenBusy: v })} />
       </div>
       <p className="muted small">The server always uses the best GPU among everyone currently lending, and falls back to its own model when nobody is available.</p>
+      <LendPictures />
 
       <div className="profile-section">How to run the model</div>
       <div className="kind-pick">
@@ -2028,4 +2031,45 @@ function newer(a: string, b: string): boolean {
   const pb = b.split(".").map(Number);
   for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
   return false;
+}
+
+function LendPictures() {
+  const ai = useAi();
+  const want = useStore((s) => (s.config as any).images);
+  if (!window.llambleNative?.images) return null;
+  const st = ai.img;
+  const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
+  return (
+    <div className="perm-row">
+      <div>
+        <div className="bold">Also make pictures</div>
+        <div className="muted small">
+          {!want?.enabled
+            ? "The server's owner hasn't turned on pictures (Settings → AI Model → Pictures)."
+            : `Draws /imagine pictures with ${want.model === "z-image-turbo" ? "Z-Image Turbo" : "FLUX.2 [klein] 4B"} on this GPU (a few seconds each). Downloads about 6–7 GB once.`}
+          {ai.config.pictures && (
+            <div>
+              {st.state === "downloading"
+                ? `Downloading ${st.file}… ${pct}%`
+                : st.state === "ready"
+                  ? st.busy
+                    ? "Drawing a picture now"
+                    : "Ready"
+                  : st.state === "error"
+                    ? "Problem: " + st.error
+                    : "Getting ready…"}
+            </div>
+          )}
+        </div>
+      </div>
+      <Toggle
+        on={ai.config.pictures}
+        disabled={!want?.enabled}
+        onChange={(v) => {
+          saveAiConfig({ ...ai.config, pictures: v });
+          if (v) preparePictures();
+        }}
+      />
+    </div>
+  );
 }

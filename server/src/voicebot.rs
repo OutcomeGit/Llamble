@@ -745,7 +745,7 @@ async fn answer(state: &Shared, ch: &Channel, s: &VoiceAiSettings, uid: &str, na
         json!({ "role": "system", "content": system }),
         json!({ "role": "user", "content": format!("Recent conversation in the call:\n{context}\n\n{name} just asked you: {question}") }),
     ];
-    let ctx = crate::tools::Ctx { tz: crate::bot::USER_TZ.get(uid).map(|t| t.clone()), kid: !kids_in_call(state, &ch.id).await.is_empty() };
+    let ctx = crate::tools::Ctx { tz: crate::bot::USER_TZ.get(uid).map(|t| t.clone()), kid: !kids_in_call(state, &ch.id).await.is_empty(), ..Default::default() };
     let reply = match crate::bot::complete(state, ch, &messages, &ctx).await {
         Ok(r) => r,
         Err(e) => format!("Sorry, I can't answer right now: {e}."),

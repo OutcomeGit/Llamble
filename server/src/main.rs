@@ -6,6 +6,7 @@ mod db;
 mod email;
 mod error;
 mod gateway;
+mod images;
 mod kids;
 mod models;
 mod perms;
@@ -97,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(janitor(state.clone()));
     tokio::spawn(ai::boot(state.clone()));
     voicebot::boot(state.clone());
+    images::boot(state.clone());
 
     let mut app = api::router(state.clone());
     if let Ok(web) = std::env::var("LLAMBLE_WEB_DIR") {

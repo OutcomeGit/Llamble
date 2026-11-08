@@ -155,6 +155,19 @@ pub async fn upload(State(state): State<Shared>, auth: AuthUser, mut mp: Multipa
     Err(AppError::bad("no file field"))
 }
 
+/// Save bytes the server made itself (e.g. a generated picture) as a file. Returns its id.
+pub async fn store_bytes(state: &Shared, uploader: &str, filename: &str, mime: &str, bytes: &[u8]) -> anyhow::Result<String> {
+    let id = new_id();
+    tokio::fs::write(file_path(state, &id), bytes).await?;
+    let sha = hex::encode(Sha256::digest(bytes));
+    let (width, height, has_thumb) = make_preview(state, &id, mime).await;
+    sqlx::query("INSERT INTO files (id, uploader_id, filename, mime, size, width, height, has_thumb, sha256, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        .bind(&id).bind(uploader).bind(filename).bind(mime).bind(bytes.len() as i64)
+        .bind(width).bind(height).bind(has_thumb).bind(&sha).bind(now_ms())
+        .execute(&state.db).await?;
+    Ok(id)
+}
+
 /// Returns (width, height, has_thumb)
 async fn make_preview(state: &Shared, id: &str, mime: &str) -> (Option<i64>, Option<i64>, bool) {
     let src = file_path(state, id);

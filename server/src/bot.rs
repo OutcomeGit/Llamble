@@ -28,6 +28,8 @@ pub struct Worker {
     /// false while the lender is using their PC (not idle) or gaming (GPU busy)
     pub available: bool,
     pub reason: String,
+    /// this GPU also makes pictures
+    pub images: bool,
 }
 
 pub enum JobMsg {
@@ -782,7 +784,7 @@ async fn forward_sse(res: reqwest::Response, tx: &UnboundedSender<JobMsg>) -> an
 /// Ask the best available model, running any tools it asks for (a few rounds at most).
 /// `None` = no model anywhere.
 async fn generate(state: &Shared, ch: &Channel, mut messages: Vec<Value>, w: &mut Writer, ctx: &crate::tools::Ctx) -> Option<Outcome> {
-    let tools = crate::tools::definitions(state).await;
+    let tools = crate::tools::definitions(state, ctx).await;
     for round in 0..4 {
         // last round: no tools, so it has to answer
         let offer: &[Value] = if round == 3 { &[] } else { &tools };
@@ -864,12 +866,19 @@ async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<
     };
 
     let author: Option<String> = sqlx::query_scalar("SELECT author_id FROM messages WHERE id = ?").bind(&trigger).fetch_optional(&state.db).await.ok().flatten();
+    let author_admin = match &author {
+        Some(a) => sqlx::query_scalar::<_, bool>("SELECT is_admin FROM users WHERE id = ?").bind(a).fetch_optional(&state.db).await.ok().flatten().unwrap_or(false),
+        None => false,
+    };
     let ctx = crate::tools::Ctx {
         tz: author.as_ref().and_then(|a| USER_TZ.get(a).map(|t| t.clone())),
         kid: match &author {
             Some(a) => crate::kids::is_kid(&state, a).await,
             None => false,
         },
+        channel: Some(ch.clone()),
+        user: author.clone(),
+        user_is_admin: author_admin,
     };
     let result = generate(&state, &ch, messages, &mut w, &ctx).await;
     typing.abort();

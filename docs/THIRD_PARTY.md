@@ -7,3 +7,6 @@
 | fireworks-js | /fireworks chat effect | MIT |
 | LiveKit (server + livekit-client) | voice, video, screen share | Apache-2.0 |
 | Built-in soundboard clips (`client/public/sounds`) | soundboard | made for Llamble from scratch by `tools/make_sounds.py`; same license as Llamble |
+| stable-diffusion.cpp | pictures on the NAS and on lent GPUs | MIT |
+| FLUX.2 [klein] 4B / Z-Image Turbo (downloaded when turned on) | picture models | Apache-2.0 |
+| sherpa-onnx, Whisper, Kokoro (downloaded when turned on) | "Hey Llamble" speech | Apache-2.0 / MIT |

@@ -3,6 +3,7 @@
 // is away (idle) and the GPU isn't busy with something else (e.g. a game). While
 // unavailable, llama-server is unloaded so the game gets all the VRAM back.
 import { create } from "zustand";
+import { session } from "./api";
 import { sendGateway } from "./gateway";
 import { onEvent, useStore } from "./store";
 import type { Gpu, LlmStatus } from "./types";
@@ -24,6 +25,7 @@ export interface AiConfig {
   idleMinutes: number;
   pauseWhenBusy: boolean; // pause while the GPU is busy with something else (games)
   busyThreshold: number; // % utilization that counts as "busy"
+  pictures: boolean; // also make pictures (FLUX.2 klein / Z-Image) for the chat
 }
 
 const DEFAULTS: AiConfig = {
@@ -43,6 +45,7 @@ const DEFAULTS: AiConfig = {
   idleMinutes: 5,
   pauseWhenBusy: true,
   busyThreshold: 30,
+  pictures: false,
 };
 
 export function loadAiConfig(): AiConfig {
@@ -73,6 +76,8 @@ interface AiState {
   pauseReason: string | null; // why we're not lending right now
   idleSeconds: number;
   gpuUtil: number | null;
+  /** picture tools on this PC: off | downloading | ready | error */
+  img: { state: string; error: string | null; file: string | null; done: number; total: number; busy?: boolean; model?: string | null };
 }
 
 export const useAi = create<AiState>(() => ({
@@ -89,7 +94,24 @@ export const useAi = create<AiState>(() => ({
   pauseReason: null,
   idleSeconds: 0,
   gpuUtil: null,
+  img: { state: "off", error: null, file: null, done: 0, total: 0 },
 }));
+
+function picturesReady(s: AiState = useAi.getState()) {
+  const want = (useStore.getState().config as any).images;
+  return !!(s.config.pictures && want?.enabled && s.img.state === "ready" && s.img.model === want.model);
+}
+
+/** Download the picture tools + model if pictures are on (both here and on the server). */
+export async function preparePictures() {
+  const img = window.llambleNative?.images;
+  const want = (useStore.getState().config as any).images;
+  const s = useAi.getState();
+  if (!img || !s.config.pictures || !want?.enabled) return;
+  if (s.img.state === "downloading" || (s.img.state === "ready" && s.img.model === want.model)) return;
+  if (!s.gpus.length) await refreshGpus();
+  await img.prepare({ model: want.model, files: want.files, gpu: chosenGpu() });
+}
 
 export function chosenGpu(s: AiState = useAi.getState()) {
   const { gpus, config } = s;
@@ -112,6 +134,7 @@ function register() {
     model: s.status.model ?? "",
     available: s.lendable,
     reason: s.pauseReason ?? "",
+    images: picturesReady(s),
   });
 }
 
@@ -199,9 +222,10 @@ async function evaluate() {
       return;
     }
   }
-  const key = `${lendable}|${reason}`;
+  const pics = picturesReady();
+  const key = `${lendable}|${reason}|${pics}`;
   if (useAi.getState().registered && key !== lastSent) {
-    sendGateway("worker_status", { available: lendable, reason: reason ?? "" });
+    sendGateway("worker_status", { available: lendable, reason: reason ?? "", images: pics });
     lastSent = key;
   }
 }
@@ -250,12 +274,42 @@ export function initAiWorker() {
       useAi.setState((s) => ({ active: s.active + 1 }));
       llm.chat(d);
     }
+    if (t === "IMAGE_JOB") drawPicture(d);
+    if (t === "READY" || (t === "CONFIG_UPDATE" && d.images)) setTimeout(() => preparePictures(), 1000);
   });
 
+  window.llambleNative?.images?.on((st) => {
+    useAi.setState({ img: st });
+    lastSent = null; // tell the server if pictures became ready
+    if (useAi.getState().registered) evaluate();
+  });
+  window.llambleNative?.images?.status().then((st) => useAi.setState({ img: st }));
   setInterval(evaluate, 15_000);
   const c = useAi.getState().config;
   if (c.consent && c.enabled) {
     pausedByMonitor = true; // start once idle (or right away if idle-only is off)
     evaluate();
+  }
+}
+
+/** Make a picture the server asked for and send it back. */
+async function drawPicture(job: any) {
+  const img = window.llambleNative?.images;
+  const send = (body: BodyInit | null, error?: string) =>
+    fetch(`${session.server}/api/image-jobs/${job.job_id}`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + session.token, "content-type": "application/octet-stream", ...(error ? { "x-error": error.slice(0, 250) } : {}) },
+      body,
+    }).catch(() => {});
+  if (!img) return send(null, "this app can't make pictures");
+  useAi.setState((s) => ({ active: s.active + 1 }));
+  try {
+    const png = await img.generate(job, chosenGpu());
+    await send(new Blob([png as BlobPart], { type: "image/png" }));
+    useAi.setState((s) => ({ served: s.served + 1 }));
+  } catch (e: any) {
+    await send(null, String(e?.message || e).replace(/[^\x20-\x7e]/g, " "));
+  } finally {
+    useAi.setState((s) => ({ active: Math.max(0, s.active - 1) }));
   }
 }

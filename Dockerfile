@@ -31,12 +31,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && mv /tmp/sherpa-onnx-v${SHERPA_VERSION}-linux-x64-shared/lib /opt/sherpa/lib \
     && mv /tmp/sherpa-onnx-v${SHERPA_VERSION}-linux-x64-shared/bin/sherpa-onnx-offline /tmp/sherpa-onnx-v${SHERPA_VERSION}-linux-x64-shared/bin/sherpa-onnx-offline-tts /opt/sherpa/bin/
 
+# stable-diffusion.cpp: pictures (FLUX.2 klein / Z-Image) on the NAS when no GPU is lent.
+# Vulkan uses the NAS's built-in graphics if the container is given /dev/dri; else the CPU.
+FROM ubuntu:24.04 AS sdcpp
+ARG SD_COMMIT=de00bafc3d473069583752c80a0d56140477ede2
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git cmake libvulkan-dev glslc spirv-headers ca-certificates \
+    && git clone https://github.com/leejet/stable-diffusion.cpp /sd && cd /sd && git checkout "$SD_COMMIT" \
+    && git submodule update --init --recursive --depth 1
+RUN cd /sd && cmake -B build -DSD_VULKAN=ON -DSD_BUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DSD_BUILD_SHARED_GGML_LIB=ON \
+      -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DSD_WEBM=OFF \
+      -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH='$ORIGIN' \
+    && cmake --build build --config Release -j"$(nproc)" \
+    && mkdir -p /opt/sd && cp -a build/bin/. /opt/sd/
+
 FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg libgomp1 curl bzip2 \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg libgomp1 curl bzip2 libvulkan1 mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=llama /app /opt/llama
 COPY --from=livekit /livekit-server /opt/livekit/livekit-server
 COPY --from=sherpa /opt/sherpa /opt/sherpa
+COPY --from=sdcpp /opt/sd /opt/sd
 COPY --from=server /src/target/release/llamble-server /usr/local/bin/llamble-server
 COPY --from=web /web/dist /app/web
 ARG LLAMBLE_VERSION=0.0.0
@@ -46,7 +60,8 @@ ENV LD_LIBRARY_PATH=/opt/llama:/opt/sherpa/lib \
     LLAMBLE_DATA=/data LLAMBLE_WEB_DIR=/app/web LLAMBLE_BIND=0.0.0.0:8080
 # fail the image build if llama-server can't run here (missing libs etc.)
 RUN /opt/llama/llama-server --version && /opt/livekit/livekit-server --version \
-    && ! ldd /opt/sherpa/bin/sherpa-onnx-offline /opt/sherpa/bin/sherpa-onnx-offline-tts | grep -q "not found"
+    && ! ldd /opt/sherpa/bin/sherpa-onnx-offline /opt/sherpa/bin/sherpa-onnx-offline-tts | grep -q "not found" \
+    && ! ldd /opt/sd/sd-cli | grep -q "not found"
 # Run as TrueNAS's "apps" user (568). The data dir is pre-owned by it, so a fresh
 # Docker-managed volume mounted at /data inherits that ownership automatically.
 RUN mkdir -p /data && chown 568:568 /data

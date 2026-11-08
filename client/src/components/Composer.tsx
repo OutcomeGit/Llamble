@@ -102,7 +102,8 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
     if (c) {
       const q = c[1].toLowerCase();
       // already typed a whole command: let Enter send it
-      const items = EFFECTS.some((x) => x.name === q) ? [] : EFFECTS.filter((x) => x.name.startsWith(q)).map((x) => ({ e: x.emoji, n: x.name, desc: x.desc }));
+      const all = [...((useStore.getState().config as any).images?.enabled ? [{ name: "imagine", emoji: "🎨", desc: "Make a picture: /imagine a llama surfing (add --wide or --tall)" }] : []), ...EFFECTS];
+      const items = all.some((x) => x.name === q) ? [] : all.filter((x) => x.name.startsWith(q)).map((x) => ({ e: x.emoji, n: x.name, desc: x.desc }));
       setSuggest(items.length ? { kind: "command", items } : null);
       setSel(0);
       return;
@@ -165,6 +166,18 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
 
   const send = async (override?: { attachments: { id: string }[] }) => {
     let content = encodeMentions(text).trim();
+    const img = /^\/(imagine|draw)\s+([\s\S]+)$/i.exec(content);
+    if (img && !override) {
+      let prompt = img[2];
+      const shape = /--wide\b/.test(prompt) ? "wide" : /--tall\b/.test(prompt) ? "tall" : "square";
+      prompt = prompt.replace(/--(wide|tall|square)\b/g, "").trim();
+      setText("");
+      api(`/api/channels/${channel.id}/imagine`, { body: { prompt, shape } }).catch((e) => {
+        toast(e.message, "error");
+        setText(content);
+      });
+      return;
+    }
     const cmd = parseEffectCommand(content);
     const effect = cmd?.effect ?? autoEffect(content) ?? undefined;
     if (cmd) content = cmd.text;

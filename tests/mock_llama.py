@@ -17,6 +17,8 @@ class H(BaseHTTPRequestHandler):
         elif "get_current_time" in names and "what time" in last_user.lower():
             sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"get_current_time","arguments":""}}]}}]})
             sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"timezone\": \"America/New_York\"}"}}]}}]})
+        elif "generate_image" in names and "draw" in last_user.lower():
+            sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c3","type":"function","function":{"name":"generate_image","arguments":"{\"prompt\":\"a llama in a spacesuit\",\"shape\":\"wide\"}"}}]}}]})
         elif "calculate" in names and "times" in last_user.lower():
             sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c2","type":"function","function":{"name":"calculate","arguments":"{\"expression\":\"12*12\"}"}}]}}]})
         else:

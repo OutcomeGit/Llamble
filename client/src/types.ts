@@ -206,6 +206,12 @@ declare global {
         onEdit: (cb: (on: boolean) => void) => () => void;
       };
       readAsset?: (name: string) => Promise<Uint8Array>;
+      images?: {
+        status: () => Promise<any>;
+        prepare: (cfg: { model: string; files: any[]; gpu: Gpu | undefined }) => Promise<any>;
+        generate: (job: any, gpu: Gpu | undefined) => Promise<Uint8Array>;
+        on: (cb: (s: any) => void) => () => void;
+      };
       pickFile: (opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       llm: {
         gpus: () => Promise<Gpu[]>;

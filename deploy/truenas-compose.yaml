@@ -15,6 +15,10 @@ services:
       - "7882:7882/udp"   # voice/video
     volumes:
       - llamble-data:/data
+    # Optional: let Llamble use the NAS's built-in graphics for pictures (Intel/AMD iGPU).
+    # Remove the # from the next two lines. Llamble's Settings → AI Model → Pictures says if more is needed.
+    # devices:
+    #   - /dev/dri:/dev/dri
 
 volumes:
   llamble-data:

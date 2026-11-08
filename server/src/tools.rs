@@ -41,6 +41,10 @@ pub struct Ctx {
     pub tz: Option<String>,
     /// a kid is in the conversation: strict safe search
     pub kid: bool,
+    /// chat (not voice): where a picture would be posted, and who asked
+    pub channel: Option<crate::models::Channel>,
+    pub user: Option<String>,
+    pub user_is_admin: bool,
 }
 
 fn func(name: &str, desc: &str, params: Value) -> Value {
@@ -48,9 +52,17 @@ fn func(name: &str, desc: &str, params: Value) -> Value {
 }
 
 /// The tool list sent to the model.
-pub async fn definitions(state: &Shared) -> Vec<Value> {
+pub async fn definitions(state: &Shared, ctx: &Ctx) -> Vec<Value> {
     let s = settings(state).await;
     let mut out = vec![];
+    if let (Some(_), Some(u)) = (&ctx.channel, &ctx.user) {
+        if crate::images::may_draw(state, u, ctx.user_is_admin).await.is_ok() {
+            out.push(func("generate_image", "Draw a picture and post it in the chat. Use when someone asks you to draw, make, generate or show a picture/image/drawing. Write a detailed visual description as the prompt.", json!({
+                "type": "object", "properties": {
+                    "prompt": { "type": "string", "description": "Detailed description of the picture: subject, setting, style, lighting" },
+                    "shape": { "type": "string", "enum": ["square", "wide", "tall"] } }, "required": ["prompt"] })));
+        }
+    }
     if s.basic {
         out.push(func("get_current_time", "Get the current date and time. Use for any question about today's date, the time, or the day of the week.", json!({
             "type": "object", "properties": { "timezone": { "type": "string", "description": "IANA time zone like America/New_York. Leave out to use the asker's own." } } })));
@@ -77,12 +89,26 @@ pub async fn run(state: &Shared, ctx: &Ctx, name: &str, args: &Value) -> String 
         "get_weather" if s.web => weather(args["location"].as_str().unwrap_or(""), args["days"].as_i64().unwrap_or(3)).await,
         "web_search" if s.web => search(&s, args["query"].as_str().unwrap_or(""), ctx.kid).await,
         "read_webpage" if s.web => read_page(args["url"].as_str().unwrap_or("")).await,
+        "generate_image" => draw(state, ctx, args).await,
         _ => Err(anyhow::anyhow!("that tool isn't available")),
     };
     match r {
         Ok(t) => t.chars().take(8000).collect(),
         Err(e) => format!("Error: {e}"),
     }
+}
+
+// ---------------------------------------------------------------- pictures
+
+async fn draw(state: &Shared, ctx: &Ctx, args: &Value) -> anyhow::Result<String> {
+    let (Some(ch), Some(uid)) = (ctx.channel.clone(), ctx.user.clone()) else { anyhow::bail!("pictures can only be posted in chat") };
+    let s = crate::images::may_draw(state, &uid, ctx.user_is_admin).await.map_err(|e| anyhow::anyhow!(e))?;
+    let prompt: String = args["prompt"].as_str().unwrap_or("").trim().chars().take(600).collect();
+    if prompt.len() < 3 {
+        anyhow::bail!("no description given");
+    }
+    crate::images::start(state.clone(), ch, uid, s, prompt, args["shape"].as_str().unwrap_or("square").to_string()).await?;
+    Ok("The picture is being drawn and will appear in the chat by itself in a moment. Tell them briefly; don't describe it in detail.".into())
 }
 
 // ---------------------------------------------------------------- time

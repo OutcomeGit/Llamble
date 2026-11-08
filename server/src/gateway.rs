@@ -74,6 +74,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
         "config": {
             "voice_enabled": crate::voice_server::enabled(state),
             "voice_ai": crate::voicebot::config_json(state).await,
+            "images": crate::images::config_json(state).await,
             "max_upload_bytes": state.s().max_upload_bytes(),
             "guild_create": state.s().guild_create,
             "media": { "max_share": state.s().max_share, "max_camera": state.s().max_camera },
@@ -156,6 +157,7 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
                                         active: 0,
                                         available: v["available"].as_bool().unwrap_or(true),
                                         reason: v["reason"].as_str().unwrap_or("").chars().take(80).collect(),
+                                        images: v["images"].as_bool().unwrap_or(false),
                                     });
                                     let _ = sink.send(WsMsg::Text(json!({"t":"WORKER_ACCEPTED","d":{}}).to_string().into())).await;
                                     tracing::info!("GPU worker online: {} ({})", auth.id, v["gpu"]);
@@ -169,6 +171,9 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
                                 if let Some(mut w) = state.bot.workers.get_mut(&conn_id) {
                                     w.available = v["available"].as_bool().unwrap_or(false);
                                     w.reason = v["reason"].as_str().unwrap_or("").chars().take(80).collect();
+                                    if let Some(b) = v["images"].as_bool() {
+                                        w.images = b;
+                                    }
                                 }
                             }
                             Some("job_chunk") | Some("job_tools") | Some("job_done") | Some("job_error") => crate::bot::job_event(&state, conn_id, &v),
