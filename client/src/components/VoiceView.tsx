@@ -14,6 +14,8 @@ import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
 import { refreshGames, useGames } from "../games";
+import { keyLabel } from "../micsound";
+import { pushToTalk } from "../voice";
 
 interface TileSpec {
   key: string;
@@ -136,6 +138,11 @@ export function VoiceView({ channel }: { channel: Channel }) {
         >
           <Icon name={v.screen ? "x" : "screen"} size={22} />
         </button>
+        {v.ptt && !v.muted && !v.deafened && (
+          <span className={"ptt-pill" + (v.pttOpen ? " open" : "")} title="Push to talk (Settings → Voice & Video)">
+            {v.pttOpen ? "Talking" : `Hold ${keyLabel(pushToTalk().key)} to talk`}
+          </span>
+        )}
         <StreamGameButton />
         <OverlayButton />
         <button

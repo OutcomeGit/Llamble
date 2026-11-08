@@ -17,3 +17,10 @@ Our own small Rust program (`client/native/llamble-helper`) that lists open wind
 detection and reads graphics card info. Its only runtime dependency is Microsoft's
 [`windows`](https://github.com/microsoft/windows-rs) crate (MIT or Apache-2.0); `syn`, `quote`
 and `proc-macro2` are used only while compiling it.
+
+## Noise suppression (mic)
+
+[@sapphi-red/web-noise-suppressor](https://github.com/sapphi-red/web-noise-suppressor) (MIT, no
+dependencies), pinned to 0.4.1 and copied into the app at build time (`client/scripts/copy-audio.cjs`), so
+it runs from Llamble's own files. It packages [RNNoise](https://github.com/xiph/rnnoise) (BSD-3-Clause,
+Xiph.Org), [GTCRN](https://github.com/Xiaobin-Rong/gtcrn) (MIT) and a noise gate.

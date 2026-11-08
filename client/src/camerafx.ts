@@ -67,6 +67,13 @@ export function fxActive(p: FxPrefs = useFx.getState()) {
   return p.bg !== "none" || p.look !== "none" || p.face !== "none";
 }
 
+/** Forget the uploaded background picture (it only ever lived on this device). */
+export function removeCustomBackground() {
+  localStorage.removeItem("llamble.camerafx.custom");
+  customImg = null;
+  if (useFx.getState().bg === "custom") setFx({ bg: "none" });
+}
+
 /** Save a picture as "My picture" background (shrunk so it fits in local storage). */
 export async function setCustomBackground(file: File) {
   const img = await createImageBitmap(file);

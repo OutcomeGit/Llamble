@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, media, upload } from "../api";
 import { EMOJI, pushRecentEmoji, recentEmoji, searchEmoji } from "../emoji";
 import type { GifItem } from "../types";
+import { useStore } from "../store";
 import { openModal, toast } from "../ui";
 import { Icon, useClickOutside } from "./common";
 
@@ -78,6 +79,18 @@ export function GifPicker({ onPick, onClose }: { onPick: (g: GifItem) => void; o
     return () => clearTimeout(t);
   }, [q, tab]);
 
+  const me = useStore((s) => s.me);
+  const remove = async (g: GifItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete "${g.title || "this GIF"}" from the server's GIF library for everyone?`)) return;
+    try {
+      await api(`/api/gifs/${g.id}`, { method: "DELETE" });
+      load();
+    } catch (err: any) {
+      toast(err.message, "error");
+    }
+  };
+
   const toggleFav = async (g: GifItem, e: React.MouseEvent) => {
     e.stopPropagation();
     await api(`/api/gifs/${g.id}/favorite`, { method: g.favorite ? "DELETE" : "PUT" });
@@ -130,6 +143,11 @@ export function GifPicker({ onPick, onClose }: { onPick: (g: GifItem) => void; o
                 <button className={"gif-fav" + (g.favorite ? " on" : "")} onClick={(e) => toggleFav(g, e)} title="Favorite">
                   <Icon name="star" size={16} />
                 </button>
+                {me && (g.uploader_id === me.id || me.is_admin) && (
+                  <button className="gif-del" onClick={(e) => remove(g, e)} title="Delete from the library (you added it, or you're an admin)">
+                    <Icon name="trash" size={15} />
+                  </button>
+                )}
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BGS, FACES, FxRenderer, LOOKS, setCustomBackground, setFx, useFx } from "../camerafx";
+import { BGS, FACES, FxRenderer, LOOKS, removeCustomBackground, setCustomBackground, setFx, useFx } from "../camerafx";
 import { prefs } from "../voice";
 import { toast } from "../ui";
 
@@ -7,6 +7,7 @@ import { toast } from "../ui";
 export function CameraFxPicker({ preview }: { preview?: boolean }) {
   const fx = useFx();
   const file = useRef<HTMLInputElement>(null);
+  const [hasCustom, setHasCustom] = useState(() => !!localStorage.getItem("llamble.camerafx.custom"));
   return (
     <div className="camfx">
       {preview && <FxPreview />}
@@ -36,6 +37,18 @@ export function CameraFxPicker({ preview }: { preview?: boolean }) {
           <button className="camfx-chip" onClick={() => file.current?.click()}>
             Upload picture…
           </button>
+          {hasCustom && (
+            <button
+              className="camfx-chip danger"
+              title="Delete your uploaded picture from this device"
+              onClick={() => {
+                removeCustomBackground();
+                setHasCustom(false);
+              }}
+            >
+              Remove my picture
+            </button>
+          )}
           <input
             ref={file}
             type="file"
@@ -43,7 +56,7 @@ export function CameraFxPicker({ preview }: { preview?: boolean }) {
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) setCustomBackground(f).catch((er) => toast(er.message, "error"));
+              if (f) setCustomBackground(f).then(() => setHasCustom(true)).catch((er) => toast(er.message, "error"));
               e.target.value = "";
             }}
           />

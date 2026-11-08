@@ -17,6 +17,15 @@ contextBridge.exposeInMainWorld("llambleNative", {
     return () => ipcRenderer.removeListener("hotkey", h);
   },
   metrics: () => ipcRenderer.invoke("app-metrics"),
+  ptt: {
+    start: (vk) => ipcRenderer.invoke("ptt-start", vk),
+    stop: () => ipcRenderer.invoke("ptt-stop"),
+    on: (cb) => {
+      const h = (_e, down) => cb(down);
+      ipcRenderer.on("ptt-state", h);
+      return () => ipcRenderer.removeListener("ptt-state", h);
+    },
+  },
   games: {
     current: () => ipcRenderer.invoke("games-current"),
     running: () => ipcRenderer.invoke("games-running"),

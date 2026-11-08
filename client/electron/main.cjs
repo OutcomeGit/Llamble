@@ -1,10 +1,66 @@
 // Llamble desktop shell (Electron main process)
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, desktopCapturer, session,
-  shell, globalShortcut, nativeImage, Notification,
+  shell, globalShortcut, nativeImage, Notification, protocol,
 } = require("electron");
 const path = require("path");
 const llm = require("./llm.cjs");
+
+// The app's own audio-processing files (noise suppression, noise gate) are served from
+// llamble-asset://audio/... : browsers won't load audio modules straight from disk (file://).
+protocol.registerSchemesAsPrivileged([
+  { scheme: "llamble-asset", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+]);
+const ASSET_TYPES = { ".js": "text/javascript", ".wasm": "application/wasm" };
+function serveAssets() {
+  const base = path.join(__dirname, "..", "dist", "audio");
+  protocol.handle("llamble-asset", async (req) => {
+    const u = new URL(req.url);
+    const full = path.normalize(path.join(base, decodeURIComponent(u.pathname)));
+    if (u.host !== "audio" || !full.startsWith(base + path.sep)) return new Response("not found", { status: 404 });
+    try {
+      const body = await require("fs").promises.readFile(full);
+      return new Response(body, {
+        headers: { "content-type": ASSET_TYPES[path.extname(full)] || "application/octet-stream", "access-control-allow-origin": "*" },
+      });
+    } catch {
+      return new Response("not found", { status: 404 });
+    }
+  });
+}
+
+// ---- push-to-talk: llamble-helper.exe watches the one chosen key, even while a game has focus ----
+let ptt = null;
+function pttStart(vk) {
+  pttStop();
+  const helper = require("./helper.cjs");
+  const exe = helper.exePath && helper.exePath();
+  if (!exe || !(vk > 0 && vk < 255)) return false;
+  const p = require("child_process").spawn(exe, ["ptt", String(vk | 0)], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  ptt = p;
+  let buf = "";
+  p.stdout.setEncoding("utf8");
+  p.stdout.on("data", (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if ((line === "down" || line === "up") && win && !win.isDestroyed()) win.webContents.send("ptt-state", line === "down");
+    }
+  });
+  p.on("exit", () => { if (ptt === p) ptt = null; });
+  return true;
+}
+function pttStop() {
+  if (!ptt) return;
+  try { ptt.stdin.end(); } catch {}
+  const p = ptt;
+  setTimeout(() => { try { p.kill(); } catch {} }, 500);
+  ptt = null;
+}
+ipcMain.handle("ptt-start", (_e, vk) => pttStart(Number(vk)));
+ipcMain.handle("ptt-stop", () => pttStop());
 
 // ---- auto-update from GitHub Releases ----
 let updateReady = false;
@@ -202,6 +258,7 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
+  serveAssets();
   const ses = session.defaultSession;
   const allowed = new Set(["media", "notifications", "clipboard-read", "clipboard-sanitized-write", "display-capture", "fullscreen", "speaker-selection"]);
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
@@ -237,7 +294,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); require("./helper.cjs").stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); require("./helper.cjs").stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 

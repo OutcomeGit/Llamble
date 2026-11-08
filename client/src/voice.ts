@@ -1,10 +1,12 @@
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
-  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
+  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalAudioTrack, type LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
 } from "livekit-client";
 import { create } from "zustand";
 import { api } from "./api";
 import { sounds } from "./sounds";
+import { DEFAULT_SOUND, needsChain, virtualKey, type MicSound, type PushToTalk } from "./micsound";
+import { MicProcessor, micContext } from "./micfx";
 import { needsBackup, pickCodec, useEncoder, verifyEncoder, type VideoKind } from "./encoder";
 import { onEvent, useStore } from "./store";
 
@@ -21,6 +23,9 @@ export interface VoiceUI {
   error: string | null;
   version: number;
   pickerOpen: boolean;
+  /** push-to-talk is on / the key is held right now */
+  ptt?: boolean;
+  pttOpen?: boolean;
   /** the browser is blocking call audio until the user clicks */
   audioBlocked?: boolean;
 }
@@ -83,100 +88,88 @@ async function refreshDevices() {
   }
 }
 
-// ---- mic sound: presets from lowest to highest fidelity; every setting stays adjustable ----
-export interface MicSound {
-  bitrate: number;
-  stereo: boolean;
-  noiseSuppression: boolean;
-  echoCancellation: boolean;
-  autoGainControl: boolean;
-  /** DTX: send almost nothing while you're silent */
-  trimSilence: boolean;
-  /** RED: each packet also carries a copy of the previous one, so a lost packet is rebuilt */
-  repairPackets: boolean;
-}
-
-export const MIC_PRESETS: { id: string; label: string; sound: MicSound; why: string }[] = [
-  {
-    id: "saver",
-    label: "Data saver",
-    sound: { bitrate: 32000, stereo: false, noiseSuppression: true, echoCancellation: true, autoGainControl: true, trimSilence: true, repairPackets: true },
-    why: "Smallest data use, for weak connections or phone data. 32 kbps keeps speech clear but sounds flat. All cleanup on, silence trimmed, repair packets on (they matter most on bad connections).",
-  },
-  {
-    id: "standard",
-    label: "Standard (like Discord)",
-    sound: { bitrate: 64000, stereo: false, noiseSuppression: true, echoCancellation: true, autoGainControl: true, trimSilence: true, repairPackets: true },
-    why: "What most call apps send. Noise suppression removes fans and keyboards (and some of your voice's character), echo cancellation lets you use speakers, auto volume evens you out.",
-  },
-  {
-    id: "high",
-    label: "High (default)",
-    sound: { bitrate: 96000, stereo: false, noiseSuppression: true, echoCancellation: true, autoGainControl: true, trimSilence: true, repairPackets: true },
-    why: "Same cleanup as Standard with more detail in your voice. A safe choice for anyone.",
-  },
-  {
-    id: "natural",
-    label: "Natural",
-    sound: { bitrate: 128000, stereo: false, noiseSuppression: false, echoCancellation: true, autoGainControl: false, trimSilence: true, repairPackets: true },
-    why: "Drops noise suppression and auto volume, the two things that change how you sound most. Keeps echo cancellation, so speakers still work. Room noise comes through.",
-  },
-  {
-    id: "studio",
-    label: "Studio",
-    sound: { bitrate: 256000, stereo: true, noiseSuppression: false, echoCancellation: false, autoGainControl: false, trimSilence: false, repairPackets: false },
-    why: "Your mic as it is: stereo (if your mic is), no cleanup, nothing trimmed in quiet moments, no repair packets (they would double the data). Needs headphones. Good for singing and instruments.",
-  },
-  {
-    id: "max",
-    label: "Maximum",
-    sound: { bitrate: 510000, stereo: true, noiseSuppression: false, echoCancellation: false, autoGainControl: false, trimSilence: false, repairPackets: false },
-    why: "Studio at Opus's highest bitrate. Beyond about 256 kbps most people can't hear a difference; it mostly costs data.",
-  },
-];
-
+// ---- mic sound (see micsound.ts for presets, micfx.ts for the audio chain) ----
 export function micSound(): MicSound {
-  // older versions had a single "Studio mic" switch
-  if (prefs.get("studioMic") === "1" && prefs.get("micStereo") === "") {
-    prefs.set("micStereo", "1");
-    prefs.set("trimSilence", "0");
-    prefs.set("repairPackets", "0");
-    prefs.set("studioMic", "");
+  const saved = prefs.get("micSound");
+  if (saved) {
+    try {
+      return { ...DEFAULT_SOUND, ...JSON.parse(saved) };
+    } catch {}
   }
+  // Older versions kept separate keys. Anyone who never changed them gets the new default;
+  // anyone who did keeps their choices.
+  const old = ["audioBitrate", "noiseSuppression", "echoCancellation", "autoGainControl", "micStereo", "trimSilence", "repairPackets", "studioMic"];
+  const touched =
+    old.some((k) => prefs.get(k) !== "") &&
+    !(
+      (prefs.get("audioBitrate") || "96000") === "96000" &&
+      prefs.bool("noiseSuppression") &&
+      prefs.bool("echoCancellation") &&
+      prefs.bool("autoGainControl") &&
+      !prefs.bool("micStereo", false) &&
+      prefs.bool("trimSilence", true) &&
+      prefs.bool("repairPackets", true) &&
+      prefs.get("studioMic") !== "1"
+    );
+  if (!touched) return { ...DEFAULT_SOUND };
+  const studio = prefs.get("studioMic") === "1";
   return {
+    ...DEFAULT_SOUND,
     bitrate: Number(prefs.get("audioBitrate", "96000")) || 96000,
-    stereo: prefs.bool("micStereo", false),
-    noiseSuppression: prefs.bool("noiseSuppression"),
-    echoCancellation: prefs.bool("echoCancellation"),
-    autoGainControl: prefs.bool("autoGainControl"),
-    trimSilence: prefs.bool("trimSilence", true),
-    repairPackets: prefs.bool("repairPackets", true),
+    stereo: studio || prefs.bool("micStereo", false),
+    noise: prefs.bool("noiseSuppression") && !studio ? "browser" : "off",
+    echoCancellation: prefs.bool("echoCancellation") && !studio,
+    autoGainControl: prefs.bool("autoGainControl") && !studio,
+    trimSilence: !studio && prefs.bool("trimSilence", true),
+    repairPackets: !studio && prefs.bool("repairPackets", true),
   };
 }
 
-export function setMicSound(m: MicSound) {
-  prefs.set("audioBitrate", String(m.bitrate));
-  prefs.set("micStereo", m.stereo ? "1" : "0");
-  prefs.set("noiseSuppression", m.noiseSuppression ? "1" : "0");
-  prefs.set("echoCancellation", m.echoCancellation ? "1" : "0");
-  prefs.set("autoGainControl", m.autoGainControl ? "1" : "0");
-  prefs.set("trimSilence", m.trimSilence ? "1" : "0");
-  prefs.set("repairPackets", m.repairPackets ? "1" : "0");
+let applyTimer: number | undefined;
+let applyFrom: MicSound | null = null;
+export function setMicSound(next: MicSound) {
+  // sliders fire constantly: apply once they settle (comparing against what's actually live)
+  applyFrom ??= micSound();
+  prefs.set("micSound", JSON.stringify(next));
+  clearTimeout(applyTimer);
+  applyTimer = window.setTimeout(() => {
+    const from = applyFrom!;
+    applyFrom = null;
+    reapplyMic(from, micSound());
+  }, 350);
 }
 
-export function micPresetId(m = micSound()): string {
-  const same = (a: MicSound, b: MicSound) => (Object.keys(a) as (keyof MicSound)[]).every((k) => a[k] === b[k]);
-  return MIC_PRESETS.find((p) => same(p.sound, m))?.id ?? "custom";
+export function pushToTalk(): PushToTalk {
+  const def: PushToTalk = { on: false, key: "Mouse4", releaseMs: 250 };
+  try {
+    return { ...def, ...JSON.parse(prefs.get("pushToTalk") || "{}") };
+  } catch {
+    return def;
+  }
 }
 
-/** Use new mic settings right away if you're in a call (a quick mic restart). */
-export async function reapplyMic() {
+export function setPushToTalk(p: PushToTalk) {
+  prefs.set("pushToTalk", JSON.stringify(p));
+  startPtt();
+  applyPtt();
+}
+
+/** Use new mic settings right away if you're in a call. */
+export async function reapplyMic(before: MicSound, next: MicSound) {
   const r = room;
   const st = vget();
-  if (!r || st.status !== "connected" || !st.canSpeak || st.muted || st.deafened) return;
+  if (!r || st.status !== "connected" || !st.canSpeak) return;
+  // these are fixed when the mic is captured/published: send a fresh mic track
+  const capture = ["bitrate", "stereo", "echoCancellation", "autoGainControl", "trimSilence", "repairPackets"] as const;
+  const fresh = capture.some((k) => before[k] !== next[k]) || (before.noise === "browser") !== (next.noise === "browser");
   try {
-    await r.localParticipant.setMicrophoneEnabled(false);
-    await r.localParticipant.setMicrophoneEnabled(true, audioCapture(), micPublish());
+    if (fresh) {
+      const pub = r.localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (pub?.track) await r.localParticipant.unpublishTrack(pub.track, true);
+      if (!st.muted && !st.deafened) await setMic(r, true);
+    } else {
+      await attachChain(r);
+    }
   } catch (e) {
     micError(e);
   }
@@ -193,9 +186,9 @@ function audioCapture() {
   const m = micSound();
   return {
     deviceId: dev || undefined,
-    echoCancellation: prefs.bool("echoCancellation"),
-    noiseSuppression: prefs.bool("noiseSuppression"),
-    autoGainControl: prefs.bool("autoGainControl"),
+    echoCancellation: m.echoCancellation,
+    noiseSuppression: m.noise === "browser",
+    autoGainControl: m.autoGainControl,
     channelCount: m.stereo ? 2 : 1,
     sampleRate: 48000,
   };
@@ -205,6 +198,108 @@ function audioCapture() {
 function micPublish() {
   const m = micSound();
   return { forceStereo: m.stereo, dtx: m.trimSilence, red: m.repairPackets, audioPreset: { maxBitrate: m.bitrate } };
+}
+
+/** Turn the mic on/off, with our audio chain and push-to-talk applied. */
+async function setMic(r: Room, on: boolean) {
+  await r.localParticipant.setMicrophoneEnabled(on, audioCapture(), micPublish());
+  if (on) await attachChain(r);
+  applyPtt();
+}
+
+// ---- push-to-talk ----
+let pttHeld = false;
+let pttRelease: number | undefined;
+let pttNative = false;
+let pttOff: (() => void) | null = null;
+
+/** The mic sends only while the key is held (plus a short tail so word endings aren't cut). */
+function applyPtt() {
+  const p = pushToTalk();
+  vset({ ptt: p.on && !!room, pttOpen: p.on && pttHeld });
+  const track = room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.track as LocalAudioTrack | undefined;
+  const st = vget();
+  if (!track || st.muted || st.deafened) return;
+  const open = !p.on || pttHeld;
+  if (open && track.isMuted) track.unmute().catch(() => {});
+  else if (!open && !track.isMuted) track.mute().catch(() => {});
+}
+
+function pttKey(down: boolean) {
+  const p = pushToTalk();
+  if (!p.on) return;
+  clearTimeout(pttRelease);
+  if (down) {
+    if (!pttHeld) {
+      pttHeld = true;
+      applyPtt();
+    }
+  } else {
+    pttRelease = window.setTimeout(() => {
+      pttHeld = false;
+      applyPtt();
+    }, p.releaseMs);
+  }
+}
+
+const mouseCode = (e: MouseEvent) => (e.button === 1 ? "Mouse3" : e.button === 3 ? "Mouse4" : e.button === 4 ? "Mouse5" : "");
+window.addEventListener("keydown", (e) => !pttNative && !e.repeat && e.code === pushToTalk().key && pttKey(true));
+window.addEventListener("keyup", (e) => !pttNative && e.code === pushToTalk().key && pttKey(false));
+window.addEventListener("mousedown", (e) => {
+  if (pttNative || mouseCode(e) !== pushToTalk().key || !pushToTalk().on) return;
+  e.preventDefault();
+  pttKey(true);
+});
+window.addEventListener("mouseup", (e) => {
+  if (pttNative || mouseCode(e) !== pushToTalk().key || !pushToTalk().on) return;
+  e.preventDefault(); // the back/forward side buttons would otherwise navigate
+  pttKey(false);
+});
+// the browser stops seeing keys when the window loses focus: don't leave the mic open
+window.addEventListener("blur", () => !pttNative && pttHeld && pttKey(false));
+
+/** In the Windows app the helper watches the key everywhere (even in a game); in a browser only this tab sees it. */
+function startPtt() {
+  const n = window.llambleNative?.ptt;
+  pttOff?.();
+  pttOff = null;
+  pttNative = false;
+  n?.stop();
+  const p = pushToTalk();
+  if (!n || !p.on || !room) return;
+  const vk = virtualKey(p.key);
+  if (!vk) return;
+  pttOff = n.on((down) => pttKey(down));
+  n.start(vk).then((ok) => (pttNative = !!ok)).catch(() => {});
+}
+
+function stopPtt() {
+  pttOff?.();
+  pttOff = null;
+  pttNative = false;
+  pttHeld = false;
+  window.llambleNative?.ptt?.stop();
+  vset({ ptt: false, pttOpen: false });
+}
+
+/** Put the mic through micfx's chain when a setting needs it (AI noise suppression, tone, gate...). */
+async function attachChain(r: Room) {
+  const track = r.localParticipant.getTrackPublication(Track.Source.Microphone)?.track as LocalAudioTrack | undefined;
+  if (!track) return;
+  const m = micSound();
+  const current = track.getProcessor() as MicProcessor | undefined;
+  try {
+    if (!needsChain(m)) {
+      if (current) await track.stopProcessor();
+      return;
+    }
+    if (current?.name === "llamble-mic" && JSON.stringify(current.sound) === JSON.stringify(m)) return;
+    await track.setAudioContext(micContext());
+    await track.setProcessor(new MicProcessor(m));
+  } catch (e: any) {
+    console.warn("mic chain failed", e);
+    vset({ error: "Couldn't start noise suppression / mic effects; your mic is being sent without them. (" + (e?.message || e) + ")" });
+  }
 }
 
 function userVolume(uid: string): number {
@@ -290,9 +385,9 @@ async function connect(channelId: string, rejoining: boolean) {
     audioCaptureDefaults: audioCapture(),
     videoCaptureDefaults: { deviceId: prefs.get("videoInput") || undefined, resolution: cameraResolution() },
     publishDefaults: {
-      audioPreset: { maxBitrate: Number(prefs.get("audioBitrate", "96000")) },
-      dtx: true,
-      red: true,
+      audioPreset: { maxBitrate: micSound().bitrate },
+      dtx: micSound().trimSilence,
+      red: micSound().repairPackets,
       videoCodec: "vp9",
       backupCodec: true,
       videoSimulcastLayers: cameraLayers(),
@@ -382,7 +477,8 @@ async function connect(channelId: string, rejoining: boolean) {
   if (!rejoining) sounds.join();
   if (info.can_speak) {
     try {
-      await r.localParticipant.setMicrophoneEnabled(!vget().muted && !vget().deafened, audioCapture(), micPublish());
+      startPtt();
+      await setMic(r, !vget().muted && !vget().deafened);
     } catch (e: any) {
       micError(e);
     }
@@ -399,6 +495,7 @@ export async function leaveVoice(notify = true) {
   room = null;
   audioBox.innerHTML = "";
   vset({ channelId: null, status: "idle", camera: false, screen: false, speaking: [] });
+  stopPtt();
   if (r) {
     await r.disconnect();
     sounds.leave();
@@ -417,7 +514,7 @@ export async function toggleMute() {
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   muted ? sounds.mute() : sounds.unmute();
-  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!muted, audioCapture(), micPublish()).then(() => !muted && vset({ error: null })).catch(micError);
+  if (room && s.canSpeak) await setMic(room, !muted).then(() => !muted && vset({ error: null })).catch(micError);
   if (room) syncServerState();
   bump();
 }
@@ -429,7 +526,7 @@ export async function toggleDeafen() {
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   deafened ? sounds.mute() : sounds.unmute();
-  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!deafened && !s.muted, audioCapture(), micPublish()).catch(micError);
+  if (room && s.canSpeak) await setMic(room, !deafened && !s.muted).catch(micError);
   if (room) syncServerState();
   bump();
 }
@@ -543,8 +640,12 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
     await room.localParticipant.setScreenShareEnabled(
       true,
       {
-        // game/app sound: stereo, untouched (voice processing would mangle music and effects)
-        audio: audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } : false,
+        // game/app sound: stereo, untouched (voice processing would mangle music and effects).
+        // restrictOwnAudio leaves Llamble's own playback (the call's voices) out of the capture,
+        // so sharing can never echo people back at themselves.
+        audio: audio
+          ? ({ echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, restrictOwnAudio: true } as any)
+          : false,
         resolution: { width: p.width, height: p.height, frameRate: p.fps },
         contentHint: p.fps >= 60 ? "motion" : "detail",
         selfBrowserSurface: "exclude",
@@ -556,6 +657,7 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
       { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: shareAudioBitrate() } },
     );
     watchEncoder("screen", codec);
+    guardShareEcho();
     vset({ screen: true, pickerOpen: false });
     const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
     if (t) watchForBlack(t);
@@ -567,6 +669,16 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
 }
 
 let screenOpts: Record<string, unknown> = {};
+
+/** If this engine can't leave our own playback out of shared sound, cancel it out instead (costs a little game-sound quality). */
+function guardShareEcho() {
+  const t = room?.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
+  if (!t) return;
+  const st = t.getSettings() as MediaTrackSettings & { restrictOwnAudio?: boolean };
+  if (st.restrictOwnAudio === true) return;
+  console.info("[llamble] shared sound can't exclude the call's own audio here; using echo cancellation on it");
+  t.applyConstraints({ echoCancellation: true }).catch(() => {});
+}
 
 /**
  * A few seconds after publishing, look at what's really encoding the video. If an
@@ -670,8 +782,9 @@ async function recoverMic() {
   const live = pub?.track?.mediaStreamTrack?.readyState === "live";
   if (live) return;
   try {
-    await r.localParticipant.setMicrophoneEnabled(false);
-    await r.localParticipant.setMicrophoneEnabled(true, audioCapture(), micPublish());
+    const pub = r.localParticipant.getTrackPublication(Track.Source.Microphone);
+    if (pub?.track) await r.localParticipant.unpublishTrack(pub.track, true);
+    await setMic(r, true);
     console.warn("microphone restarted");
   } catch (e: any) {
     vset({ error: "Microphone unavailable: " + e.message });

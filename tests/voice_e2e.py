@@ -48,6 +48,31 @@ with sync_playwright() as p:
       const ps = [...r.remoteParticipants.values()]; return ps.length === 1 && ps[0].audioTrackPublications.size > 0 && [...ps[0].audioTrackPublications.values()].some(t => t.isSubscribed); }"""
     for pg in pages: pg.wait_for_function(hears, timeout=60000, polling=500)
     print("two people connected and hearing each other")
+
+    # ---- mic sound: the default (High, with helpers) runs the mic through our chain with AI
+    # noise suppression; switching presets mid-call takes effect without breaking the call
+    proc = "() => { const t = window.llambleDebug.getRoom().localParticipant.getTrackPublication('microphone')?.track; return (t && t.getProcessor && t.getProcessor()?.name) || null }"
+    def wait_proc(pg, want, what):
+        end = time.time() + 30
+        while time.time() < end:
+            if pg.evaluate(proc) == want and not pg.evaluate("() => window.llambleDebug.voice().error"): return
+            time.sleep(0.3)
+        raise SystemExit(f"mic chain: expected {want} ({what}); got {pg.evaluate(proc)}, error: {pg.evaluate('() => window.llambleDebug.voice().error')}")
+    assert pages[0].evaluate("() => window.llambleDebug.micSound().noise") == "rnnoise"
+    assert pages[0].evaluate("() => window.llambleDebug.micSound().bitrate") == 448000
+    for pg in pages: wait_proc(pg, "llamble-mic", "default preset: RNNoise")
+    pages[0].evaluate("() => window.llambleDebug.setMicSound({ ...window.llambleDebug.micSound(), noise: 'gtcrn', gateDb: -50, lowCut: true, compressor: true, bassDb: 3 })")
+    time.sleep(1.5)
+    wait_proc(pages[0], "llamble-mic", "GTCRN + gate + low-cut + compressor + EQ")
+    assert pages[0].evaluate("() => window.llambleDebug.getRoom().localParticipant.getTrackPublication('microphone').track.getProcessor().sound.noise") == "gtcrn"
+    pages[0].evaluate("() => window.llambleDebug.setMicSound(window.llambleDebug.PRESETS.find(p => p.id === 'max-raw').sound)")
+    time.sleep(1.5)
+    wait_proc(pages[0], None, "raw preset: no chain")
+    pages[0].evaluate("() => window.llambleDebug.setMicSound(window.llambleDebug.PRESETS.find(p => p.id === 'high').sound)")
+    time.sleep(1.5)
+    wait_proc(pages[0], "llamble-mic", "back to default")
+    for pg in pages: pg.wait_for_function(hears, timeout=30000, polling=500)
+    print("mic sound: AI noise suppression on by default; GTCRN/gate/EQ, raw and back again mid-call, still hearing each other")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

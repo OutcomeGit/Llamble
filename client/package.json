@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env LLAMBLE_DEV=1 electron .\"",
-    "build": "node scripts/copy-mediapipe.cjs && tsc --noEmit && vite build",
+    "build": "node scripts/copy-mediapipe.cjs && node scripts/copy-audio.cjs && tsc --noEmit && vite build",
     "start": "electron .",
     "dist": "npm run build && electron-builder --win --publish never",
     "dist:dir": "npm run build && electron-builder --win --dir",
@@ -71,6 +71,7 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@sapphi-red/web-noise-suppressor": "0.4.1",
     "@types/canvas-confetti": "^1.9.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",

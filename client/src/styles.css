@@ -750,3 +750,26 @@ body.pop-body > .pop { height: 100vh; }
 .perf-head { display: flex; justify-content: space-between; gap: 12px; }
 .perf-bar { height: 6px; background: var(--bg-tertiary, rgba(127,127,127,.2)); border-radius: 3px; margin: 4px 0 2px; overflow: hidden; }
 .perf-bar > div { height: 100%; background: var(--accent, #5865f2); border-radius: 3px; transition: width .4s; }
+
+/* Settings → Voice & Video → Mic sound */
+.mic-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.3fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .mic-grid { grid-template-columns: 1fr; } }
+.mic-presets { display: flex; flex-direction: column; gap: 8px; }
+.mic-level { border: 1px solid var(--border, rgba(127,127,127,.25)); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.mic-level.on { border-color: var(--accent, #5865f2); background: rgba(88,101,242,.08); }
+.mic-level-head { display: flex; justify-content: space-between; align-items: baseline; }
+.mic-level-btns { display: flex; gap: 6px; margin-top: 2px; }
+.mic-settings { position: sticky; top: 0; display: flex; flex-direction: column; gap: 6px; }
+.mic-current { font-size: 17px; font-weight: 700; }
+.mic-slider { display: flex; flex-direction: column; gap: 2px; }
+.mic-slider input[type=range] { width: 100%; }
+.hear-myself { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.hear-myself .meter { height: 8px; background: var(--bg-tertiary, rgba(127,127,127,.2)); border-radius: 4px; overflow: hidden; }
+.hear-myself .meter > div { height: 100%; background: var(--green, #23a55a); transition: width .05s; }
+.ptt-pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--bg-tertiary, rgba(127,127,127,.25)); color: var(--text-muted); white-space: nowrap; }
+.ptt-pill.open { background: var(--green, #23a55a); color: #fff; }
+.gif-del { position: absolute; top: 6px; left: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; width: 28px; height: 28px; border-radius: 50%; display: none; align-items: center; justify-content: center; }
+.gif-cell:hover .gif-del { display: flex; }
+.gif-del:hover { background: var(--red, #e5484d); }
+.camfx-chip.danger { color: var(--red, #e5484d); }
+.mic-warn { font-size: 13px; padding: 8px 10px; border-radius: 6px; background: rgba(250, 166, 26, 0.12); border: 1px solid rgba(250, 166, 26, 0.5); }

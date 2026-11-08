@@ -6,6 +6,10 @@
 //!   mem 1234 5678 -> [{"pid":1234,"mb":52}]   (memory in use by those programs, for Settings → About)
 //!   exit
 //!
+//! Push-to-talk mode: `llamble-helper ptt <virtual-key>` watches that ONE key (or mouse
+//! button) and prints "down" / "up" when it changes, so push-to-talk works while a game
+//! has focus. It reads no other keys and records nothing. Exits when stdin closes.
+//!
 //! It only reads: window titles, which program owns each window and where that
 //! program is installed, and the graphics adapters Windows reports. It never opens
 //! other programs' memory, never runs anything, and never touches files.
@@ -28,6 +32,34 @@ fn esc(s: &str) -> String {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("ptt") {
+        let vk: i32 = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(0);
+        if !(1..=254).contains(&vk) {
+            eprintln!("usage: llamble-helper ptt <virtual-key 1-254>");
+            std::process::exit(2);
+        }
+        // the app closes our stdin when it no longer needs us
+        std::thread::spawn(|| {
+            let mut sink = String::new();
+            while std::io::stdin().read_line(&mut sink).map(|n| n > 0).unwrap_or(false) {
+                sink.clear();
+            }
+            std::process::exit(0);
+        });
+        let mut out = std::io::stdout().lock();
+        let mut was = false;
+        loop {
+            let down = sys::key_down(vk);
+            if down != was {
+                was = down;
+                if writeln!(out, "{}", if down { "down" } else { "up" }).and_then(|_| out.flush()).is_err() {
+                    return;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(8));
+        }
+    }
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -134,6 +166,11 @@ mod sys {
         format!("[{}]", items.join(","))
     }
 
+    pub fn key_down(vk: i32) -> bool {
+        // high bit = held right now; only this one key is checked
+        unsafe { (windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk) as u16) & 0x8000 != 0 }
+    }
+
     pub fn mem(pids: &[u32]) -> String {
         let mut items = Vec::new();
         for &pid in pids {
@@ -176,6 +213,9 @@ mod sys {
 
 #[cfg(not(windows))]
 mod sys {
+    pub fn key_down(_vk: i32) -> bool {
+        false
+    }
     pub fn mem(_pids: &[u32]) -> String {
         "[]".into()
     }

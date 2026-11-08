@@ -86,4 +86,4 @@ function stop() {
   proc = null;
 }
 
-module.exports = { ask, stop, pid: () => (proc ? proc.pid : null), available: () => process.platform === "win32" && !!exePath() };
+module.exports = { exePath, ask, stop, pid: () => (proc ? proc.pid : null), available: () => process.platform === "win32" && !!exePath() };

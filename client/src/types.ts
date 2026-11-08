@@ -205,6 +205,8 @@ declare global {
       installUpdate: () => void;
       checkUpdate?: () => void;
       onUpdateStatus?: (cb: (s: { state: string; percent?: number; message?: string }) => void) => () => void;
+      /** push-to-talk that works while other apps have focus (older versions don't have it) */
+      ptt?: { start: (vk: number) => Promise<boolean>; stop: () => Promise<void>; on: (cb: (down: boolean) => void) => () => void };
       /** per-process memory/CPU for Settings → About (older app versions don't have it) */
       metrics?: () => Promise<{ label: string; what: string; pid: number; mb: number | null; cpu: number | null }[]>;
       /** game detection (Windows app; older versions don't have it) */
