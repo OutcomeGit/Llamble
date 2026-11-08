@@ -411,10 +411,11 @@ pub async fn start(state: Shared, ch: Channel, uid: String, s: ImageSettings, pr
             Ok(_) => format!("🎨 **{prompt}** — for {name} · ⏱ {took} on {ran_on}"),
             Err(e) => format!("🎨 Couldn't draw **{prompt}** (after {took}): {e:#}"),
         };
+        let mut attached = false;
         if let Ok(p) = png {
             match crate::api::files::store_bytes(&state, &state.bot_id, "picture.png", "image/png", &p).await {
                 Ok(f) => {
-                    let _ = sqlx::query("INSERT INTO message_attachments (message_id, file_id, position, spoiler) VALUES (?,?,0,0)").bind(&msg).bind(&f).execute(&state.db).await;
+                    attached = sqlx::query("INSERT INTO message_attachments (message_id, file_id, position, spoiler) VALUES (?,?,0,0)").bind(&msg).bind(&f).execute(&state.db).await.is_ok();
                 }
                 Err(e) => tracing::warn!("saving picture: {e:#}"),
             }
@@ -422,6 +423,9 @@ pub async fn start(state: Shared, ch: Channel, uid: String, s: ImageSettings, pr
         let _ = sqlx::query("UPDATE messages SET content = ? WHERE id = ?").bind(&content).bind(&msg).execute(&state.db).await;
         if let Ok(m) = load_message(&state.db, &msg).await {
             state.emit_channel(&ch, "MESSAGE_UPDATE", &m).await;
+        }
+        if attached {
+            crate::api::highlights::auto_picture(&state, &ch, &msg, &uid).await;
         }
     });
     Ok(())

@@ -180,6 +180,29 @@ function Overview({ guildId }: { guildId: string }) {
           </div>
         </div>
       </div>
+      <div className="profile-section">Highlights</div>
+      <p className="muted small">Highlights collect this server's best moments. Members add them by hand from any message's ⋯ menu; these add things automatically.</p>
+      {(
+        [
+          ["highlights_auto_pictures", "Auto-add AI pictures", "Every picture Llamble draws here (/imagine or asking the AI) goes to Highlights."],
+          ["highlights_auto_recordings", "Auto-add show recordings", "Every finished show recorded in this server's voice channels goes to Highlights."],
+        ] as const
+      ).map(([k, label, desc]) => (
+        <div key={k} className="perm-row">
+          <div>
+            <div className="bold">{label}</div>
+            <div className="muted small">{desc}</div>
+          </div>
+          <Toggle
+            on={!!guild[k]}
+            onChange={(v) =>
+              api(`/api/guilds/${guildId}`, { method: "PATCH", body: { [k]: v } })
+                .then(() => useStore.setState((st) => ({ guilds: { ...st.guilds, [guildId]: { ...st.guilds[guildId], [k]: v } } })))
+                .catch((e) => toast(e.message, "error"))
+            }
+          />
+        </div>
+      ))}
     </div>
   );
 }

@@ -251,6 +251,7 @@ pub async fn delete_message(State(state): State<Shared>, auth: AuthUser, Path(mi
         return Err(AppError::forbidden());
     }
     kid_may_delete(&state, &auth).await?;
+    crate::api::highlights::forget(&state, "message_id", &mid).await;
     sqlx::query("DELETE FROM messages WHERE id = ?").bind(&mid).execute(&state.db).await?;
     state.emit_channel(&ch, "MESSAGE_DELETE", &json!({ "id": mid, "channel_id": ch.id })).await;
     Ok(Json(json!({ "ok": true })))

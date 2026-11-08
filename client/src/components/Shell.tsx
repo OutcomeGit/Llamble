@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
-import { can, currentChannelId, isUnread, onEvent, selectChannel, useStore } from "../store";
+import { can, currentChannelId, isUnread, onEvent, openHome, selectChannel, useStore } from "../store";
+import { HighlightsView } from "./Highlights";
+import { HomeView, useUnreadNotes } from "./Home";
+import { NotesBoard } from "./Notes";
 import { P } from "../types";
 import { copy, openMenu, openModal, toast, useUI } from "../ui";
 import { useVoice } from "../voice";
@@ -22,6 +25,7 @@ export function Shell() {
   const channel = useStore((s) => (channelId ? s.channels[channelId] : undefined));
   const memberListOpen = useStore((s) => s.memberListOpen);
   const selectedGuild = useStore((s) => s.selectedGuild);
+  const guildView = useStore((s) => s.guildView[s.selectedGuild]);
   const ringing = useStore((s) => s.ringing);
   const [update, setUpdate] = useState<string | null>(null);
   // family & account notices
@@ -76,7 +80,13 @@ export function Shell() {
         <GuildBar />
         <Sidebar />
         <main className="main">
-          {channel ? (
+          {selectedGuild === "@home" ? (
+            <HomeView />
+          ) : guildView === "notes" ? (
+            <NotesBoard key={selectedGuild} guildId={selectedGuild} />
+          ) : guildView === "highlights" ? (
+            <HighlightsView key={selectedGuild} guildId={selectedGuild} />
+          ) : channel ? (
             channel.kind === "voice" ? (
               <VoiceView channel={channel} />
             ) : (
@@ -169,24 +179,17 @@ function GuildBar() {
   useVoice((v) => v.channelId);
 
   const canCreate = cfg.guild_create === "all" || me?.is_admin;
+  const unreadNotes = useUnreadNotes();
 
   return (
     <nav className="guildbar">
-      <button
-        className="guild-logo"
-        title={cfg.bot ? `Chat with ${cfg.bot.name}` : "Llamble"}
-        onClick={async () => {
-          if (!cfg.bot) return selectChannel("@me", null);
-          try {
-            const dm = await api("/api/bot/dm", { method: "POST" });
-            selectChannel("@me", dm.id);
-          } catch {
-            selectChannel("@me", null);
-          }
-        }}
-      >
-        <img src="./icon-192.png" alt="Llamble" draggable={false} />
-      </button>
+      <div className="guild-wrap">
+        <span className={"guild-pill" + (selected === "@home" ? " active" : "")} />
+        <button className={"guild-logo" + (selected === "@home" ? " active" : "")} title="Home: notes for you, who's around, highlights" onClick={openHome}>
+          <img src="./icon-192.png" alt="Llamble" draggable={false} />
+          {unreadNotes ? <span className="badge">{unreadNotes}</span> : null}
+        </button>
+      </div>
       <div className="guild-sep" />
       <button className={"guild-btn home" + (selected === "@me" ? " active" : "")} onClick={() => selectChannel("@me", null)} title="Direct Messages">
         <Icon name="chat" size={22} />

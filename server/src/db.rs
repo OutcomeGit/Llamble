@@ -200,6 +200,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     add_column(pool, "roles", "deny", "INTEGER NOT NULL DEFAULT 0").await?;
     // auto-delete old messages per channel
     add_column(pool, "channels", "retention_days", "INTEGER").await?;
+    // Home → highlights: auto-add AI pictures / finished recordings (per server)
+    add_column(pool, "guilds", "highlights_auto_pictures", "INTEGER NOT NULL DEFAULT 1").await?;
+    add_column(pool, "guilds", "highlights_auto_recordings", "INTEGER NOT NULL DEFAULT 1").await?;
     sqlx::raw_sql(
         r#"
 CREATE TABLE IF NOT EXISTS guardians (

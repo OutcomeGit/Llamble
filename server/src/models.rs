@@ -26,7 +26,13 @@ pub struct Guild {
     pub icon_file_id: Option<String>,
     pub owner_id: String,
     pub created_at: i64,
+    /// Home → highlights: AI pictures drawn here are added automatically
+    pub highlights_auto_pictures: bool,
+    /// Home → highlights: finished show recordings are added automatically
+    pub highlights_auto_recordings: bool,
 }
+
+pub const GUILD_COLS: &str = "id, name, icon_file_id, owner_id, created_at, highlights_auto_pictures, highlights_auto_recordings";
 
 #[derive(Serialize, FromRow, Clone, Debug)]
 pub struct Role {

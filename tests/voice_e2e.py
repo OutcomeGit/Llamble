@@ -82,6 +82,27 @@ with sync_playwright() as p:
     pages[1].wait_for_function("() => window.llambleDebug.micSound().bitrate === 128000", timeout=10000)
     for pg in pages: pg.wait_for_function(hears, timeout=30000, polling=500)
     print("server mic default/maximum: pushed live, default above maximum refused")
+
+    # ---- Home: a note and a highlight from bran show up on client1's Home in a real browser
+    tc = [c for g in ready["guilds"] for c in g["channels"] if c["kind"] == "text"][0]["id"]
+    crashed = "() => document.body.innerText.includes('Something went wrong')"
+    pages[1].evaluate("() => window.llambleDebug.openHome()")
+    note = ok(requests.post(B + f"/api/guilds/{gid}/notes", headers=TA, json={"content": "on around 10 pm tonight", "color": "pink"}))
+    pages[1].wait_for_function("() => document.querySelector('.home') && document.body.innerText.includes('on around 10 pm tonight')", timeout=15000)
+    m = ok(requests.post(B + f"/api/channels/{tc}/messages", headers=TA, json={"content": "highlight me"}))
+    ok(requests.post(B + f"/api/guilds/{gid}/highlights", headers=TA, json={"message_id": m["id"]}))
+    pages[1].wait_for_function("() => document.body.innerText.includes('highlight me')", timeout=15000)
+    pages[1].get_by_text("✓ Dismiss").first.click()
+    pages[1].wait_for_function("() => !document.querySelector('.home-main')?.innerText.includes('on around 10 pm tonight')", timeout=10000)
+    assert ok(requests.get(B + "/api/home", headers={"Authorization": "Bearer " + b["token"]}))["notes"] == [], "dismissed on the server too"
+    for view in ("notes", "highlights"):
+        pages[1].evaluate("([g, v]) => window.llambleDebug.openGuildView(g, v)", [gid, view])
+        pages[1].wait_for_timeout(1500)
+        assert not pages[1].evaluate(crashed), f"{view} view crashed"
+    pages[1].evaluate("() => window.llambleDebug.openHome()")
+    pages[1].wait_for_timeout(1000)
+    assert not pages[1].evaluate(crashed), "Home crashed"
+    print("Home: note shown live and dismissed, highlight shown, Notes board and Highlights open fine")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

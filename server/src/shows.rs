@@ -186,6 +186,30 @@ async fn can_watch(state: &Shared, auth: &AuthUser, s: &ShowRow) -> bool {
     false
 }
 
+/// For Home → highlights: the recording (as the recordings list shows it, plus "url" and
+/// "duration_ms") if `auth` may watch it and it has video.
+pub async fn recording_for(state: &Shared, auth: &AuthUser, id: &str) -> Option<Value> {
+    let s = load(state, id).await.ok()?;
+    if s.status != "ended" || s.size <= 0 || !can_watch(state, auth, &s).await {
+        return None;
+    }
+    let mut v = show_json(state, &s).await.ok()?;
+    v["url"] = v["video_url"].clone();
+    v["duration_ms"] = match (s.started_at, s.ended_at) {
+        (Some(a), Some(b)) => json!(b - a),
+        _ => Value::Null,
+    };
+    if let Ok(ch) = load_channel(&state.db, &s.channel_id).await {
+        v["channel_name"] = json!(ch.name);
+    }
+    Some(v)
+}
+
+/// (channel id, initiator) of a show, for highlights.
+pub async fn show_channel(state: &Shared, id: &str) -> Option<(String, String)> {
+    sqlx::query_as("SELECT channel_id, initiator_id FROM shows WHERE id = ?").bind(id).fetch_optional(&state.db).await.ok().flatten()
+}
+
 async fn require_in_channel(state: &Shared, auth: &AuthUser, cid: &str) -> ApiResult<crate::models::Channel> {
     let ch = load_channel(&state.db, cid).await?;
     crate::perms::require_channel(&state.db, &ch, &auth.id, crate::perms::VIEW | crate::perms::CONNECT).await?;
@@ -425,6 +449,10 @@ pub async fn stop(State(state): State<Shared>, auth: AuthUser, Path(id): Path<St
     let status = if s.status == "recording" { "ended" } else { "cancelled" };
     if ["setup", "recording"].contains(&s.status.as_str()) {
         sqlx::query("UPDATE shows SET status = ?, ended_at = ? WHERE id = ?").bind(status).bind(now_ms()).bind(&id).execute(&state.db).await?;
+        if status == "ended" {
+            // never let highlights get in the way of saving the recording
+            crate::api::highlights::auto_recording(&state, &id, &s.initiator_id).await;
+        }
     }
     Ok(Json(broadcast(&state, &id).await?))
 }
@@ -490,6 +518,7 @@ pub async fn delete(State(state): State<Shared>, auth: AuthUser, Path(id): Path<
         return Err(AppError::forbidden_msg("only whoever started the show (or an admin) can delete it"));
     }
     let _ = tokio::fs::remove_file(video_path(&state, &id)).await;
+    crate::api::highlights::forget(&state, "show_id", &id).await;
     sqlx::query("DELETE FROM shows WHERE id = ?").bind(&id).execute(&state.db).await?;
     Ok(Json(json!({ "ok": true })))
 }

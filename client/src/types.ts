@@ -16,6 +16,51 @@ export interface Guild {
   icon_file_id: string | null;
   owner_id: string;
   created_at: number;
+  /** add AI pictures / show recordings to the server's Highlights automatically */
+  highlights_auto_pictures?: boolean;
+  highlights_auto_recordings?: boolean;
+}
+
+export type NoteColor = "yellow" | "pink" | "blue" | "green" | "purple";
+
+/** A sticky note on a server's Notes board, for everyone there or for picked people. */
+export interface Note {
+  id: string;
+  guild_id: string;
+  author: User;
+  content: string;
+  color: NoteColor;
+  audience: "everyone" | "people";
+  to: string[];
+  expires_at: number | null;
+  created_at: number;
+  edited_at: number | null;
+  /** for me */
+  read: boolean;
+  dismissed: boolean;
+  /** for the author */
+  read_count: number;
+  target_count: number;
+}
+
+export interface HighlightRecording {
+  id: string;
+  title: string;
+  url: string;
+  created_at: number;
+  duration_ms?: number;
+}
+
+export interface Highlight {
+  id: string;
+  guild_id: string;
+  kind: "message" | "recording";
+  added_by: User;
+  auto: boolean;
+  created_at: number;
+  channel_id: string | null;
+  message: Message | null;
+  recording: HighlightRecording | null;
 }
 
 export interface Role {

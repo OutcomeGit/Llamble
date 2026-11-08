@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub async fn guild_payload(state: &Shared, guild_id: &str) -> ApiResult<Value> {
-    let guild = sqlx::query_as::<_, Guild>("SELECT id, name, icon_file_id, owner_id, created_at FROM guilds WHERE id = ?")
+    let guild = sqlx::query_as::<_, Guild>(&format!("SELECT {GUILD_COLS} FROM guilds WHERE id = ?"))
         .bind(guild_id)
         .fetch_one(&state.db)
         .await?;
@@ -143,6 +143,8 @@ pub async fn remove_member(state: &Shared, gid: &str, uid: &str) -> ApiResult<()
 pub struct UpdateGuild {
     pub name: Option<String>,
     pub icon_file_id: Option<Option<String>>,
+    pub highlights_auto_pictures: Option<bool>,
+    pub highlights_auto_recordings: Option<bool>,
 }
 
 pub async fn update_guild(State(state): State<Shared>, auth: AuthUser, Path(gid): Path<String>, Json(req): Json<UpdateGuild>) -> ApiResult<Json<Guild>> {
@@ -156,7 +158,13 @@ pub async fn update_guild(State(state): State<Shared>, auth: AuthUser, Path(gid)
     if let Some(icon) = req.icon_file_id {
         sqlx::query("UPDATE guilds SET icon_file_id = ? WHERE id = ?").bind(icon).bind(&gid).execute(&state.db).await?;
     }
-    let g = sqlx::query_as::<_, Guild>("SELECT id, name, icon_file_id, owner_id, created_at FROM guilds WHERE id = ?")
+    if let Some(v) = req.highlights_auto_pictures {
+        sqlx::query("UPDATE guilds SET highlights_auto_pictures = ? WHERE id = ?").bind(v).bind(&gid).execute(&state.db).await?;
+    }
+    if let Some(v) = req.highlights_auto_recordings {
+        sqlx::query("UPDATE guilds SET highlights_auto_recordings = ? WHERE id = ?").bind(v).bind(&gid).execute(&state.db).await?;
+    }
+    let g = sqlx::query_as::<_, Guild>(&format!("SELECT {GUILD_COLS} FROM guilds WHERE id = ?"))
         .bind(&gid).fetch_one(&state.db).await?;
     state.emit_guild(&gid, "GUILD_UPDATE", &g).await;
     Ok(Json(g))

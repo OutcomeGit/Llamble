@@ -7,6 +7,7 @@ import { P, type Embed, type FileObj, type Message } from "../types";
 import { copy, openMenu, openModal, setReply, toast, useUI } from "../ui";
 import { Avatar, BotTag, Icon, formatTime } from "./common";
 import { EmojiPicker } from "./Pickers";
+import { addHighlight } from "../notes";
 
 export const MessageItem = memo(function MessageItem({ msg, guildId, compact, readOnly }: { msg: Message; guildId: string | null; compact: boolean; readOnly?: boolean }) {
   const me = useStore((s) => s.me)!;
@@ -52,6 +53,17 @@ export const MessageItem = memo(function MessageItem({ msg, guildId, compact, re
       { label: "Add Reaction", onClick: () => setPicker(true) },
       { label: "Reply", onClick: () => setReply(msg.channel_id, msg) },
       { label: "Share to…", onClick: () => openModal({ kind: "share", msg }) },
+      ...(guildId && !msg.pending
+        ? [
+            {
+              label: "Add to Highlights",
+              onClick: () =>
+                addHighlight(guildId, { message_id: msg.id })
+                  .then(() => toast("Added to Highlights"))
+                  .catch((e) => toast(e.message, "error")),
+            },
+          ]
+        : []),
       ...(mine ? [{ label: "Edit Message", onClick: () => useUI.setState({ editing: msg.id }) }] : []),
       ...(gif ? [{ label: "Save GIF to library", onClick: () => openModal({ kind: "saveGif", ...gif }) }] : []),
       { label: "Copy Text", onClick: () => copy(msg.content) },

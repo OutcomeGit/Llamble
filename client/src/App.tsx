@@ -3,6 +3,7 @@ import { EmailResetLanding } from "./components/Recovery";
 import { api, session, setSession } from "./api";
 import { initAiWorker } from "./aiWorker";
 import { startGameDetection } from "./games";
+import "./notes"; // loads Home (notes + highlights) after connecting
 import { connectGateway, disconnectGateway } from "./gateway";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";

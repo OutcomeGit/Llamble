@@ -4,6 +4,7 @@ import { Track } from "livekit-client";
 import { api, media } from "../api";
 import { memberName, useStore } from "../store";
 import { toast } from "../ui";
+import { addHighlight } from "../notes";
 import { defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
 import { openModal } from "../ui";
 
@@ -443,6 +444,11 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
 
 // ---------------------------------------------------------------- recordings
 
+/** The server a show's voice channel belongs to (none for DM calls). */
+function guildOf(channelId: string): string | null {
+  return useStore.getState().channels[channelId]?.guild_id ?? null;
+}
+
 export function Recordings() {
   const [list, setList] = useState<(Show & { channel_name?: string })[] | null>(null);
   const me = useStore((s) => s.me);
@@ -473,6 +479,19 @@ export function Recordings() {
               <a className="btn small" href={media(`/api/shows/${s.id}/video`)} download>
                 Download
               </a>
+              {guildOf(s.channel_id) && (
+                <button
+                  className="btn small"
+                  title="Add this recording to the server's Highlights"
+                  onClick={() =>
+                    addHighlight(guildOf(s.channel_id)!, { show_id: s.id })
+                      .then(() => toast("Added to Highlights"))
+                      .catch((e) => toast(e.message, "error"))
+                  }
+                >
+                  ✨ Add to Highlights
+                </button>
+              )}
               {(s.initiator_id === me?.id || me?.is_admin) && (
                 <button className="btn small red" onClick={() => api(`/api/shows/${s.id}`, { method: "DELETE" }).then(load).catch((e) => toast(e.message, "error"))}>
                   Delete
@@ -488,7 +507,7 @@ export function Recordings() {
 }
 
 /** Browser-recorded WebM has no length written in it; this makes the seek bar work. */
-function Player({ src }: { src: string }) {
+export function Player({ src }: { src: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   return (
     <video

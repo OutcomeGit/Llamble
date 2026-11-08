@@ -43,5 +43,6 @@ run images LLAMBLE_LLAMA_URL=http://127.0.0.1:8098 LLAMBLE_HF_ENDPOINT=http://12
 run presence_race -- presence_race_test.py http://127.0.0.1:8099
 run activity -- activity_test.py http://127.0.0.1:8099
 run share -- share_test.py http://127.0.0.1:8099
+run home -- home_test.py http://127.0.0.1:8099
 run login_guard LLAMBLE_BIND=0.0.0.0:8099 -- login_guard_test.py http://${LAN_IP:-127.0.0.1}:8099
 exit $FAIL

@@ -781,3 +781,86 @@ body.pop-body > .pop { height: 100vh; }
 .share-dest:hover { background: var(--bg-hover, rgba(127,127,127,.15)); }
 .share-dest.on { background: var(--accent, #5865f2); color: #fff; }
 .mic-divider { border: 0; border-top: 1px solid var(--border, rgba(127,127,127,.3)); margin: 6px 0 2px; }
+
+/* ---------- Home, Notes, Highlights ---------- */
+.guild-logo { position: relative; }
+.guild-logo.active img { box-shadow: 0 0 0 3px var(--accent, #5865f2); }
+.channel-emoji { width: 18px; text-align: center; font-size: 14px; flex-shrink: 0; }
+.board-rows { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--bg-3); }
+
+.home { display: flex; gap: 20px; padding: 20px 24px; overflow-y: auto; height: 100%; box-sizing: border-box; align-items: flex-start; }
+.home-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+.home-side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; }
+@media (max-width: 1000px) { .home { flex-direction: column; } .home-side { width: 100%; position: static; } }
+.home-section h2 { font-size: 18px; margin: 0 0 10px; color: var(--text-strong); }
+.home-group { margin-bottom: 14px; }
+.home-group-head { display: flex; align-items: center; gap: 8px; background: none; border: 0; color: var(--text); cursor: pointer; padding: 4px 0; margin-bottom: 6px; }
+.home-group-head:hover b { text-decoration: underline; }
+.hl-guild-icon { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: var(--bg-3); font-size: 9px; font-weight: 700; flex-shrink: 0; }
+.hl-guild-icon img { width: 100%; height: 100%; object-fit: cover; }
+.home-calls { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.home-call { text-align: left; background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 8px; padding: 8px 10px; color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.home-call:hover { border-color: var(--green); }
+.home-call.on { border-color: var(--green); background: rgba(35, 165, 90, 0.1); }
+.home-call-people { display: flex; gap: 4px; flex-wrap: wrap; }
+.home-online { display: flex; flex-direction: column; gap: 2px; }
+.home-person { display: flex; align-items: center; gap: 10px; background: none; border: 0; color: var(--text); padding: 5px 6px; border-radius: 6px; cursor: pointer; text-align: left; min-width: 0; }
+.home-person:hover { background: var(--bg-hover, rgba(127,127,127,.15)); }
+.home-bot .btn { width: 100%; justify-content: center; display: flex; gap: 6px; align-items: center; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.chip { background: var(--bg-3); color: var(--text); border: 0; border-radius: 14px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+.chip.on { background: var(--accent, #5865f2); color: #fff; }
+
+.board { padding: 20px 24px; overflow-y: auto; height: 100%; box-sizing: border-box; }
+.board-head h2 { margin: 0 0 4px; color: var(--text-strong); }
+.board-head { margin-bottom: 14px; }
+
+/* sticky notes: paper colours with dark ink so they read the same in any theme */
+.note-yellow { --note-bg: #fff3a6; --note-edge: #e9d64f; }
+.note-pink { --note-bg: #ffd0e1; --note-edge: #f39bbd; }
+.note-blue { --note-bg: #cfe8ff; --note-edge: #8cc4f6; }
+.note-green { --note-bg: #d4f5cf; --note-edge: #95d98a; }
+.note-purple { --note-bg: #e6d9ff; --note-edge: #b9a0f5; }
+.note-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; margin-top: 8px; }
+.note-card { position: relative; background: var(--note-bg); color: #2b2a26; border-top: 6px solid var(--note-edge); border-radius: 3px 3px 10px 3px; padding: 10px 12px; box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 6px; min-height: 120px; transition: transform 0.15s; }
+.note-card:hover { transform: rotate(0deg) scale(1.02) !important; z-index: 1; }
+.note-card.unread::after { content: ""; position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--red, #e5484d); }
+.note-card.dismissed { opacity: 0.55; }
+.note-card .bold { color: #1e1d1a; }
+.note-card a { color: #1a55b8; }
+.note-card .md-code { background: rgba(0, 0, 0, 0.08); color: inherit; }
+.note-head { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
+.note-time { margin-left: auto; font-size: 11px; color: rgba(0, 0, 0, 0.55); white-space: nowrap; padding-right: 12px; }
+.note-you { font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(0, 0, 0, 0.12); border-radius: 4px; padding: 1px 5px; }
+.note-to { font-size: 12px; color: rgba(0, 0, 0, 0.6); }
+.note-body { font-size: 15px; line-height: 1.35; word-break: break-word; flex: 1; }
+.note-expires { font-size: 11px; color: rgba(0, 0, 0, 0.55); font-style: italic; }
+.note-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.note-actions .btn { background: rgba(0, 0, 0, 0.08); color: #2b2a26; border: 0; }
+.note-actions .btn:hover { background: rgba(0, 0, 0, 0.16); }
+.note-actions .btn.primary { background: #2b2a26; color: #fff; }
+.note-actions .danger-text { color: #b3261e; }
+.note-edit { width: 100%; min-height: 70px; background: rgba(255, 255, 255, 0.6); color: #2b2a26; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 4px; resize: vertical; font: inherit; }
+.note-reads { background: rgba(255, 255, 255, 0.7); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.note-reads .muted { color: rgba(0, 0, 0, 0.55); }
+.note-composer { background: var(--bg-1); border: 1px solid var(--bg-3); border-left: 6px solid var(--note-edge); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; max-width: 760px; }
+.note-composer textarea { width: 100%; min-height: 64px; resize: vertical; background: var(--note-bg); color: #2b2a26; border: 0; border-radius: 4px; padding: 8px; font: inherit; font-size: 15px; box-sizing: border-box; }
+.note-swatches { display: inline-flex; gap: 6px; }
+.note-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; background: var(--note-bg); cursor: pointer; padding: 0; }
+.note-swatch.on { border-color: var(--text-strong); }
+.note-people { display: flex; flex-direction: column; gap: 6px; }
+.note-people-list { max-height: 180px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; }
+.note-people-list .check { display: flex; align-items: center; gap: 6px; }
+
+.hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.hl-card { background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.hl-card.clickable { cursor: pointer; }
+.hl-card.clickable:hover { border-color: var(--accent, #5865f2); }
+.hl-media { width: 100%; max-height: 220px; object-fit: cover; display: block; background: #000; }
+.hl-card .recording-video { width: 100%; max-height: 220px; display: block; }
+.hl-info { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.hl-text { font-size: 14px; max-height: 84px; overflow: hidden; }
+.hl-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.hl-meta .icon-btn { margin-left: auto; }
+.hl-server { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.hl-auto { background: var(--bg-3); border-radius: 4px; padding: 0 5px; font-size: 11px; text-transform: uppercase; font-weight: 700; }

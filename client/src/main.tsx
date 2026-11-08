@@ -4,10 +4,11 @@ import App from "./App";
 import "./styles.css";
 import { getRoom, joinVoice, leaveVoice, micSound, setMicSound, setWatching, toggleCamera, useVoice } from "./voice";
 import { PRESETS } from "./micsound";
+import { openGuildView, openHome } from "./store";
 import { useRecorder } from "./show";
 
 // handle for automated tests and troubleshooting from the dev console
-(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), micSound, setMicSound, PRESETS };
+(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), micSound, setMicSound, PRESETS, openHome, openGuildView };
 
 import { OverlayApp } from "./OverlayApp";
 

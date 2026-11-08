@@ -82,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     shows::migrate(&state.db).await?;
+    api::highlights::migrate(&state.db).await?;
     soundboard::migrate(&state.db).await?;
     voicebot::migrate(&state.db).await?;
     settings::load_into_cache(&state).await;

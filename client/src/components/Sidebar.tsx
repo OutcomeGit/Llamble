@@ -2,19 +2,21 @@ import { listeningIn, useListen } from "../listen";
 import { useShows } from "../show";
 import { api } from "../api";
 import { sendGateway } from "../gateway";
-import { can, channelSort, currentChannelId, isUnread, memberName, selectChannel, useStore } from "../store";
+import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, selectChannel, useStore } from "../store";
 import { P, type Channel } from "../types";
 import { copy, openMenu, openModal, toggleCollapsed, toast, useUI } from "../ui";
 import { joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
 import { Avatar, BotTag, Icon } from "./common";
 import { markGuildRead } from "./Shell";
+import { HomeSidebar } from "./Home";
+import { useShallow } from "zustand/react/shallow";
 import { logout } from "../App";
 
 export function Sidebar() {
   const gid = useStore((s) => s.selectedGuild);
   return (
     <aside className="sidebar">
-      {gid === "@me" ? <DmList /> : <ChannelList guildId={gid} />}
+      {gid === "@home" ? <HomeSidebar /> : gid === "@me" ? <DmList /> : <ChannelList guildId={gid} />}
       <VoicePanel />
       <UserPanel />
     </aside>
@@ -70,6 +72,7 @@ function ChannelList({ guildId }: { guildId: string }) {
     <>
       <GuildHeader guildId={guildId} />
       <div className="channel-scroll">
+        <BoardRows guildId={guildId} />
         {loose.map((c) => (
           <ChannelRow key={c.id} ch={c} />
         ))}
@@ -114,6 +117,25 @@ function ChannelList({ guildId }: { guildId: string }) {
         })}
       </div>
     </>
+  );
+}
+
+/** "📌 Notes" and "✨ Highlights" at the top of a server's channel list. */
+function BoardRows({ guildId }: { guildId: string }) {
+  const view = useStore((s) => (s.selectedGuild === guildId ? s.guildView[guildId] : undefined));
+  const unread = useStore(useShallow((s) => notesForMe(s).filter((n) => n.guild_id === guildId && !n.read).length));
+  return (
+    <div className="board-rows">
+      <div className={"channel" + (view === "notes" ? " active" : "") + (unread ? " unread" : "")} onClick={() => openGuildView(guildId, "notes")}>
+        <span className="channel-emoji">📌</span>
+        <span className="ellipsis">Notes</span>
+        {unread > 0 && <span className="badge inline">{unread}</span>}
+      </div>
+      <div className={"channel" + (view === "highlights" ? " active" : "")} onClick={() => openGuildView(guildId, "highlights")}>
+        <span className="channel-emoji">✨</span>
+        <span className="ellipsis">Highlights</span>
+      </div>
+    </div>
   );
 }
 

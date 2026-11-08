@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Channel, Guild, GuildPayload, Member, Message, Role, User, VoiceState } from "./types";
+import type { Channel, Guild, GuildPayload, Highlight, Member, Message, Note, Role, User, VoiceState } from "./types";
 import { ALL_PERMS, P } from "./types";
 
 export interface ServerConfig {
@@ -34,7 +34,13 @@ interface State {
   games: Record<string, string>;
   voiceStates: Record<string, VoiceState>;
   typing: Record<string, Record<string, number>>;
-  selectedGuild: string; // guild id or "@me"
+  /** guild id, "@me" (direct messages) or "@home" */
+  selectedGuild: string;
+  /** a server's Notes board or Highlights is open instead of a channel */
+  guildView: Record<string, "notes" | "highlights" | undefined>;
+  /** notes I can see (Home's "For you" and boards I've opened) */
+  notes: Record<string, Note>;
+  highlights: Record<string, Highlight>;
   lastChannel: Record<string, string>;
   memberListOpen: boolean;
   ringing: { channel_id: string; from: string } | null;
@@ -59,7 +65,10 @@ export const useStore = create<State>(() => ({
   games: {},
   voiceStates: {},
   typing: {},
-  selectedGuild: localStorage.getItem("llamble.lastGuild") || "@me",
+  selectedGuild: localStorage.getItem("llamble.lastGuild") || "@home",
+  guildView: {},
+  notes: {},
+  highlights: {},
   lastChannel: JSON.parse(localStorage.getItem("llamble.lastChannel") || "{}"),
   memberListOpen: true,
   ringing: null,
@@ -75,11 +84,34 @@ export function selectChannel(guildId: string, channelId: string | null) {
   if (channelId) lastChannel[guildId] = channelId;
   localStorage.setItem("llamble.lastChannel", JSON.stringify(lastChannel));
   localStorage.setItem("llamble.lastGuild", guildId);
-  set({ selectedGuild: guildId, lastChannel });
+  // picking a channel leaves that server's Notes/Highlights view
+  const guildView = channelId ? { ...get().guildView, [guildId]: undefined } : get().guildView;
+  set({ selectedGuild: guildId, lastChannel, guildView });
+}
+
+export function openHome() {
+  localStorage.setItem("llamble.lastGuild", "@home");
+  set({ selectedGuild: "@home" });
+}
+
+/** Open a server's Notes board or Highlights in the main area. */
+export function openGuildView(guildId: string, view: "notes" | "highlights") {
+  localStorage.setItem("llamble.lastGuild", guildId);
+  set({ selectedGuild: guildId, guildView: { ...get().guildView, [guildId]: view } });
+}
+
+/** Notes addressed to me that are still up (Home's "For you"). */
+export function notesForMe(s: State = get()): Note[] {
+  const me = s.me?.id;
+  const now = Date.now();
+  return Object.values(s.notes).filter(
+    (n) => n.author.id !== me && !n.dismissed && (!n.expires_at || n.expires_at > now) && !!s.guilds[n.guild_id] && (n.audience === "everyone" || n.to.includes(me || "")),
+  );
 }
 
 export function currentChannelId(s: State = get()): string | null {
   const g = s.selectedGuild;
+  if (g === "@home" || s.guildView[g]) return null;
   const c = s.lastChannel[g];
   if (c && s.channels[c] && (g === "@me" ? !s.channels[c].guild_id : s.channels[c].guild_id === g)) return c;
   if (g === "@me") return null;
@@ -223,7 +255,7 @@ export function handleEvent(t: string, d: any) {
       presences[d.user.id] = localStorage.getItem("llamble.status") || "online";
       const voiceStates: Record<string, VoiceState> = {};
       for (const v of d.voice_states) voiceStates[v.user_id] = v;
-      if (st.selectedGuild !== "@me" && !st.guilds[st.selectedGuild]) st.selectedGuild = st.guildOrder[0] || "@me";
+      if (st.selectedGuild !== "@me" && st.selectedGuild !== "@home" && !st.guilds[st.selectedGuild]) st.selectedGuild = "@home";
       set({ ...st, me: d.user, ready: true, readStates, presences, games, voiceStates, config: d.config, messages: {}, hasMore: {} });
       break;
     }
@@ -241,7 +273,7 @@ export function handleEvent(t: string, d: any) {
       delete guilds[d.id];
       const channels = { ...s.channels };
       for (const c of Object.values(channels)) if (c.guild_id === d.id) delete channels[c.id];
-      set({ guilds, channels, guildOrder: s.guildOrder.filter((g) => g !== d.id), selectedGuild: s.selectedGuild === d.id ? "@me" : s.selectedGuild });
+      set({ guilds, channels, guildOrder: s.guildOrder.filter((g) => g !== d.id), selectedGuild: s.selectedGuild === d.id ? "@home" : s.selectedGuild });
       break;
     }
     case "CHANNEL_CREATE":
@@ -381,6 +413,34 @@ export function handleEvent(t: string, d: any) {
       const games = { ...s.games };
       if (d.status === "offline") delete games[d.user_id];
       set({ presences: { ...s.presences, [d.user_id]: d.status }, games });
+      break;
+    }
+    case "NOTE_CREATE":
+    case "NOTE_UPDATE": {
+      const old = s.notes[d.id];
+      // a broadcast update doesn't know my own read/dismissed state: keep what I had
+      const n: Note = old && t === "NOTE_UPDATE" ? { ...d, read: d.read ?? old.read, dismissed: d.dismissed ?? old.dismissed } : d;
+      set({ notes: { ...s.notes, [d.id]: n } });
+      break;
+    }
+    case "NOTE_DELETE": {
+      const notes = { ...s.notes };
+      delete notes[d.id];
+      set({ notes });
+      break;
+    }
+    case "NOTE_READ": {
+      const n = s.notes[d.id];
+      if (n) set({ notes: { ...s.notes, [d.id]: { ...n, read_count: d.read_count } } });
+      break;
+    }
+    case "HIGHLIGHT_CREATE":
+      set({ highlights: { ...s.highlights, [d.id]: d } });
+      break;
+    case "HIGHLIGHT_DELETE": {
+      const highlights = { ...s.highlights };
+      delete highlights[d.id];
+      set({ highlights });
       break;
     }
     case "ACTIVITY_UPDATE": {

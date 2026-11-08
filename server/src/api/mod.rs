@@ -2,6 +2,8 @@ pub mod auth;
 pub mod embeds;
 pub mod files;
 pub mod gifs;
+pub mod highlights;
+pub mod notes;
 pub mod guilds;
 pub mod messages;
 pub mod voice;
@@ -59,6 +61,15 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/voice/state", patch(voice::update))
         .route("/api/messages/{mid}", patch(messages::edit_message).delete(messages::delete_message))
         .route("/api/messages/{mid}/share", post(messages::share_message))
+        .route("/api/home", get(notes::home))
+        .route("/api/guilds/{gid}/notes", get(notes::list).post(notes::create))
+        .route("/api/notes/{id}", patch(notes::edit).delete(notes::delete))
+        .route("/api/notes/{id}/read", post(notes::read))
+        .route("/api/notes/{id}/dismiss", post(notes::dismiss))
+        .route("/api/notes/{id}/undismiss", post(notes::undismiss))
+        .route("/api/notes/{id}/reads", get(notes::reads))
+        .route("/api/guilds/{gid}/highlights", get(highlights::list).post(highlights::create))
+        .route("/api/highlights/{id}", delete(highlights::delete))
         .route("/api/messages/{mid}/reactions/{emoji}", put(messages::add_reaction).delete(messages::remove_reaction))
         .route("/api/files", post(files::upload).layer(DefaultBodyLimit::max(upload_limit)))
         .route("/api/files/{id}", get(files::get_file_handler))
