@@ -3,7 +3,7 @@
 const path = require("path");
 const root = process.env.SystemRoot || "C:\\Windows";
 module.exports = {
-  powershell: path.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+  tar: path.join(root, "System32", "tar.exe"),
   taskkill: path.join(root, "System32", "taskkill.exe"),
   // NVIDIA's driver installs it in System32
   nvidiaSmi: process.platform === "win32" ? path.join(root, "System32", "nvidia-smi.exe") : "nvidia-smi",

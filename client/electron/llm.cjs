@@ -41,19 +41,13 @@ async function detectGpus(app) {
     }
   }
   if (!gpus.length && process.platform === "win32") {
-    const ps = await run(sys.powershell, [
-      "-NoProfile", "-Command",
-      "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress",
-    ]);
-    try {
-      let arr = JSON.parse(ps || "[]");
-      if (!Array.isArray(arr)) arr = [arr];
-      arr.forEach((g, i) => {
-        const name = g.Name || "GPU";
-        const vendor = /nvidia/i.test(name) ? "nvidia" : /amd|radeon/i.test(name) ? "amd" : /intel/i.test(name) ? "intel" : "other";
-        gpus.push({ index: i, name, vram_mb: Math.round((g.AdapterRAM || 0) / 1048576), vendor, approximate: true });
-      });
-    } catch {}
+    // AMD/Intel: ask Windows (DXGI) through llamble-helper.exe; it reports real VRAM, past 4 GB
+    const arr = await require("./helper.cjs").ask("gpus");
+    (Array.isArray(arr) ? arr : []).forEach((g, i) => {
+      const name = g.name || "GPU";
+      const vendor = g.vendor === 0x10de ? "nvidia" : g.vendor === 0x1002 ? "amd" : g.vendor === 0x8086 ? "intel" : "other";
+      gpus.push({ index: i, name, vram_mb: g.vram_mb || 0, vendor });
+    });
   }
   if (!gpus.length && app) {
     try {

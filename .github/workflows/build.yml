@@ -74,6 +74,19 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
+      # our Windows helper (open windows for game detection, graphics cards); Rust is preinstalled on the runner
+      - name: Build llamble-helper.exe
+        working-directory: client/native/llamble-helper
+        run: cargo build --release --locked
+      - name: Check llamble-helper.exe answers
+        working-directory: client/native/llamble-helper
+        shell: pwsh
+        run: |
+          $out = "windows`ngpus`nexit`n" | .\target\release\llamble-helper.exe
+          $out | ForEach-Object { $_ | ConvertFrom-Json | Out-Null }
+          Write-Host "helper answered:" ($out -join " ").Substring(0, [Math]::Min(300, ($out -join " ").Length))
+          if ($out.Count -ne 2) { throw "expected 2 answers, got $($out.Count)" }
+          (Get-Item .\target\release\llamble-helper.exe).Length / 1KB | ForEach-Object { Write-Host ("size: {0:N0} KB" -f $_) }
       # every push gets its own version so installed apps auto-update to it
       - run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
       # create the release up front (as a draft) so parallel uploads don't race to create it

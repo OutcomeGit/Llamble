@@ -10,3 +10,10 @@
 | stable-diffusion.cpp | pictures on the NAS and on lent GPUs | MIT |
 | FLUX.2 [klein] 4B / Z-Image Turbo (downloaded when turned on) | picture models | Apache-2.0 |
 | sherpa-onnx, Whisper, Kokoro (downloaded when turned on) | "Hey Llamble" speech | Apache-2.0 / MIT |
+
+## llamble-helper.exe (Windows app)
+
+Our own small Rust program (`client/native/llamble-helper`) that lists open windows for game
+detection and reads graphics card info. Its only runtime dependency is Microsoft's
+[`windows`](https://github.com/microsoft/windows-rs) crate (MIT or Apache-2.0); `syn`, `quote`
+and `proc-macro2` are used only while compiling it.

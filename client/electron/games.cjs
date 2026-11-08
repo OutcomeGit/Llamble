@@ -4,10 +4,8 @@
 // elsewhere (Roblox, Minecraft...), plus anything the person marked as a game.
 // Launchers, updaters and crash reporters are ignored.
 //
-// One PowerShell process stays open and is asked again each time, so this costs a
-// few MB and a fraction of a second of CPU every 15 s instead of starting a new
-// PowerShell each time.
-const { spawn } = require("child_process");
+// The window list comes from llamble-helper.exe (our own small Rust program using
+// Microsoft's Windows bindings): no PowerShell, a few MB, about a millisecond per check.
 const fs = require("fs");
 const path = require("path");
 
@@ -46,9 +44,7 @@ const KNOWN = {
 const NOT_GAMES =
   /(launcher|crash|helper|updater|update|setup|unins|redist|anticheat|easyanticheat|beservice|webhelper|cefprocess|reporter|bootstrap|riotclient|epicgames|steam$|steamwebhelper|galaxyclient|eadesktop|origin$|upc$|uplay|battle\.net|agent$|overlay|vc_redist|dxsetup|unitycrashhandler)/i;
 
-let ps = null;
-let buf = "";
-let pending = null;
+const helper = require("./helper.cjs");
 let timer = null;
 let current = [];
 let send = () => {};
@@ -68,71 +64,19 @@ function save() {
   } catch {}
 }
 
-function shell() {
-  if (ps && !ps.killed && ps.exitCode === null) return ps;
-  ps = spawn(require("./sys.cjs").powershell, ["-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
-  buf = "";
-  ps.stdout.setEncoding("utf8");
-  ps.stdout.on("data", (d) => {
-    buf += d;
-    const i = buf.indexOf("##LLAMBLE-END##");
-    if (i >= 0) {
-      const out = buf.slice(0, i);
-      buf = buf.slice(i + 15);
-      const p = pending;
-      pending = null;
-      if (p) p(out);
-    }
-  });
-  ps.on("exit", () => {
-    ps = null;
-    if (pending) pending("");
-    pending = null;
-  });
-  return ps;
-}
-
-const QUERY =
-  "$ErrorActionPreference='SilentlyContinue'; " +
-  "Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | " +
-  "Select-Object Id,ProcessName,Path,MainWindowTitle,@{n='Hwnd';e={[int64]$_.MainWindowHandle}} | " +
-  "ConvertTo-Json -Compress; Write-Output '##LLAMBLE-END##'\n";
-
-function windows() {
-  if (process.platform !== "win32") return Promise.resolve([]);
-  if (pending) return Promise.resolve(null); // already asking
-  return new Promise((resolve) => {
-    const t = setTimeout(() => {
-      pending = null;
-      try { ps && ps.kill(); } catch {}
-      resolve([]);
-    }, 10000);
-    pending = (out) => {
-      clearTimeout(t);
-      try {
-        let arr = JSON.parse(out.trim() || "[]");
-        if (!Array.isArray(arr)) arr = [arr];
-        resolve(arr);
-      } catch {
-        resolve([]);
-      }
-    };
-    try {
-      shell().stdin.write(QUERY);
-    } catch {
-      clearTimeout(t);
-      pending = null;
-      resolve([]);
-    }
-  });
+/** Open windows from llamble-helper.exe: [{ exe, path, title, hwnd }] (null if it couldn't answer). */
+async function windows() {
+  if (process.platform !== "win32") return [];
+  const list = await helper.ask("windows");
+  return Array.isArray(list) ? list : null;
 }
 
 function classify(w) {
-  const exe = String(w.ProcessName || "").toLowerCase();
-  const p = String(w.Path || "");
+  const exe = String(w.exe || "").toLowerCase();
+  const p = String(w.path || "");
   if (!exe || custom.ignored[exe]) return null;
   if (custom.games[exe]) return custom.games[exe];
-  if (exe === "javaw" && /^Minecraft/i.test(w.MainWindowTitle || "")) return "Minecraft";
+  if (exe === "javaw" && /^Minecraft/i.test(w.title || "")) return "Minecraft";
   if (KNOWN[exe]) return KNOWN[exe];
   if (NOT_GAMES.test(exe)) return null;
   for (const re of STORES) {
@@ -154,10 +98,10 @@ async function poll() {
     seen.add(name);
     found.push({
       name,
-      exe: String(w.ProcessName || "").toLowerCase(),
-      title: w.MainWindowTitle || name,
+      exe: String(w.exe || "").toLowerCase(),
+      title: w.title || name,
       // Electron's id for that window, so "Stream <game>" can pick it directly
-      sourceId: w.Hwnd ? `window:${w.Hwnd}:0` : null,
+      sourceId: w.hwnd ? `window:${w.hwnd}:0` : null,
     });
   }
   const before = JSON.stringify(current);
@@ -182,9 +126,6 @@ function init(app, emit) {
 function stop() {
   clearInterval(timer);
   timer = null;
-  try { ps && ps.stdin.end("exit\n"); } catch {}
-  try { ps && ps.kill(); } catch {}
-  ps = null;
 }
 
 /** Turn detection off completely: no checks at all, PowerShell closed. */
@@ -194,6 +135,7 @@ function setEnabled(on) {
   if (on) start();
   else {
     stop();
+    helper.stop();
     current = [];
     send("games-update", []);
   }
@@ -207,10 +149,10 @@ async function running() {
   const out = [];
   const seen = new Set();
   for (const w of list) {
-    const exe = String(w.ProcessName || "").toLowerCase();
+    const exe = String(w.exe || "").toLowerCase();
     if (!exe || seen.has(exe) || ["llamble", "explorer", "applicationframehost", "textinputhost", "systemsettings"].includes(exe)) continue;
     seen.add(exe);
-    out.push({ exe, title: w.MainWindowTitle || exe, game: classify(w) });
+    out.push({ exe, title: w.title || exe, game: classify(w) });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title));
 }

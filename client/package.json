@@ -21,6 +21,12 @@
       "electron/**",
       "build/icon.png"
     ],
+    "extraResources": [
+      {
+        "from": "native/llamble-helper/target/release/llamble-helper.exe",
+        "to": "llamble-helper.exe"
+      }
+    ],
     "directories": {
       "output": "release"
     },

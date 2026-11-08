@@ -57,13 +57,8 @@ async function download(url, dst, label) {
 
 function unzip(zip, to) {
   return new Promise((resolve, reject) =>
-    // paths go in as environment variables, never pasted into the command text
-    execFile(
-      require("./sys.cjs").powershell,
-      ["-NoProfile", "-NonInteractive", "-Command", "Expand-Archive -Force -LiteralPath $env:LLAMBLE_ZIP -DestinationPath $env:LLAMBLE_TO"],
-      { windowsHide: true, env: { ...process.env, LLAMBLE_ZIP: zip, LLAMBLE_TO: to } },
-      (e) => (e ? reject(e) : resolve()),
-    ),
+    // Windows' own tar.exe (built in since Windows 10 1803) unzips; arguments go in as a list, never as command text
+    execFile(require("./sys.cjs").tar, ["-xf", zip, "-C", to], { windowsHide: true }, (e) => (e ? reject(e) : resolve())),
   );
 }
 

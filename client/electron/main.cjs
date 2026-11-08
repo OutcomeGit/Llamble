@@ -237,7 +237,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); require("./helper.cjs").stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 
