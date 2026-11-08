@@ -336,11 +336,13 @@ function LlambleVoice({ channel }: { channel: Channel }) {
   useStore((s) => s.config);
   const bot = useStore((s) => s.config.bot?.name || "Llamble");
   const notice = useStore((s) => (s.config as any).voice_ai?.notice as string | undefined);
-  const { thinking, caption } = useBotVoice();
+  const { thinking, caption, convo } = useBotVoice();
+  const users = useStore((s) => s.users);
+  const myId = useStore((s) => s.me?.id);
   const listen = useListen();
   const [, force] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 2000);
+    const t = setInterval(() => force((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
   if (!listeningIn(channel.id)) return null;
@@ -363,6 +365,11 @@ function LlambleVoice({ channel }: { channel: Channel }) {
           👂 {bot} is listening · say “Hey {bot}”
         </span>
         {thinking && !caption && <span className="listen-thinking">{bot} is thinking…</span>}
+        {convo && convo.until > Date.now() && !thinking && (
+          <span className="listen-convo">
+            💬 {convo.user === myId ? "Talking with you — just keep talking (say “thanks” to stop)" : `Talking with ${users[convo.user]?.display_name ?? "someone"}`} · {Math.max(0, Math.round((convo.until - Date.now()) / 1000))}s
+          </span>
+        )}
         {listen.suspended && <span className="listen-warn">Click anywhere so {bot} can hear you</span>}
         {!listen.capturing && !listen.suspended && <span className="listen-warn">Not hearing you (muted?)</span>}
       </div>

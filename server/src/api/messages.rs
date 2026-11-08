@@ -73,7 +73,8 @@ pub struct CreateMsg {
 /// screen effects a message can carry
 pub const EFFECTS: &[&str] = &["confetti", "fireworks", "snow", "hearts", "shake", "balloons", "lasers"];
 
-pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, Json(req): Json<CreateMsg>) -> ApiResult<Json<Value>> {
+pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, headers: axum::http::HeaderMap, Json(req): Json<CreateMsg>) -> ApiResult<Json<Value>> {
+    crate::bot::note_tz(&auth.id, &headers);
     let ch = load_channel(&state.db, &cid).await?;
     if ch.kind == "category" {
         return Err(AppError::bad("can't post in a category"));

@@ -95,6 +95,7 @@ assert ans and json.load(open("/tmp/last_prompt.json"))["messages"][1]["content"
 print('"Hey Llamble" … then the question works')
 
 # --- kids: their calls are saved as text for their parents (adults' aren't)
+call("PUT", "/api/admin/voice-ai", M, json={"follow_up_secs": 0})  # (mom's follow-up window would answer her)
 kid = call("POST", "/api/kids", MOM, json={"username": "junior", "password": "kid-pass12"})
 call("POST", f"/api/kids/{kid['user']['id']}/guilds", MOM, json={"guild_id": gid})
 K = call("POST", "/api/auth/login", json={"username": "junior", "password": "kid-pass12"})["token"]
@@ -117,3 +118,29 @@ assert r["text"] == "hey llamble what time is it" and r["wake"] and r["question"
 a = call("GET", "/api/admin/voice-ai", M)["activity"]
 assert a["received"] >= 6 and a["wakes"] >= 2 and a["answers"] >= 2, a
 print("hearing test + activity counters work")
+
+call("PUT", "/api/admin/voice-ai", M, json={"follow_up_secs": 20})
+# ---- conversation mode: the person who called it can keep talking; others can't; "thanks" ends it
+json.dump({"18000": "hey llamble tell me a joke", "18100": "another one please", "18200": "what about cats", "18300": "thanks"}, open(MAP, "w"))
+call("POST", f"/api/channels/{vc}/listen", M, data=pcm(18000))
+assert events(wsMom, "BOT_SPEAK", 10, stop=lambda d: True)
+conv = events(wsMom, "BOT_CONVERSATION", 2, stop=lambda d: True)
+assert conv and conv[0]["user_id"] == s["user"]["id"], conv
+call("POST", f"/api/channels/{vc}/listen", MOM, data=pcm(18200))   # mom, no wake word: not a question
+assert not events(wsMom, "BOT_SPEAK", 3, stop=lambda d: True)
+call("POST", f"/api/channels/{vc}/listen", M, data=pcm(18100))     # bran, no wake word: answered
+assert events(wsMom, "BOT_SPEAK", 10, stop=lambda d: True)
+assert json.load(open("/tmp/last_prompt.json"))["messages"][1]["content"].endswith("bran just asked you: another one please")
+call("POST", f"/api/channels/{vc}/listen", M, data=pcm(18300))
+bye = events(wsMom, "BOT_SPEAK", 10, stop=lambda d: True)
+assert bye and bye[0]["text"] == "Okay!", bye
+print("conversation mode: follow-ups from the caller, not others; 'thanks' ends it")
+
+# ---- custom wake phrase
+call("PUT", "/api/admin/voice-ai", M, json={"wake_phrases": ["haro {name}"]})
+json.dump({"18400": "hey llamble are you there", "18500": "harro lamble are you there"}, open(MAP, "w"))
+time.sleep(0.5)
+call("POST", "/api/voice-ai/test", MOM, data=pcm(18400))
+r1 = call("POST", "/api/voice-ai/test", MOM, data=pcm(18400)); r2 = call("POST", "/api/voice-ai/test", MOM, data=pcm(18500))
+assert not r1["wake"] and r2["wake"] and r2["question"] == "are you there", (r1, r2)
+print("custom wake phrase works")

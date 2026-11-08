@@ -14,7 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
 import { CameraFxPicker } from "./CameraFx";
-import { GuildVoiceListen, MicTest, VoiceAiAdmin } from "./VoiceAi";
+import { BotToolsAdmin, GuildVoiceListen, MicTest, VoiceAiAdmin } from "./VoiceAi";
 import { Recordings } from "./Show";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
@@ -519,6 +519,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
           <ModelPicker />
           <ServerModels />
           <GpuSharing />
+          <BotToolsAdmin />
           <VoiceAiAdmin />
         </div>
       )}

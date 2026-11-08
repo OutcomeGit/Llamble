@@ -109,6 +109,7 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/admin/voice-ai", get(crate::voicebot::get_admin).put(crate::voicebot::put_admin))
         .route("/api/admin/voice-ai/preview", post(crate::voicebot::preview))
         .route("/api/voice-ai/test", post(crate::voicebot::test_hearing))
+        .route("/api/admin/bot-tools", get(crate::tools::get_admin).put(crate::tools::put_admin))
         .route("/api/guilds/{gid}/voice-listen", put(crate::voicebot::set_guild_listen))
         .route("/api/kids/{kid}/calls", get(crate::voicebot::kid_calls))
         .route("/api/shows/{id}", delete(crate::shows::delete))

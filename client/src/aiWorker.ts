@@ -228,6 +228,7 @@ export function initAiWorker() {
       useAi.setState({ log: d });
     } else if (kind === "job") {
       if (d.type === "chunk") sendGateway("job_chunk", { job_id: d.job_id, text: d.text });
+      else if (d.type === "tool_calls") sendGateway("job_tools", { job_id: d.job_id, calls: d.calls });
       else if (d.type === "done") {
         sendGateway("job_done", { job_id: d.job_id });
         useAi.setState((s) => ({ served: s.served + 1, active: Math.max(0, s.active - 1) }));

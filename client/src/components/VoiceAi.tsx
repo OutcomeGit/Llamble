@@ -6,6 +6,45 @@ import { Toggle } from "./common";
 import { testHearing } from "../listen";
 
 /** Master Admin: talking with Llamble in voice calls (speech models, voice, notice). */
+/** Master Admin: what the bot may look up (chat and voice). */
+export function BotToolsAdmin() {
+  const [t, setT] = useState<any>(null);
+  useEffect(() => {
+    api("/api/admin/bot-tools").then(setT).catch(() => {});
+  }, []);
+  if (!t) return null;
+  const save = (patch: any) =>
+    api("/api/admin/bot-tools", { method: "PUT", body: { ...t, ...patch } })
+      .then(setT)
+      .catch((e) => toast(e.message, "error"));
+  return (
+    <div>
+      <div className="profile-section">What the AI can look up</div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Time and calculator</div>
+          <div className="muted small">Knows today's date and time (in each person's own time zone) and does exact maths instead of guessing.</div>
+        </div>
+        <Toggle on={t.basic} onChange={(v) => save({ basic: v })} />
+      </div>
+      <div className="perm-row">
+        <div>
+          <div className="bold">Internet: web search, reading web pages, weather</div>
+          <div className="muted small">Searches go to DuckDuckGo (or your own SearXNG below); weather comes from Open-Meteo. Only the search words or place name are sent, never your chats. Kids get strict safe search.</div>
+        </div>
+        <Toggle on={t.web} onChange={(v) => save({ web: v })} />
+      </div>
+      {t.web && (
+        <label>
+          Your own SearXNG search (optional)
+          <input placeholder="http://192.168.1.20:8888" defaultValue={t.searxng_url} onBlur={(e) => e.target.value !== t.searxng_url && save({ searxng_url: e.target.value })} />
+        </label>
+      )}
+      <p className="muted small">Works with models that support tool calls (Qwen3, Llama 3.1+, Mistral, and most recent ones). Lent GPUs need the latest Windows app.</p>
+    </div>
+  );
+}
+
 export function VoiceAiAdmin() {
   const [d, setD] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -102,6 +141,30 @@ export function VoiceAiAdmin() {
             </button>
           </div>
           <ListeningWhere />
+          <label>
+            Wake phrases (one per line; {"{name}"} is the bot's name)
+            <textarea
+              rows={4}
+              defaultValue={(s.wake_phrases || []).join("\n")}
+              placeholder={"hey {name}\nharo {name}"}
+              onBlur={(e) => {
+                const list = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
+                if (list.join("\n") !== (s.wake_phrases || []).join("\n")) save({ wake_phrases: list });
+              }}
+            />
+          </label>
+          <p className="muted small">Anything works, like "haro {"{name}"}" or a phrase without the name at all. Close spellings count too, since speech recognition isn't perfect. Use "{"{name}"}" alone to wake it by just its name at the start of a sentence.</p>
+          <label>
+            Keep listening after an answer (conversation mode)
+            <select value={s.follow_up_secs ?? 20} onChange={(e) => save({ follow_up_secs: Number(e.target.value) })}>
+              <option value={0}>Off: say the wake phrase every time</option>
+              <option value={10}>10 seconds</option>
+              <option value={20}>20 seconds</option>
+              <option value={30}>30 seconds</option>
+              <option value={60}>1 minute</option>
+            </select>
+          </label>
+          <p className="muted small">After answering, it keeps listening to the person who asked, so they can just keep talking. Everyone else still needs the wake phrase. Saying "thanks" or "that's all" ends it early.</p>
           <MicTest />
           <div className="muted small">
             Since the server started: {d.activity.received} bits of speech received, {d.activity.recognized} understood, {d.activity.wakes} times called by name, {d.activity.answers} answers.

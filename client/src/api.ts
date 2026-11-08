@@ -3,6 +3,15 @@ import type { FileObj } from "./types";
 const LS_SERVER = "llamble.server";
 const LS_TOKEN = "llamble.token";
 
+/** your time zone, so the bot can tell you the time */
+export const TZ = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+})();
+
 export const session = {
   server: (localStorage.getItem(LS_SERVER) || (location.protocol.startsWith("http") && !location.port.startsWith("517") ? location.origin : "")).replace(/\/+$/, ""),
   token: localStorage.getItem(LS_TOKEN) || "",
@@ -36,6 +45,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   const token = opts.token === undefined ? session.token : opts.token;
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  headers["X-TZ"] = TZ;
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   let res: Response;
   try {

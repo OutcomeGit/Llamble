@@ -41,13 +41,21 @@ pub struct VoiceAiSettings {
     pub speed: f64,
     /// shown to people the first time they join a server where Llamble listens
     pub notice: String,
+    /// what wakes it; {name} is the bot's name ("haro {name}" works too)
+    pub wake_phrases: Vec<String>,
+    /// after answering, keep listening to the same person this long (0 = off)
+    pub follow_up_secs: i64,
+}
+
+pub fn default_wake() -> Vec<String> {
+    ["hey {name}", "hi {name}", "okay {name}", "yo {name}", "hello {name}", "{name}"].iter().map(|s| s.to_string()).collect()
 }
 
 pub const DEFAULT_NOTICE: &str = "Llamble listens in this server's voice channels so you can say \"Hey Llamble\" and ask it things out loud. What's said is turned into text on this server only to answer you; it keeps just the last few minutes in memory and nothing is saved, except that calls with kids in them are saved as text for their parents.";
 
 impl Default for VoiceAiSettings {
     fn default() -> Self {
-        VoiceAiSettings { enabled: false, stt: "whisper-base.en".into(), voice: 6, speed: 1.0, notice: DEFAULT_NOTICE.into() }
+        VoiceAiSettings { enabled: false, stt: "whisper-base.en".into(), voice: 6, speed: 1.0, notice: DEFAULT_NOTICE.into(), wake_phrases: default_wake(), follow_up_secs: 20 }
     }
 }
 
@@ -370,11 +378,14 @@ struct Line {
 
 /// Recent lines per voice channel. Memory only, never written anywhere.
 static CONTEXT: Lazy<DashMap<String, VecDeque<Line>>> = Lazy::new(Default::default);
-/// "Hey Llamble" with nothing after it: their next sentence is the question
-static AWAITING: Lazy<DashMap<String, i64>> = Lazy::new(Default::default);
 /// finished answers, fetched by the apps in the call (kept a few minutes)
 static AUDIO: Lazy<DashMap<String, (Vec<u8>, i64)>> = Lazy::new(Default::default);
 static ANSWER_LOCKS: Lazy<DashMap<String, std::sync::Arc<Mutex<()>>>> = Lazy::new(Default::default);
+/// Conversation mode: after answering, Llamble keeps listening to the person who called it
+/// (no wake word needed) until they go quiet for a while. channel → (user, until ms)
+static CONVO: Lazy<DashMap<String, (String, i64, bool)>> = Lazy::new(Default::default);
+/// when Llamble's own voice is playing (so its words picked up by a mic aren't taken as a question)
+static SPEAKING: Lazy<DashMap<String, (i64, String)>> = Lazy::new(Default::default);
 
 const KEEP_LINES: usize = 20; // ~10 back-and-forths
 const KEEP_MS: i64 = 15 * 60 * 1000;
@@ -427,8 +438,10 @@ fn sounds_like(word: &str, name: &str) -> bool {
     false
 }
 
-/// If the text calls the bot, return what was asked (possibly empty).
-pub fn wake(text: &str, name: &str) -> Option<String> {
+/// If the text calls the bot with one of the wake phrases, return what was asked (possibly empty).
+/// Each phrase is words plus `{name}` (the bot's name, matched loosely because speech
+/// recognition spells it many ways). Other words allow one slip ("haro" ≈ "harro").
+pub fn wake(text: &str, name: &str, phrases: &[String]) -> Option<String> {
     let words: Vec<(usize, &str)> = text
         .split_whitespace()
         .scan(0usize, |pos, w| {
@@ -438,26 +451,50 @@ pub fn wake(text: &str, name: &str) -> Option<String> {
         })
         .collect();
     let clean = |w: &str| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-    let greet = ["hey", "hi", "okay", "ok", "yo", "hello", "hay", "a"];
-    for (i, (_, w)) in words.iter().enumerate().take(4) {
-        let c = clean(w);
-        let named = |j: usize| -> Option<usize> {
-            let first = clean(words.get(j)?.1);
-            if edit_distance(&first, &name.to_lowercase()) <= 1 {
-                return Some(j + 1);
+    let lname = name.to_lowercase();
+    // how many words starting at j are the bot's name (0 = not the name)
+    let name_at = |j: usize| -> usize {
+        let Some(w) = words.get(j) else { return 0 };
+        let first = clean(w.1);
+        if edit_distance(&first, &lname) <= 1 {
+            return 1;
+        }
+        if let Some(w2) = words.get(j + 1) {
+            let two = format!("{}{}", first, clean(w2.1));
+            if two.len() <= lname.len() + 3 && edit_distance(&two, &lname) <= 3 {
+                return 2;
             }
-            // "llama bull" → two words (check before loose one-word matches, so "bull" isn't left over)
-            if let Some(w2) = words.get(j + 1) {
-                let two = format!("{}{}", first, clean(w2.1));
-                if two.len() <= name.len() + 3 && edit_distance(&two, &name.to_lowercase()) <= 3 {
-                    return Some(j + 2);
+        }
+        if sounds_like(&first, name) { 1 } else { 0 }
+    };
+    let word_ok = |want: &str, got: &str| want == got || (want.len() >= 4 && edit_distance(want, got) <= 1);
+    let list: Vec<String> = if phrases.is_empty() { default_wake() } else { phrases.to_vec() };
+    // longer phrases first, so "hey {name}" wins over "{name}"
+    let mut list: Vec<Vec<String>> = list.iter().map(|p| p.split_whitespace().map(|t| t.to_lowercase()).collect()).filter(|v: &Vec<String>| !v.is_empty()).collect();
+    list.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    // the phrase may come after a word or two of lead-in ("um, hey llamble")
+    for start in 0..3.min(words.len()) {
+        'phrase: for p in &list {
+            let mut j = start;
+            for tok in p {
+                if tok == "{name}" {
+                    let n = name_at(j);
+                    if n == 0 {
+                        continue 'phrase;
+                    }
+                    j += n;
+                } else {
+                    match words.get(j) {
+                        Some(w) if word_ok(tok, &clean(w.1)) => j += 1,
+                        _ => continue 'phrase,
+                    }
                 }
             }
-            sounds_like(&first, name).then_some(j + 1)
-        };
-        let after = if greet.contains(&c.as_str()) { named(i + 1) } else if i == 0 { named(0) } else { None };
-        if let Some(next) = after {
-            let rest = words.get(next).map(|(p, _)| &text[*p..]).unwrap_or("");
+            // a bare-name phrase only counts at the very start ("I told Llamble…" isn't a call)
+            if p.len() == 1 && start > 0 {
+                continue;
+            }
+            let rest = words.get(j).map(|(pos, _)| &text[*pos..]).unwrap_or("");
             return Some(rest.trim().trim_start_matches(|c: char| c == ',' || c == '.' || c == '!').trim().to_string());
         }
     }
@@ -491,7 +528,8 @@ pub async fn announce_config(state: &Shared) {
 // ---------------------------------------------------------------- the API
 
 /// One stretch of someone talking: 16 kHz mono 16-bit little-endian PCM.
-pub async fn utterance(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, body: Bytes) -> ApiResult<Json<Value>> {
+pub async fn utterance(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, headers: axum::http::HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
+    crate::bot::note_tz(&auth.id, &headers);
     let ch = load_channel(&state.db, &cid).await?;
     let in_call = state.hub.voice.get(&auth.id).map(|v| v.channel_id == cid).unwrap_or(false);
     if !in_call {
@@ -539,28 +577,75 @@ async fn handle(state: Shared, ch: Channel, uid: String, s: VoiceAiSettings, pcm
 
     let bot = state.s().bot_name.clone();
     let now = now_ms();
-    let woke = wake(&text, &bot);
+    // its own voice coming back through someone's speakers: not a question
+    if let Some(sp) = SPEAKING.get(&ch.id) {
+        if now < sp.0 && similar(&text, &sp.1) {
+            return Ok(());
+        }
+    }
+    let woke = wake(&text, &bot, &s.wake_phrases);
     // show the speaker (only them) what Llamble heard, so they can tell it's working
     state.hub.send_users(&[uid.clone()], "VOICE_HEARD", &json!({ "channel_id": ch.id, "text": text, "wake": woke.is_some() }));
     if woke.is_some() {
         act(|a| a.wakes += 1);
     }
+    // (a "Yes?" window always counts; follow-up windows only while follow-ups are on)
+    let in_convo = CONVO.get(&ch.id).map(|c| c.0 == uid && c.1 > now && (c.2 || s.follow_up_secs > 0)).unwrap_or(false);
     let question = match woke {
         Some(q) if q.chars().count() >= 3 => Some(q),
         Some(_) => {
-            AWAITING.insert(uid.clone(), now + 8000);
+            // just the name: their next sentence is the question
+            start_convo(&state, &ch, &uid, now + 10_000, true);
             say(&state, &ch, &s, "Yes?", &uid).await;
             None
         }
-        None => match AWAITING.remove(&uid) {
-            Some((_, until)) if until > now => Some(text.clone()),
-            _ => None,
-        },
+        None if in_convo => {
+            if done_talking(&text) {
+                end_convo(&state, &ch);
+                say(&state, &ch, &s, "Okay!", &uid).await;
+                None
+            } else {
+                Some(text.clone())
+            }
+        }
+        None => None,
     };
     if let Some(q) = question {
         answer(&state, &ch, &s, &uid, &name, &q).await?;
     }
     Ok(())
+}
+
+/// "thanks", "that's all", "never mind"… ends a conversation.
+fn done_talking(t: &str) -> bool {
+    let t = t.to_lowercase();
+    let t = t.trim().trim_matches(|c: char| !c.is_alphanumeric());
+    ["thanks", "thank you", "that's all", "thats all", "never mind", "nevermind", "stop", "that's it", "bye", "goodbye", "no thanks", "nothing"].iter().any(|p| t == *p || t.starts_with(&format!("{p} ")) || t.ends_with(&format!(" {p}")))
+}
+
+/// Rough "is this the same sentence" check (for echo).
+fn similar(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.to_lowercase().chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+    let (a, b) = (norm(a), norm(b));
+    if a.len() < 6 {
+        return b.contains(&a);
+    }
+    b.contains(&a) || a.contains(&b) || {
+        let wa: std::collections::HashSet<&str> = a.split(' ').collect();
+        let wb: std::collections::HashSet<&str> = b.split(' ').collect();
+        wa.intersection(&wb).count() * 10 >= wa.len() * 7
+    }
+}
+
+fn start_convo(state: &Shared, ch: &Channel, uid: &str, until: i64, asked_name_only: bool) {
+    CONVO.insert(ch.id.clone(), (uid.to_string(), until, asked_name_only));
+    state.hub.send_users(&listeners(state, &ch.id), "BOT_CONVERSATION", &json!({ "channel_id": ch.id, "user_id": uid, "until": until }));
+}
+
+fn end_convo(state: &Shared, ch: &Channel) {
+    if CONVO.remove(&ch.id).is_some() {
+        state.hub.send_users(&listeners(state, &ch.id), "BOT_CONVERSATION", &json!({ "channel_id": ch.id, "user_id": null }));
+    }
 }
 
 async fn kids_in_call(state: &Shared, cid: &str) -> Vec<String> {
@@ -599,9 +684,13 @@ fn speakable(t: &str) -> String {
     t.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace() || ".,!?'\"-:;()%$&/+".contains(*c)).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-async fn say(state: &Shared, ch: &Channel, s: &VoiceAiSettings, text: &str, asked_by: &str) {
+/// Speak to everyone in the call. Returns how long the speech lasts (ms).
+async fn say(state: &Shared, ch: &Channel, s: &VoiceAiSettings, text: &str, asked_by: &str) -> i64 {
+    let mut dur = (text.len() as i64) * 60; // reading time if there's no audio
     let audio = match speak(state, &speakable(text), s.voice, s.speed).await {
         Ok(w) => {
+            dur = wav_ms(&w);
+            SPEAKING.insert(ch.id.clone(), (now_ms() + dur + 1500, text.to_string()));
             let id = new_id();
             AUDIO.insert(id.clone(), (w, now_ms() + 5 * 60 * 1000));
             AUDIO.retain(|_, v| v.1 > now_ms());
@@ -613,6 +702,17 @@ async fn say(state: &Shared, ch: &Channel, s: &VoiceAiSettings, text: &str, aske
         }
     };
     state.hub.send_users(&listeners(state, &ch.id), "BOT_SPEAK", &json!({ "channel_id": ch.id, "text": text, "audio_url": audio, "asked_by": asked_by }));
+    dur
+}
+
+/// Length of a 16-bit PCM WAV in ms.
+fn wav_ms(w: &[u8]) -> i64 {
+    if w.len() < 44 {
+        return 0;
+    }
+    let rate = u32::from_le_bytes([w[24], w[25], w[26], w[27]]).max(1) as i64;
+    let ch = u16::from_le_bytes([w[22], w[23]]).max(1) as i64;
+    ((w.len() as i64 - 44) / 2 / ch) * 1000 / rate
 }
 
 async fn answer(state: &Shared, ch: &Channel, s: &VoiceAiSettings, uid: &str, name: &str, question: &str) -> anyhow::Result<()> {
@@ -645,14 +745,19 @@ async fn answer(state: &Shared, ch: &Channel, s: &VoiceAiSettings, uid: &str, na
         json!({ "role": "system", "content": system }),
         json!({ "role": "user", "content": format!("Recent conversation in the call:\n{context}\n\n{name} just asked you: {question}") }),
     ];
-    let reply = match crate::bot::complete(state, ch, &messages).await {
+    let ctx = crate::tools::Ctx { tz: crate::bot::USER_TZ.get(uid).map(|t| t.clone()), kid: !kids_in_call(state, &ch.id).await.is_empty() };
+    let reply = match crate::bot::complete(state, ch, &messages, &ctx).await {
         Ok(r) => r,
         Err(e) => format!("Sorry, I can't answer right now: {e}."),
     };
     act(|a| a.answers += 1);
     remember(&ch.id, &bot, &reply);
     save_for_kids(state, ch, &state.bot_id, &reply).await;
-    say(state, ch, s, &reply, uid).await;
+    let dur = say(state, ch, s, &reply, uid).await;
+    // conversation mode: keep listening to them for a bit after it finishes talking
+    if s.follow_up_secs > 0 {
+        start_convo(state, ch, uid, now_ms() + dur + s.follow_up_secs * 1000, false);
+    }
     Ok(())
 }
 
@@ -701,6 +806,11 @@ pub async fn put_admin(State(state): State<Shared>, auth: AuthUser, Json(req): J
     }
     s.voice = s.voice.clamp(0, VOICES.len() as i64 - 1);
     s.speed = s.speed.clamp(0.6, 1.6);
+    s.follow_up_secs = s.follow_up_secs.clamp(0, 120);
+    s.wake_phrases = s.wake_phrases.iter().map(|p| p.trim().to_lowercase().chars().take(60).collect::<String>()).filter(|p| !p.is_empty()).take(20).collect();
+    if s.wake_phrases.is_empty() {
+        s.wake_phrases = default_wake();
+    }
     s.notice = s.notice.trim().chars().take(1000).collect();
     if s.notice.is_empty() {
         s.notice = DEFAULT_NOTICE.into();
@@ -784,15 +894,23 @@ mod tests {
     use super::*;
     #[test]
     fn wake_words() {
-        assert_eq!(wake("Hey Llamble, what time is it?", "Llamble").as_deref(), Some("what time is it?"));
-        assert_eq!(wake("hey lamble what's the weather", "Llamble").as_deref(), Some("what's the weather"));
-        assert_eq!(wake("Hey gamble, tell me a joke.", "Llamble").as_deref(), Some("tell me a joke."));
-        assert_eq!(wake("Hey llama bull how tall is a giraffe", "Llamble").as_deref(), Some("how tall is a giraffe"));
-        assert_eq!(wake("Okay Lambo.", "Llamble").as_deref(), Some(""));
-        assert_eq!(wake("Llamble, are you there?", "Llamble").as_deref(), Some("are you there?"));
-        assert_eq!(wake("I went to the lambo dealer", "Llamble"), None);
-        assert_eq!(wake("hey guys what's up", "Llamble"), None);
-        assert_eq!(wake("Hey Jarvis open the door", "Jarvis").as_deref(), Some("open the door"));
+        let d = default_wake();
+        assert_eq!(wake("Hey Llamble, what time is it?", "Llamble", &d).as_deref(), Some("what time is it?"));
+        assert_eq!(wake("hey lamble what's the weather", "Llamble", &d).as_deref(), Some("what's the weather"));
+        assert_eq!(wake("Hey gamble, tell me a joke.", "Llamble", &d).as_deref(), Some("tell me a joke."));
+        assert_eq!(wake("Hey llama bull how tall is a giraffe", "Llamble", &d).as_deref(), Some("how tall is a giraffe"));
+        assert_eq!(wake("Okay Lambo.", "Llamble", &d).as_deref(), Some(""));
+        assert_eq!(wake("Llamble, are you there?", "Llamble", &d).as_deref(), Some("are you there?"));
+        assert_eq!(wake("Um, hey Llamble, are you there?", "Llamble", &d).as_deref(), Some("are you there?"));
+        assert_eq!(wake("I went to the lambo dealer", "Llamble", &d), None);
+        assert_eq!(wake("I told Llamble about it", "Llamble", &d), None);
+        assert_eq!(wake("hey guys what's up", "Llamble", &d), None);
+        assert_eq!(wake("Hey Jarvis open the door", "Jarvis", &d).as_deref(), Some("open the door"));
+        let haro = vec!["haro {name}".to_string(), "haro haro".to_string()];
+        assert_eq!(wake("Haro Llamble, sing a song", "Llamble", &haro).as_deref(), Some("sing a song"));
+        assert_eq!(wake("Harro lamble sing", "Llamble", &haro).as_deref(), Some("sing"));
+        assert_eq!(wake("haro haro what's up", "Llamble", &haro).as_deref(), Some("what's up"));
+        assert_eq!(wake("Hey Llamble sing", "Llamble", &haro), None);
     }
     #[test]
     fn speakable_strips_markdown() {
@@ -812,6 +930,6 @@ pub async fn test_hearing(State(state): State<Shared>, _auth: AuthUser, body: By
     }
     let t = std::time::Instant::now();
     let text = transcribe(&state, &s.stt, &body).await.map_err(|e| AppError::bad(e.to_string()))?;
-    let w = wake(&text, &state.s().bot_name);
+    let w = wake(&text, &state.s().bot_name, &s.wake_phrases);
     Ok(Json(json!({ "text": text, "wake": w.is_some(), "question": w, "seconds": t.elapsed().as_secs_f32() })))
 }

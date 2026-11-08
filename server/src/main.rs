@@ -16,6 +16,7 @@ mod shows;
 mod soundboard;
 mod state;
 mod voice_server;
+mod tools;
 mod voicebot;
 
 use crate::error::{invite_code, now_ms};

@@ -32,8 +32,21 @@ pub struct Worker {
 
 pub enum JobMsg {
     Chunk(String),
+    /// the model wants tools run (OpenAI-style tool_calls)
+    Tools(Vec<Value>),
     Done,
     Error(String),
+}
+
+/// Each person's time zone, as their app reports it (for "what time is it").
+pub static USER_TZ: once_cell::sync::Lazy<dashmap::DashMap<String, String>> = once_cell::sync::Lazy::new(Default::default);
+
+pub fn note_tz(uid: &str, headers: &axum::http::HeaderMap) {
+    if let Some(tz) = headers.get("x-tz").and_then(|v| v.to_str().ok()) {
+        if tz.len() < 64 && tz.chars().all(|c| c.is_ascii_alphanumeric() || "/_-+".contains(c)) {
+            USER_TZ.insert(uid.to_string(), tz.to_string());
+        }
+    }
 }
 
 #[derive(Default)]
@@ -214,6 +227,7 @@ pub fn job_event(state: &Shared, conn: u64, v: &Value) {
     }
     let msg = match v["op"].as_str() {
         Some("job_chunk") => JobMsg::Chunk(v["text"].as_str().unwrap_or("").to_string()),
+        Some("job_tools") => JobMsg::Tools(v["calls"].as_array().cloned().unwrap_or_default()),
         Some("job_done") => JobMsg::Done,
         _ => JobMsg::Error(v["error"].as_str().unwrap_or("worker error").to_string()),
     };
@@ -548,6 +562,8 @@ struct Writer {
     last_sent: String,
     /// collect the reply without posting it (voice answers)
     silent: bool,
+    /// tools the model asked for in this round
+    tool_calls: Vec<Value>,
 }
 
 impl Writer {
@@ -620,6 +636,10 @@ async fn drain(rx: &mut UnboundedReceiver<JobMsg>, w: &mut Writer) -> Outcome {
                 }
                 w.push(&c).await;
             }
+            Ok(Some(JobMsg::Tools(calls))) => {
+                got_any = true;
+                w.tool_calls = calls;
+            }
             Ok(Some(JobMsg::Done)) => return Outcome::Finished,
             Ok(Some(JobMsg::Error(e))) => return if got_any { Outcome::FailedPartial(e) } else { Outcome::FailedClean(e) },
             Ok(None) => return if got_any { Outcome::Finished } else { Outcome::FailedClean("closed".into()) },
@@ -649,7 +669,7 @@ async fn eligible_workers(state: &Shared, ch: &Channel) -> Vec<u64> {
     out
 }
 
-async fn run_on_worker(state: &Shared, conn: u64, messages: &[Value], w: &mut Writer) -> Outcome {
+async fn run_on_worker(state: &Shared, conn: u64, messages: &[Value], tools: &[Value], w: &mut Writer) -> Outcome {
     let job_id = new_id();
     let (tx, mut rx) = unbounded_channel();
     let sent = {
@@ -661,6 +681,7 @@ async fn run_on_worker(state: &Shared, conn: u64, messages: &[Value], w: &mut Wr
             .send(json!({ "t": "BOT_JOB", "d": {
                 "job_id": job_id,
                 "messages": messages,
+                "tools": tools,
                 "max_tokens": state.cfg.bot_max_tokens,
                 "temperature": 0.7,
             }}).to_string())
@@ -674,9 +695,9 @@ async fn run_on_worker(state: &Shared, conn: u64, messages: &[Value], w: &mut Wr
     out
 }
 
-async fn run_on_server(state: &Shared, url: &str, messages: &[Value], w: &mut Writer) -> Outcome {
+async fn run_on_server(state: &Shared, url: &str, messages: &[Value], tools: &[Value], w: &mut Writer) -> Outcome {
     let (tx, mut rx) = unbounded_channel();
-    let body = json!({
+    let mut body = json!({
         "model": "llamble",
         "messages": messages,
         "stream": true,
@@ -684,6 +705,9 @@ async fn run_on_server(state: &Shared, url: &str, messages: &[Value], w: &mut Wr
         "temperature": 0.7,
         "cache_prompt": true,
     });
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+    }
     let url = format!("{url}/v1/chat/completions");
     let task = tokio::spawn(async move {
         let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(5)).build().unwrap();
@@ -709,6 +733,14 @@ async fn run_on_server(state: &Shared, url: &str, messages: &[Value], w: &mut Wr
 async fn forward_sse(res: reqwest::Response, tx: &UnboundedSender<JobMsg>) -> anyhow::Result<()> {
     let mut stream = res.bytes_stream();
     let mut buf = String::new();
+    // tool calls arrive in pieces: index → {id, name, arguments}
+    let mut calls: Vec<(String, String, String)> = vec![];
+    let flush_calls = |calls: &Vec<(String, String, String)>| {
+        if !calls.is_empty() {
+            let v: Vec<Value> = calls.iter().map(|(id, n, a)| json!({ "id": id, "type": "function", "function": { "name": n, "arguments": a } })).collect();
+            let _ = tx.send(JobMsg::Tools(v));
+        }
+    };
     while let Some(chunk) = stream.next().await {
         buf.push_str(&String::from_utf8_lossy(&chunk?));
         while let Some(i) = buf.find('\n') {
@@ -717,16 +749,89 @@ async fn forward_sse(res: reqwest::Response, tx: &UnboundedSender<JobMsg>) -> an
             let Some(data) = line.strip_prefix("data:") else { continue };
             let data = data.trim();
             if data == "[DONE]" {
+                flush_calls(&calls);
                 return Ok(());
             }
             if let Ok(v) = serde_json::from_str::<Value>(data) {
-                if let Some(t) = v["choices"][0]["delta"]["content"].as_str() {
+                let delta = &v["choices"][0]["delta"];
+                if let Some(t) = delta["content"].as_str() {
                     let _ = tx.send(JobMsg::Chunk(t.to_string()));
+                }
+                for tc in delta["tool_calls"].as_array().into_iter().flatten() {
+                    let i = tc["index"].as_u64().unwrap_or(calls.len() as u64) as usize;
+                    while calls.len() <= i {
+                        calls.push(Default::default());
+                    }
+                    if let Some(id) = tc["id"].as_str() {
+                        calls[i].0 = id.to_string();
+                    }
+                    if let Some(n) = tc["function"]["name"].as_str() {
+                        calls[i].1.push_str(n);
+                    }
+                    if let Some(a) = tc["function"]["arguments"].as_str() {
+                        calls[i].2.push_str(a);
+                    }
                 }
             }
         }
     }
+    flush_calls(&calls);
     Ok(())
+}
+
+/// Ask the best available model, running any tools it asks for (a few rounds at most).
+/// `None` = no model anywhere.
+async fn generate(state: &Shared, ch: &Channel, mut messages: Vec<Value>, w: &mut Writer, ctx: &crate::tools::Ctx) -> Option<Outcome> {
+    let tools = crate::tools::definitions(state).await;
+    for round in 0..4 {
+        // last round: no tools, so it has to answer
+        let offer: &[Value] = if round == 3 { &[] } else { &tools };
+        w.tool_calls.clear();
+        let mut result: Option<Outcome> = None;
+        for conn in eligible_workers(state, ch).await {
+            match run_on_worker(state, conn, &messages, offer, w).await {
+                Outcome::FailedClean(e) => {
+                    tracing::info!("worker {conn} failed ({e}); trying next backend");
+                    continue;
+                }
+                o => {
+                    result = Some(o);
+                    break;
+                }
+            }
+        }
+        if result.is_none() {
+            // right after a restart or update the server's model takes a minute to load: wait for it
+            let mut waited = 0;
+            while crate::ai::server_llama_url(state).await.is_none() && waited < 180 {
+                let st = state.ai.status.read().await.state.clone();
+                if !matches!(st.as_str(), "resolving" | "downloading" | "starting") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                waited += 2;
+            }
+            if let Some(url) = crate::ai::server_llama_url(state).await {
+                result = Some(run_on_server(state, &url, &messages, offer, w).await);
+            }
+        }
+        let calls = std::mem::take(&mut w.tool_calls);
+        match result {
+            Some(Outcome::Finished) if !calls.is_empty() => {
+                messages.push(json!({ "role": "assistant", "content": "", "tool_calls": calls }));
+                for c in &calls {
+                    let name = c["function"]["name"].as_str().unwrap_or("");
+                    let args: Value = serde_json::from_str(c["function"]["arguments"].as_str().unwrap_or("{}")).unwrap_or(json!({}));
+                    tracing::info!("bot tool: {name}");
+                    let out = crate::tools::run(state, ctx, name, &args).await;
+                    messages.push(json!({ "role": "tool", "tool_call_id": c["id"], "name": name, "content": out }));
+                }
+                continue;
+            }
+            other => return other,
+        }
+    }
+    Some(Outcome::FailedPartial("too many tool rounds".into()))
 }
 
 async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<()> {
@@ -755,38 +860,18 @@ async fn respond(state: Shared, ch: Channel, trigger: String) -> anyhow::Result<
         last_flush: Instant::now(),
         last_sent: String::new(),
         silent: false,
+        tool_calls: vec![],
     };
 
-    let mut result: Option<Outcome> = None;
-    for conn in eligible_workers(&state, &ch).await {
-        let o = run_on_worker(&state, conn, &messages, &mut w).await;
-        match o {
-            Outcome::FailedClean(e) => {
-                tracing::info!("worker {conn} failed ({e}); trying next backend");
-                continue;
-            }
-            other => {
-                result = Some(other);
-                break;
-            }
-        }
-    }
-    if result.is_none() {
-        // right after a restart or update the server's model takes a minute to load: wait for it
-        // (typing indicator keeps showing) instead of answering "no model"
-        let mut waited = 0;
-        while crate::ai::server_llama_url(&state).await.is_none() && waited < 180 {
-            let st = state.ai.status.read().await.state.clone();
-            if !matches!(st.as_str(), "resolving" | "downloading" | "starting") {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            waited += 2;
-        }
-        if let Some(url) = crate::ai::server_llama_url(&state).await {
-            result = Some(run_on_server(&state, &url, &messages, &mut w).await);
-        }
-    }
+    let author: Option<String> = sqlx::query_scalar("SELECT author_id FROM messages WHERE id = ?").bind(&trigger).fetch_optional(&state.db).await.ok().flatten();
+    let ctx = crate::tools::Ctx {
+        tz: author.as_ref().and_then(|a| USER_TZ.get(a).map(|t| t.clone())),
+        kid: match &author {
+            Some(a) => crate::kids::is_kid(&state, a).await,
+            None => false,
+        },
+    };
+    let result = generate(&state, &ch, messages, &mut w, &ctx).await;
     typing.abort();
     w.flush().await;
 
@@ -836,7 +921,7 @@ mod tests {
 
 /// Run a prompt on the best available model (a lent GPU whose owner can see `ch`, else the
 /// server's own) and return the whole reply. Used for spoken answers in voice channels.
-pub async fn complete(state: &Shared, ch: &Channel, messages: &[Value]) -> anyhow::Result<String> {
+pub async fn complete(state: &Shared, ch: &Channel, messages: &[Value], ctx: &crate::tools::Ctx) -> anyhow::Result<String> {
     let mut w = Writer {
         state: state.clone(),
         ch: ch.clone(),
@@ -846,22 +931,9 @@ pub async fn complete(state: &Shared, ch: &Channel, messages: &[Value]) -> anyho
         last_flush: Instant::now(),
         last_sent: String::new(),
         silent: true,
+        tool_calls: vec![],
     };
-    let mut result = None;
-    for conn in eligible_workers(state, ch).await {
-        match run_on_worker(state, conn, messages, &mut w).await {
-            Outcome::FailedClean(_) => continue,
-            o => {
-                result = Some(o);
-                break;
-            }
-        }
-    }
-    if result.is_none() {
-        if let Some(url) = crate::ai::server_llama_url(state).await {
-            result = Some(run_on_server(state, &url, messages, &mut w).await);
-        }
-    }
+    let result = generate(state, ch, messages.to_vec(), &mut w, ctx).await;
     let text = visible_text(&w.raw, &state.s().bot_name);
     match result {
         Some(Outcome::Finished) | Some(Outcome::FailedPartial(_)) if !text.is_empty() => Ok(text),

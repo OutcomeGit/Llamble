@@ -175,12 +175,15 @@ async function chat(job) {
         max_tokens: job.max_tokens || 1024,
         temperature: job.temperature ?? 0.7,
         cache_prompt: true,
+        ...(job.tools && job.tools.length ? { tools: job.tools } : {}),
       }),
     });
     if (!res.ok || !res.body) throw new Error(`llama-server returned ${res.status}`);
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
+    // tool calls stream in pieces: index -> { id, name, arguments }
+    const calls = [];
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -193,10 +196,24 @@ async function chat(job) {
         const data = line.slice(5).trim();
         if (data === "[DONE]") continue;
         try {
-          const t = JSON.parse(data)?.choices?.[0]?.delta?.content;
-          if (t) emit("llm-job", { job_id: job.job_id, type: "chunk", text: t });
+          const delta = JSON.parse(data)?.choices?.[0]?.delta || {};
+          if (delta.content) emit("llm-job", { job_id: job.job_id, type: "chunk", text: delta.content });
+          for (const tc of delta.tool_calls || []) {
+            const i = tc.index ?? calls.length;
+            calls[i] = calls[i] || { id: "", name: "", arguments: "" };
+            if (tc.id) calls[i].id = tc.id;
+            if (tc.function?.name) calls[i].name += tc.function.name;
+            if (tc.function?.arguments) calls[i].arguments += tc.function.arguments;
+          }
         } catch {}
       }
+    }
+    if (calls.length) {
+      emit("llm-job", {
+        job_id: job.job_id,
+        type: "tool_calls",
+        calls: calls.filter(Boolean).map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })),
+      });
     }
     emit("llm-job", { job_id: job.job_id, type: "done" });
   } catch (e) {

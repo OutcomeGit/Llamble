@@ -171,7 +171,7 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
                                     w.reason = v["reason"].as_str().unwrap_or("").chars().take(80).collect();
                                 }
                             }
-                            Some("job_chunk") | Some("job_done") | Some("job_error") => crate::bot::job_event(&state, conn_id, &v),
+                            Some("job_chunk") | Some("job_tools") | Some("job_done") | Some("job_error") => crate::bot::job_event(&state, conn_id, &v),
                             _ => {}
                         }
                     }

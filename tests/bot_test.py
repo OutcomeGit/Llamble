@@ -46,4 +46,18 @@ assert l2["content"]=="Hello from the server!"; print("fallback OK")
 # DM bot
 dm=ok(requests.post(B+"/api/bot/dm",headers=T)); ok(requests.post(B+f"/api/channels/{dm['id']}/messages",headers=T,json={"content":"secret question"}))
 time.sleep(2.5); dl=ok(requests.get(B+f"/api/channels/{dm['id']}/messages?limit=1",headers=T))[0]; assert dl["author"]["id"]==bot; print("DM OK")
+# tools: the model asks, the server runs them and the model answers from the result
+def ask(q, done):
+    ok(requests.post(B+f"/api/channels/{text}/messages",headers=T,json={"content":q}))
+    for _ in range(40):
+        time.sleep(0.3); x=last()
+        if x["author"]["id"]==bot and done(x["content"]): return x["content"]
+    return x["content"]
+r = ask("llamble what time is it?", lambda c: "America/New_York" in c)
+assert r.startswith("The tool says: ") and "America/New_York" in r, r
+r = ask("llamble what is 12 times 12?", lambda c: c.endswith("144"))
+assert r == "The tool says: 144", r
+prompt = json.load(open("/tmp/last_prompt.json"))
+assert any(m["role"] == "tool" for m in prompt["messages"]) and prompt["messages"][-2]["tool_calls"][0]["function"]["name"] == "calculate", prompt["messages"][-3:]
+print("tools: time + calculator OK")
 print("ALL BOT OK")

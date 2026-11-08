@@ -4,7 +4,7 @@
 // Everyone in the call hears the answer; the app shows "Llamble is listening".
 import { create } from "zustand";
 import { Track } from "livekit-client";
-import { media, session } from "./api";
+import { media, session, TZ } from "./api";
 import { onEvent, useStore } from "./store";
 import { getRoom, prefs, useVoice } from "./voice";
 
@@ -22,7 +22,14 @@ export const useListen = create<{ capturing: boolean; suspended: boolean; sent: 
   heard: null,
 }));
 
-export const useBotVoice = create<{ thinking: { channel: string; question: string; at: number } | null; caption: { text: string; at: number; asked_by: string } | null }>(() => ({ thinking: null, caption: null }));
+export const useBotVoice = create<{
+  thinking: { channel: string; question: string; at: number } | null;
+  caption: { text: string; at: number; asked_by: string } | null;
+  /** conversation mode: who it's listening to without the wake word, until when */
+  convo: { user: string; until: number } | null;
+  /** its voice is playing right now (we don't send the mic then, so it can't hear itself) */
+  speaking: boolean;
+}>(() => ({ thinking: null, caption: null, convo: null, speaking: false }));
 
 /** Is Llamble listening in this voice channel? */
 export function listeningIn(channelId: string | null): boolean {
@@ -123,12 +130,13 @@ function start(track: MediaStreamTrack, cid: string) {
 function send(parts: Float32Array[]) {
   const n = parts.reduce((a, p) => a + p.length, 0);
   if (n < RATE * 0.35 || !channel) return;
+  if (useBotVoice.getState().speaking) return;
   const pcm = new Int16Array(n);
   let o = 0;
   for (const p of parts) for (let i = 0; i < p.length; i++) pcm[o++] = Math.max(-32768, Math.min(32767, p[i] * 32767));
   fetch(`${session.server}/api/channels/${channel}/listen`, {
     method: "POST",
-    headers: { Authorization: "Bearer " + session.token, "content-type": "application/octet-stream" },
+    headers: { Authorization: "Bearer " + session.token, "content-type": "application/octet-stream", "X-TZ": TZ },
     body: pcm.buffer,
   })
     .then(() => useListen.setState((s) => ({ sent: s.sent + 1 })))
@@ -183,7 +191,9 @@ setInterval(sync, 3000); // mic restarts swap the track underneath us
 // ---------------------------------------------------------------- answers
 
 onEvent((t, d) => {
-  if (t === "VOICE_HEARD") {
+  if (t === "BOT_CONVERSATION") {
+    if (d.channel_id === useVoice.getState().channelId) useBotVoice.setState({ convo: d.user_id ? { user: d.user_id, until: d.until } : null });
+  } else if (t === "VOICE_HEARD") {
     useListen.setState({ heard: { text: d.text, wake: d.wake, at: Date.now() } });
   } else if (t === "BOT_THINKING") {
     if (d.channel_id === useVoice.getState().channelId) useBotVoice.setState({ thinking: { channel: d.channel_id, question: d.question, at: Date.now() } });
@@ -195,8 +205,16 @@ onEvent((t, d) => {
       a.volume = Math.min(1, Number(prefs.get("botVolume", "1")));
       const out = prefs.get("audioOutput");
       if (out && "setSinkId" in a) (a as any).setSinkId(out).catch(() => {});
-      a.play().catch(() => {});
-      a.onended = () => setTimeout(() => clearCaption(d.text), 2500);
+      useBotVoice.setState({ speaking: true });
+      // drop whatever the mic was collecting while it talks
+      chunks = [];
+      speaking = false;
+      a.play().catch(() => useBotVoice.setState({ speaking: false }));
+      a.onended = () => {
+        setTimeout(() => useBotVoice.setState({ speaking: false }), 500);
+        setTimeout(() => clearCaption(d.text), 2500);
+      };
+      a.onerror = () => useBotVoice.setState({ speaking: false });
     } else setTimeout(() => clearCaption(d.text), Math.max(4000, d.text.length * 70));
   }
 });
