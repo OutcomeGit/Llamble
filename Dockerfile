@@ -42,7 +42,10 @@ RUN cd /sd && cmake -B build -DSD_VULKAN=ON -DSD_BUILD_SHARED_LIBS=ON -DGGML_NAT
       -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DSD_WEBM=OFF \
       -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH='$ORIGIN' \
     && cmake --build build --config Release -j"$(nproc)" \
-    && mkdir -p /opt/sd && cp -a build/bin/. /opt/sd/
+    && mkdir -p /opt/sd && cp -a build/bin/. /opt/sd/ \
+    && find build -name 'libggml*.so*' -exec cp -an {} /opt/sd/ \; && ls -la /opt/sd
+COPY tools/ggml_check.c /tmp/ggml_check.c
+RUN gcc -O1 -o /opt/sd-check /tmp/ggml_check.c -ldl
 
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg libgomp1 curl bzip2 libvulkan1 mesa-vulkan-drivers \
@@ -51,6 +54,7 @@ COPY --from=llama /app /opt/llama
 COPY --from=livekit /livekit-server /opt/livekit/livekit-server
 COPY --from=sherpa /opt/sherpa /opt/sherpa
 COPY --from=sdcpp /opt/sd /opt/sd
+COPY --from=sdcpp /opt/sd-check /usr/local/bin/llamble-sd-check
 COPY --from=server /src/target/release/llamble-server /usr/local/bin/llamble-server
 COPY --from=web /web/dist /app/web
 ARG LLAMBLE_VERSION=0.0.0
@@ -61,11 +65,14 @@ ENV LD_LIBRARY_PATH=/opt/llama:/opt/sherpa/lib \
 # fail the image build if llama-server can't run here (missing libs etc.)
 RUN /opt/llama/llama-server --version && /opt/livekit/livekit-server --version \
     && ! ldd /opt/sherpa/bin/sherpa-onnx-offline /opt/sherpa/bin/sherpa-onnx-offline-tts | grep -q "not found" \
-    && ! ldd /opt/sd/sd-cli | grep -q "not found"
+    && ! ldd /opt/sd/sd-cli | grep -q "not found" \
+    && llamble-sd-check /opt/sd
 # Run as TrueNAS's "apps" user (568). The data dir is pre-owned by it, so a fresh
 # Docker-managed volume mounted at /data inherits that ownership automatically.
 RUN mkdir -p /data && chown 568:568 /data
 USER 568:568
+# ...and as the user it really runs as
+RUN llamble-sd-check /opt/sd
 VOLUME /data
 EXPOSE 8080 8443 7881 7882/udp
 CMD ["llamble-server"]
