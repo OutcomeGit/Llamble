@@ -79,7 +79,7 @@ h2 { font-size: 20px; }
 .btn.primary:hover:not(:disabled) { background: var(--brand-hover); }
 .btn.red { background: #da373c; color: #fff !important; }
 .btn.red:hover:not(:disabled) { background: #a12828; }
-.btn.green { background: var(--green); }
+.btn.green { background: #1f8b4c; color: #fff !important; font-weight: 600; }
 .btn.green:hover:not(:disabled) { background: #1a7f45; }
 .btn.link { background: none; }
 .btn.link:hover { text-decoration: underline; background: none; }
