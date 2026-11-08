@@ -153,6 +153,23 @@ pub struct Status {
 }
 
 static STATUS: Lazy<RwLock<Status>> = Lazy::new(|| RwLock::new(Status::default()));
+
+/// What's been happening (counts only — never what was said), for the admin page.
+#[derive(Serialize, Clone, Default)]
+pub struct Activity {
+    pub received: u64,
+    pub recognized: u64,
+    pub wakes: u64,
+    pub answers: u64,
+    pub last_at: Option<i64>,
+    pub last_error: Option<String>,
+}
+static ACTIVITY: Lazy<std::sync::Mutex<Activity>> = Lazy::new(Default::default);
+fn act(f: impl FnOnce(&mut Activity)) {
+    if let Ok(mut a) = ACTIVITY.lock() {
+        f(&mut a);
+    }
+}
 static DOWNLOAD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 static DONE: AtomicU64 = AtomicU64::new(0);
 
@@ -488,11 +505,16 @@ pub async fn utterance(State(state): State<Shared>, auth: AuthUser, Path(cid): P
     if body.len() < 16000 / 2 || body.len() > 16000 * 2 * 30 {
         return Ok(Json(json!({ "ok": true, "skipped": true }))); // under ¼ s or over 30 s
     }
+    act(|a| {
+        a.received += 1;
+        a.last_at = Some(now_ms());
+    });
     let st = state.clone();
     let uid = auth.id.clone();
     tokio::spawn(async move {
         if let Err(e) = handle(st, ch, uid, s, body).await {
             tracing::warn!("voice: {e:#}");
+            act(|a| a.last_error = Some(format!("{e:#}")));
         }
     });
     Ok(Json(json!({ "ok": true })))
@@ -509,6 +531,7 @@ async fn handle(state: Shared, ch: Channel, uid: String, s: VoiceAiSettings, pcm
     if junk(&text) {
         return Ok(());
     }
+    act(|a| a.recognized += 1);
     let user = get_user(&state.db, &uid).await?;
     let name = display_name(&state, ch.guild_id.as_deref(), &user).await;
     remember(&ch.id, &name, &text);
@@ -516,7 +539,13 @@ async fn handle(state: Shared, ch: Channel, uid: String, s: VoiceAiSettings, pcm
 
     let bot = state.s().bot_name.clone();
     let now = now_ms();
-    let question = match wake(&text, &bot) {
+    let woke = wake(&text, &bot);
+    // show the speaker (only them) what Llamble heard, so they can tell it's working
+    state.hub.send_users(&[uid.clone()], "VOICE_HEARD", &json!({ "channel_id": ch.id, "text": text, "wake": woke.is_some() }));
+    if woke.is_some() {
+        act(|a| a.wakes += 1);
+    }
+    let question = match woke {
         Some(q) if q.chars().count() >= 3 => Some(q),
         Some(_) => {
             AWAITING.insert(uid.clone(), now + 8000);
@@ -620,6 +649,7 @@ async fn answer(state: &Shared, ch: &Channel, s: &VoiceAiSettings, uid: &str, na
         Ok(r) => r,
         Err(e) => format!("Sorry, I can't answer right now: {e}."),
     };
+    act(|a| a.answers += 1);
     remember(&ch.id, &bot, &reply);
     save_for_kids(state, ch, &state.bot_id, &reply).await;
     say(state, ch, s, &reply, uid).await;
@@ -646,6 +676,7 @@ pub async fn get_admin(State(state): State<Shared>, auth: AuthUser) -> ApiResult
     Ok(Json(json!({
         "settings": load_settings(&state).await,
         "status": st,
+        "activity": ACTIVITY.lock().map(|a| a.clone()).unwrap_or_default(),
         "installed": installed,
         "stt_models": STT_MODELS.iter().map(|(id, label, note)| json!({ "id": id, "label": label, "note": note })).collect::<Vec<_>>(),
         "voices": VOICES.iter().enumerate().map(|(i, (id, label))| json!({ "sid": i, "id": id, "label": label })).collect::<Vec<_>>(),
@@ -767,4 +798,20 @@ mod tests {
     fn speakable_strips_markdown() {
         assert_eq!(speakable("**Sure!** Here's a [link](http://x.y) and `code` 🎉"), "Sure! Here's a link and code");
     }
+}
+
+/// "Test my microphone": transcribe a sample and say whether it heard the wake word.
+/// Only the person who sent it gets the text back.
+pub async fn test_hearing(State(state): State<Shared>, _auth: AuthUser, body: Bytes) -> ApiResult<Json<Value>> {
+    let s = load_settings(&state).await;
+    if !s.enabled || !stt_ready(&state, &s.stt) {
+        return Err(AppError::bad("voice conversations aren't turned on (or the speech model is still downloading)"));
+    }
+    if body.len() < 8000 || body.len() > 16000 * 2 * 30 {
+        return Err(AppError::bad("send between half a second and 30 seconds of audio"));
+    }
+    let t = std::time::Instant::now();
+    let text = transcribe(&state, &s.stt, &body).await.map_err(|e| AppError::bad(e.to_string()))?;
+    let w = wake(&text, &state.s().bot_name);
+    Ok(Json(json!({ "text": text, "wake": w.is_some(), "question": w, "seconds": t.elapsed().as_secs_f32() })))
 }

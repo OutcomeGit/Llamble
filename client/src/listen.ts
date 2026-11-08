@@ -14,6 +14,14 @@ export interface VoiceAiConfig {
   guilds: string[];
 }
 
+/** For the call screen: is the app actually hearing you, and what did Llamble last hear from you. */
+export const useListen = create<{ capturing: boolean; suspended: boolean; sent: number; heard: { text: string; wake: boolean; at: number } | null }>(() => ({
+  capturing: false,
+  suspended: false,
+  sent: 0,
+  heard: null,
+}));
+
 export const useBotVoice = create<{ thinking: { channel: string; question: string; at: number } | null; caption: { text: string; at: number; asked_by: string } | null }>(() => ({ thinking: null, caption: null }));
 
 /** Is Llamble listening in this voice channel? */
@@ -52,6 +60,16 @@ function stop() {
   micTrack = null;
   speaking = false;
   chunks = [];
+  useListen.setState({ capturing: false, suspended: false });
+}
+
+// browsers start audio paused until the page is clicked: resume on the first click/key
+function resumeOnGesture() {
+  const go = () => {
+    ctx?.resume().then(() => useListen.setState({ suspended: ctx?.state !== "running" })).catch(() => {});
+  };
+  window.addEventListener("pointerdown", go, { once: true });
+  window.addEventListener("keydown", go, { once: true });
 }
 
 function start(track: MediaStreamTrack, cid: string) {
@@ -95,7 +113,11 @@ function start(track: MediaStreamTrack, cid: string) {
   };
   src.connect(node);
   node.connect(ctx.destination); // (silent: we never write to the output)
-  ctx.resume().catch(() => {});
+  const c = ctx;
+  c.resume().catch(() => {});
+  useListen.setState({ capturing: true, suspended: c.state !== "running" });
+  c.onstatechange = () => useListen.setState({ suspended: c.state !== "running" });
+  if (c.state !== "running") resumeOnGesture();
 }
 
 function send(parts: Float32Array[]) {
@@ -108,7 +130,39 @@ function send(parts: Float32Array[]) {
     method: "POST",
     headers: { Authorization: "Bearer " + session.token, "content-type": "application/octet-stream" },
     body: pcm.buffer,
-  }).catch(() => {});
+  })
+    .then(() => useListen.setState((s) => ({ sent: s.sent + 1 })))
+    .catch(() => {});
+}
+
+/** Record a few seconds from the microphone and ask the server what it hears. */
+export async function testHearing(seconds = 4): Promise<{ text: string; wake: boolean; question: string | null; seconds: number }> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: prefs.get("audioInput") || undefined, echoCancellation: true, noiseSuppression: true } });
+  const ac = new AudioContext({ sampleRate: RATE });
+  await ac.resume();
+  const src = ac.createMediaStreamSource(stream);
+  const node = ac.createScriptProcessor(4096, 1, 1);
+  const parts: Float32Array[] = [];
+  node.onaudioprocess = (e) => parts.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(node);
+  node.connect(ac.destination);
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+  node.disconnect();
+  src.disconnect();
+  stream.getTracks().forEach((t) => t.stop());
+  ac.close().catch(() => {});
+  const n = parts.reduce((a, p) => a + p.length, 0);
+  const pcm = new Int16Array(n);
+  let o = 0;
+  for (const p of parts) for (let i = 0; i < p.length; i++) pcm[o++] = Math.max(-32768, Math.min(32767, p[i] * 32767));
+  const r = await fetch(`${session.server}/api/voice-ai/test`, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + session.token, "content-type": "application/octet-stream" },
+    body: pcm.buffer,
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || "test failed");
+  return j;
 }
 
 /** Keep capture in step with: in a call where Llamble listens, mic on. */
@@ -129,7 +183,9 @@ setInterval(sync, 3000); // mic restarts swap the track underneath us
 // ---------------------------------------------------------------- answers
 
 onEvent((t, d) => {
-  if (t === "BOT_THINKING") {
+  if (t === "VOICE_HEARD") {
+    useListen.setState({ heard: { text: d.text, wake: d.wake, at: Date.now() } });
+  } else if (t === "BOT_THINKING") {
     if (d.channel_id === useVoice.getState().channelId) useBotVoice.setState({ thinking: { channel: d.channel_id, question: d.question, at: Date.now() } });
   } else if (t === "BOT_SPEAK") {
     if (d.channel_id !== useVoice.getState().channelId) return;

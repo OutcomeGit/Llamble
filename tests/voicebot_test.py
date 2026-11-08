@@ -109,3 +109,11 @@ lines = call("GET", f"/api/kids/{kid['user']['id']}/calls", MOM)
 assert [l["text"] for l in lines] == ["can we play minecraft", "after homework"], lines
 call("GET", f"/api/kids/{kid['user']['id']}/calls", K, expect=403)
 print("calls with a kid in them are saved for the parent")
+
+# ---- "Test: what does it hear?" returns the text only to the person testing
+json.dump({"17000": "hey llamble what time is it"}, open(MAP, "w"))
+r = call("POST", "/api/voice-ai/test", MOM, data=pcm(17000))
+assert r["text"] == "hey llamble what time is it" and r["wake"] and r["question"] == "what time is it", r
+a = call("GET", "/api/admin/voice-ai", M)["activity"]
+assert a["received"] >= 6 and a["wakes"] >= 2 and a["answers"] >= 2, a
+print("hearing test + activity counters work")

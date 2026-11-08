@@ -14,7 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Family, ResetRequests } from "./Family";
 import { RecoveryCodeSection } from "./Recovery";
 import { CameraFxPicker } from "./CameraFx";
-import { GuildVoiceListen, VoiceAiAdmin } from "./VoiceAi";
+import { GuildVoiceListen, MicTest, VoiceAiAdmin } from "./VoiceAi";
 import { Recordings } from "./Show";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
@@ -710,6 +710,7 @@ function VoiceSettings() {
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}
       <p className="muted small">Changes to processing apply the next time you join voice. Global hotkeys: Ctrl+Shift+M mute, Ctrl+Shift+D deafen.</p>
+      {(useStore.getState().config as any).voice_ai?.available && <MicTest />}
       <label>
         Llamble's voice volume (in calls)
         <input type="range" min={0} max={1} step={0.05} defaultValue={prefs.get("botVolume", "1")} onChange={(e) => set("botVolume", e.target.value)} />

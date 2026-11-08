@@ -724,3 +724,5 @@ body.pop-body > .pop { height: 100vh; }
 .listen-thinking { color: #b5bac1; font-style: italic; animation: rec-pulse 1.4s infinite; }
 .voice-alert.listen-notice { background: #1f2a3a; color: #dbe6f5; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
 .bot-caption { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); max-width: min(720px, 90%); background: rgba(10, 10, 14, 0.85); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 16px; line-height: 1.4; z-index: 5; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
+.listen-warn { color: #f0b232; }
+.listen-heard { margin: 4px 16px 0; font-size: 13px; color: #b5bac1; font-style: italic; }

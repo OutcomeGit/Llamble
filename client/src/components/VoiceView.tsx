@@ -10,7 +10,7 @@ import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
 import { DirectorPanel, ShowBanner, StartShow } from "./Show";
 import { useShows } from "../show";
-import { listeningIn, useBotVoice } from "../listen";
+import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
 
@@ -337,7 +337,12 @@ function LlambleVoice({ channel }: { channel: Channel }) {
   const bot = useStore((s) => s.config.bot?.name || "Llamble");
   const notice = useStore((s) => (s.config as any).voice_ai?.notice as string | undefined);
   const { thinking, caption } = useBotVoice();
+  const listen = useListen();
   const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 2000);
+    return () => clearInterval(t);
+  }, []);
   if (!listeningIn(channel.id)) return null;
   const key = "llamble.voiceNotice." + channel.guild_id;
   const seen = localStorage.getItem(key) === "1";
@@ -358,7 +363,14 @@ function LlambleVoice({ channel }: { channel: Channel }) {
           👂 {bot} is listening · say “Hey {bot}”
         </span>
         {thinking && !caption && <span className="listen-thinking">{bot} is thinking…</span>}
+        {listen.suspended && <span className="listen-warn">Click anywhere so {bot} can hear you</span>}
+        {!listen.capturing && !listen.suspended && <span className="listen-warn">Not hearing you (muted?)</span>}
       </div>
+      {listen.heard && Date.now() - listen.heard.at < 8000 && (
+        <div className="listen-heard">
+          {bot} heard you: “{listen.heard.text}” {listen.heard.wake ? "✓" : ""}
+        </div>
+      )}
       {caption && (
         <div className="bot-caption">
           <b>🦙 {bot}:</b> {caption.text}

@@ -3,6 +3,7 @@ import { api, session } from "../api";
 import { useStore } from "../store";
 import { toast } from "../ui";
 import { Toggle } from "./common";
+import { testHearing } from "../listen";
 
 /** Master Admin: talking with Llamble in voice calls (speech models, voice, notice). */
 export function VoiceAiAdmin() {
@@ -100,6 +101,11 @@ export function VoiceAiAdmin() {
               {busy ? "Speaking…" : "▶ Hear it"}
             </button>
           </div>
+          <MicTest />
+          <div className="muted small">
+            Since the server started: {d.activity.received} bits of speech received, {d.activity.recognized} understood, {d.activity.wakes} times called by name, {d.activity.answers} answers.
+            {d.activity.last_error ? ` Last problem: ${d.activity.last_error}` : ""}
+          </div>
           <label>
             Notice people see the first time they join a call where Llamble listens
             <textarea ref={notice} rows={4} defaultValue={s.notice} onBlur={(e) => e.target.value !== s.notice && save({ notice: e.target.value })} />
@@ -140,6 +146,38 @@ export function GuildVoiceListen({ guildId, botEnabled, value, onChange }: { gui
             .catch((e) => toast(e.message, "error"))
         }
       />
+    </div>
+  );
+}
+
+/** Say "Hey Llamble, …" and see exactly what it understood. */
+export function MicTest() {
+  const [state, setState] = useState<"idle" | "listening" | "thinking">("idle");
+  const [res, setRes] = useState<{ text: string; wake: boolean; question: string | null; seconds: number } | null>(null);
+  const bot = useStore((s) => s.config.bot?.name || "Llamble");
+  const go = async () => {
+    setRes(null);
+    setState("listening");
+    try {
+      const p = testHearing(5);
+      setTimeout(() => setState("thinking"), 5000);
+      setRes(await p);
+    } catch (e: any) {
+      toast(e.message, "error");
+    }
+    setState("idle");
+  };
+  return (
+    <div className="mic-test">
+      <button className="btn" disabled={state !== "idle"} onClick={go}>
+        {state === "listening" ? `🎙 Listening… say "Hey ${bot}, what time is it?"` : state === "thinking" ? "Working it out…" : "🎙 Test: what does it hear?"}
+      </button>
+      {res && (
+        <div className="small" style={{ marginTop: 6 }}>
+          Heard: <b>“{res.text || "(nothing)"}”</b> in {res.seconds.toFixed(1)}s ·{" "}
+          {res.wake ? <span style={{ color: "#57f287" }}>✓ heard its name — question: “{res.question}”</span> : <span style={{ color: "#f0b232" }}>didn't hear its name</span>}
+        </div>
+      )}
     </div>
   );
 }
