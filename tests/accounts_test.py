@@ -246,7 +246,13 @@ print("Guest role: can read, can't post")
 print("ALL ACCOUNTS OK")
 
 # ---- server-wide voice/video limits reach every client
+wsMom = create_connection(B.replace("http", "ws") + "/api/gateway?access_token=" + MOM); wsMom.recv(); wsMom.settimeout(2)
 call("PUT", "/api/admin/settings", M, json={"max_share": "1080p30", "max_camera": "360p"})
+for _ in range(20):
+    ev = json.loads(wsMom.recv())
+    if ev["t"] == "CONFIG_UPDATE": break
+assert ev["t"] == "CONFIG_UPDATE" and ev["d"]["media"]["max_share"] == "1080p30", ev
+wsMom.close()
 call("PUT", "/api/admin/settings", M, expect=400, json={"max_share": "4k"})
 assert ready(MOM)["config"]["media"] == {"max_share": "1080p30", "max_camera": "360p"}
 print("voice/video limits set by the Master reach clients")

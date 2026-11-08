@@ -213,6 +213,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [audio, setAudio] = useState(true);
   const [quality, setQuality] = useState<ShareQuality>((localStorage.getItem("llamble.shareQuality") as ShareQuality) || "1080p30");
+  useStore((s) => s.config.media); // re-check the server's limits when they change
 
   useEffect(() => {
     window.llambleNative?.getScreenSources().then((s) => {

@@ -157,5 +157,16 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
     if before.lan_ip != s.lan_ip {
         crate::voice_server::refresh(state.clone());
     }
+    // everyone connected picks up the new limits right away (no reconnect needed)
+    let online = state.hub.online_users();
+    state.hub.send_users(
+        &online,
+        "CONFIG_UPDATE",
+        &json!({
+            "max_upload_bytes": s.max_upload_bytes(),
+            "guild_create": s.guild_create,
+            "media": { "max_share": s.max_share, "max_camera": s.max_camera },
+        }),
+    );
     Ok(Json(json!({ "settings": s })))
 }

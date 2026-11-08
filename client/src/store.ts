@@ -367,6 +367,9 @@ export function handleEvent(t: string, d: any) {
       set({ readStates: { ...s.readStates, [d.channel_id]: d.last_read_id }, mentions });
       break;
     }
+    case "CONFIG_UPDATE":
+      set({ config: { ...s.config, ...d } });
+      break;
     case "PRESENCE_UPDATE":
       set({ presences: { ...s.presences, [d.user_id]: d.status } });
       break;
