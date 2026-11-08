@@ -197,6 +197,14 @@ declare global {
       installUpdate: () => void;
       checkUpdate?: () => void;
       onUpdateStatus?: (cb: (s: { state: string; percent?: number; message?: string }) => void) => () => void;
+      /** Windows app overlay (older app versions don't have it) */
+      overlay?: {
+        set: (o: { show: boolean; hideWhenFocused: boolean }) => void;
+        update: (snap: unknown) => void;
+        edit: (on: boolean) => void;
+        onSnapshot: (cb: (s: any) => void) => () => void;
+        onEdit: (cb: (on: boolean) => void) => () => void;
+      };
       pickFile: (opts?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       llm: {
         gpus: () => Promise<Gpu[]>;

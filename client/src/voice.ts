@@ -344,14 +344,52 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
         selfBrowserSurface: "exclude",
         systemAudio: audio ? "include" : "exclude",
       },
-      { screenShareEncoding: preset.encoding, videoCodec: "vp9", backupCodec: true },
+      // Chromebooks encode H.264 in hardware; their VP9 encoder can send black frames
+      { screenShareEncoding: preset.encoding, videoCodec: isChromeOS() ? "h264" : "vp9", backupCodec: true },
     );
     vset({ screen: true, pickerOpen: false });
+    const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
+    if (t) watchForBlack(t);
   } catch (e: any) {
     vset({ error: "Screen share failed: " + e.message, pickerOpen: false });
   }
   syncServerState();
   bump();
+}
+
+function isChromeOS(): boolean {
+  return /\bCrOS\b/.test(navigator.userAgent);
+}
+
+/** A shared screen that only ever sends black (Android apps on ChromeOS, protected video). */
+function watchForBlack(track: MediaStreamTrack) {
+  const v = document.createElement("video");
+  v.muted = true;
+  v.srcObject = new MediaStream([track]);
+  v.play().catch(() => {});
+  const c = document.createElement("canvas");
+  c.width = 32;
+  c.height = 18;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  let black = 0;
+  const t = setInterval(() => {
+    if (track.readyState !== "live" || !g) return clearInterval(t);
+    if (v.readyState < 2) return;
+    g.drawImage(v, 0, 0, 32, 18);
+    const d = g.getImageData(0, 0, 32, 18).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
+    black = sum / (d.length / 4) < 6 ? black + 1 : 0;
+    if (black === 4) {
+      vset({
+        error: isChromeOS()
+          ? "Your shared screen is coming through black. ChromeOS usually can't capture Android apps (like Roblox from the Play Store), even with Entire screen. Chrome tabs and windows share fine. To share Roblox, play it on a PC with the Windows app."
+          : "Your shared screen is coming through black. Some apps and protected videos block screen capture. Try sharing a different window, or your whole screen.",
+      });
+      clearInterval(t);
+    }
+  }, 1000);
+  setTimeout(() => clearInterval(t), 20000);
 }
 
 export async function stopScreenShare() {

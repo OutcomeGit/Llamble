@@ -7,6 +7,7 @@ import { useVoice } from "../voice";
 import { ChatView } from "./ChatView";
 import { ContextMenu, GuildIcon, Icon, Toasts } from "./common";
 import { MemberList } from "./MemberList";
+import { PopoutOverlay } from "./Overlay";
 import { Modals } from "./Modals";
 import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
@@ -89,6 +90,7 @@ export function Shell() {
       <Modals />
       <ContextMenu />
       <Toasts />
+      <PopoutOverlay />
       <Lightbox />
     </div>
   );

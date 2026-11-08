@@ -208,6 +208,7 @@ app.whenReady().then(() => {
   setupAutoUpdate();
   globalShortcut.register("CommandOrControl+Shift+M", () => win && win.webContents.send("hotkey", "mute"));
   globalShortcut.register("CommandOrControl+Shift+D", () => win && win.webContents.send("hotkey", "deafen"));
+  globalShortcut.register("CommandOrControl+Shift+O", () => setOverlayEdit(!overlayEditing));
 
   const link = process.argv.find((a) => a.startsWith("llamble://"));
   if (link) handleLink(link);
@@ -267,3 +268,77 @@ ipcMain.handle("pick-file", async (_e, opts) => {
   const r = await dialog.showOpenDialog(win, { properties: ["openFile"], filters: opts?.filters || [], title: opts?.title });
   return r.canceled ? null : r.filePaths[0];
 });
+
+// ---------------------------------------------------------------- overlay
+// A transparent, click-through window over the whole screen that shows who's
+// talking, chat and alerts on top of games. The main window sends it snapshots.
+const { screen: displays } = require("electron");
+let overlay = null;
+let overlayWanted = false;
+let overlayHideWhenFocused = true;
+let overlayEditing = false;
+let lastSnap = null;
+
+function makeOverlay() {
+  const d = displays.getPrimaryDisplay();
+  overlay = new BrowserWindow({
+    ...d.bounds,
+    transparent: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    backgroundColor: "#00000000",
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, backgroundThrottling: false },
+  });
+  overlay.setAlwaysOnTop(true, "screen-saver");
+  overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  overlay.setIgnoreMouseEvents(true, { forward: true });
+  if (DEV) overlay.loadURL("http://localhost:5173/#overlay");
+  else overlay.loadFile(path.join(__dirname, "..", "dist", "index.html"), { hash: "overlay" });
+  overlay.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  overlay.webContents.on("will-navigate", (e) => e.preventDefault());
+  overlay.webContents.on("did-finish-load", () => lastSnap && overlay.webContents.send("overlay-snapshot", lastSnap));
+  overlay.on("closed", () => { overlay = null; overlayEditing = false; });
+}
+
+function syncOverlay() {
+  const mainInFront = win && win.isFocused() && win.isVisible();
+  const show = overlayEditing || (overlayWanted && !(overlayHideWhenFocused && mainInFront));
+  if (show && !overlay) makeOverlay();
+  if (!overlay) return;
+  if (show) {
+    const d = displays.getPrimaryDisplay();
+    overlay.setBounds(d.bounds);
+    if (!overlay.isVisible()) overlay.showInactive();
+    overlay.setAlwaysOnTop(true, "screen-saver");
+  } else if (overlay.isVisible()) overlay.hide();
+}
+
+function setOverlayEdit(on) {
+  overlayEditing = !!on;
+  if (overlayEditing && !overlay) makeOverlay();
+  if (overlay) {
+    overlay.setIgnoreMouseEvents(!overlayEditing, { forward: true });
+    overlay.setFocusable(overlayEditing);
+    overlay.webContents.send("overlay-edit", overlayEditing);
+    if (overlayEditing) { overlay.showInactive(); overlay.focus(); }
+  }
+  syncOverlay();
+}
+
+ipcMain.on("overlay-set", (_e, o) => {
+  overlayWanted = !!o.show;
+  overlayHideWhenFocused = o.hideWhenFocused !== false;
+  syncOverlay();
+});
+ipcMain.on("overlay-update", (_e, snap) => {
+  lastSnap = snap;
+  if (overlay && !overlay.isDestroyed()) overlay.webContents.send("overlay-snapshot", snap);
+});
+ipcMain.on("overlay-edit", (_e, on) => setOverlayEdit(on));
+app.on("browser-window-focus", syncOverlay);
+app.on("browser-window-blur", () => setTimeout(syncOverlay, 50));

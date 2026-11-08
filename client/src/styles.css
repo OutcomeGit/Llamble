@@ -591,3 +591,40 @@ a.update-pill { text-decoration: none; }
 .voice-alert { display: block; width: calc(100% - 32px); margin: 8px 16px 0; padding: 10px 14px; border-radius: 8px; background: #3a3220; color: #f5d78a; text-align: left; border: none; font-size: 14px; }
 .voice-alert.clickable { cursor: pointer; }
 .voice-alert.error { background: #3d2224; color: #ffb4b4; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* ---------- overlay ---------- */
+body.overlay-window, body.overlay-window #root { background: transparent !important; overflow: hidden; }
+.ov-screen { position: fixed; inset: 0; pointer-events: none; font-size: 14px; color: #fff; }
+.ov-screen.edit { pointer-events: auto; background: rgba(0, 0, 0, 0.45); }
+.ov-widget { position: absolute; transform-origin: top left; min-width: 180px; max-width: 340px; background: rgba(17, 18, 20, 0.78); border-radius: 10px; padding: 8px 10px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4); text-shadow: 0 1px 2px #000; }
+.ov-screen.edit .ov-widget { cursor: grab; outline: 2px dashed #5865f2; outline-offset: 2px; user-select: none; }
+.ov-grip { font-size: 12px; color: #aab; margin-bottom: 4px; }
+.ov-head { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 6px; color: #dde; }
+.ov-person { display: flex; align-items: center; gap: 8px; padding: 2px 0; color: #ccd; }
+.ov-person.speaking { color: #fff; }
+.ov-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-face { flex: none; border-radius: 50%; overflow: hidden; background: #5865f2; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px transparent; transition: box-shadow 0.1s; }
+.ov-face.speaking { box-shadow: 0 0 0 2px #23a55a; }
+.ov-face img { width: 100%; height: 100%; object-fit: cover; }
+.ov-face-txt { font-size: 11px; font-weight: 700; }
+.ov-red { color: #f23f43; }
+.ov-live { background: #f23f43; color: #fff; font-size: 10px; font-weight: 700; border-radius: 4px; padding: 0 4px; }
+.ov-lines { display: flex; flex-direction: column; gap: 6px; }
+.ov-line { display: flex; gap: 8px; align-items: flex-start; transition: opacity 0.6s; }
+.ov-author { font-weight: 600; }
+.ov-where { color: #99a; font-size: 12px; }
+.ov-text { color: #dde; word-break: break-word; }
+.ov-empty { color: #99a; font-size: 13px; }
+.ov-editbar { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; background: #1e1f22; padding: 12px 18px; border-radius: 12px; box-shadow: 0 6px 30px rgba(0, 0, 0, 0.6); }
+.ov-editbar span { display: flex; align-items: center; gap: 6px; }
+.ov-check { display: flex; align-items: center; gap: 4px; }
+body.overlay-popout { margin: 0; background: #111214; color: #fff; overflow-y: auto; }
+.ov-stack { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.ov-widget.static { position: static; max-width: none; transform: none; }
+.ov-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #99a; margin-bottom: 4px; }
+.indent { margin-left: 18px; }
+.error-text { color: #f23f43; }
+html:has(body.overlay-window) { background: transparent !important; }
+.ov-editbar b { white-space: nowrap; }
+.ov-editbar input[type="range"] { width: 110px; }
+.ov-editbar label, .ov-check { text-transform: none; letter-spacing: 0; font-size: 14px; color: #dde; white-space: nowrap; }

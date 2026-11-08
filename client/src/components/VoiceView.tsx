@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Track, type Participant } from "livekit-client";
 import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
-import { openModal } from "../ui";
+import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPrefs, usePopout } from "../overlay";
+import { openModal, toast } from "../ui";
 import { enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
 import { userMenu } from "./Sidebar";
@@ -92,6 +93,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
         >
           <Icon name="screen" size={22} />
         </button>
+        <OverlayButton />
         <button className={"call-btn" + (v.muted ? " off" : "")} onClick={toggleMute} title="Mute">
           <Icon name={v.muted ? "micOff" : "mic"} size={22} />
         </button>
@@ -221,5 +223,35 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** Overlay on/off: the screen overlay in the Windows app, a pop-out window in browsers. */
+function OverlayButton() {
+  const enabled = useOverlayPrefs((s) => s.enabled);
+  const pop = usePopout((s) => s.win);
+  const native = !!window.llambleNative?.overlay;
+  if (!native && !popoutSupported()) return null;
+  const on = native ? enabled : !!pop;
+  return (
+    <button
+      className={"call-btn" + (on ? " on" : "")}
+      title={native ? (on ? "Turn off overlay (Ctrl+Shift+O moves it)" : "Show overlay on top of games") : on ? "Close the pop-out overlay" : "Pop out an always-on-top overlay"}
+      onClick={async () => {
+        if (native) {
+          setOverlayPrefs({ enabled: !on });
+          if (!on) toast("Overlay on. Press Ctrl+Shift+O to move the widgets.");
+          return;
+        }
+        if (on) return closePopout();
+        try {
+          await openPopout();
+        } catch (e: any) {
+          toast(e.message, "error");
+        }
+      }}
+    >
+      <Icon name="expand" size={22} />
+    </button>
   );
 }

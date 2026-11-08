@@ -7,9 +7,12 @@ import { getRoom, joinVoice, leaveVoice, useVoice } from "./voice";
 // handle for automated tests and troubleshooting from the dev console
 (window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState() };
 
-createRoot(document.getElementById("root")!).render(<App />);
+import { OverlayApp } from "./OverlayApp";
+
+const isOverlay = location.hash === "#overlay" && !!window.llambleNative?.overlay;
+createRoot(document.getElementById("root")!).render(isOverlay ? <OverlayApp /> : <App />);
 
 // installable web app (only in browsers served over http(s), not inside Electron)
-if (!window.llambleNative && "serviceWorker" in navigator && location.protocol.startsWith("http")) {
+if (!isOverlay && !window.llambleNative && "serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
 }

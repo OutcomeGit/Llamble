@@ -1,3 +1,4 @@
+import { closePopout, openPopout, popoutSupported, setOverlayPrefs, setWidget, useOverlayPrefs, usePopout, type WidgetId } from "../overlay";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { api, formatBytes, upload } from "../api";
@@ -445,6 +446,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "voice", label: "Voice & Video" },
         { id: "ai", label: "AI & GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
+        { id: "overlay", label: "Overlay" },
         { id: "sessions", label: "Devices" },
         { id: "family", label: "Family", hidden: !!me.is_kid },
         { id: "admin", label: "Instance Admin", hidden: !me.is_admin },
@@ -458,6 +460,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "voice" && <VoiceSettings />}
       {tab === "ai" && <AiSettings />}
       {tab === "notifications" && <NotifSettings />}
+      {tab === "overlay" && <OverlaySettings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
       {tab === "family" && <Family />}
@@ -1757,6 +1760,141 @@ function RemoteAccess() {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function OverlaySettings() {
+  const p = useOverlayPrefs();
+  const pop = usePopout((s) => s.win);
+  const native = !!window.llambleNative?.overlay;
+  const row = (label: string, desc: string, control: React.ReactNode) => (
+    <div className="perm-row">
+      <div>
+        <div className="bold">{label}</div>
+        {desc && <div className="muted small">{desc}</div>}
+      </div>
+      {control}
+    </div>
+  );
+  const widgetRow = (id: WidgetId, label: string, desc: string) => row(label, desc, <Toggle on={p.widgets[id].on} onChange={(v) => setWidget(id, { on: v })} />);
+  return (
+    <div>
+      <h2>Overlay</h2>
+      <p className="muted">
+        {native
+          ? "Shows who's talking, chat and alerts on top of your games and other apps. It never takes clicks away from your game."
+          : "Pops out a small window that stays on top of your other apps and games, showing who's talking, chat and alerts. Drag it wherever you like and resize it."}
+      </p>
+      {native ? (
+        <>
+          {row("Show the overlay", "", <Toggle on={p.enabled} onChange={(v) => setOverlayPrefs({ enabled: v })} />)}
+          <div className="row gap" style={{ margin: "8px 0 16px" }}>
+            <button className="btn primary" onClick={() => window.llambleNative!.overlay!.edit(true)}>
+              Move widgets
+            </button>
+            <span className="muted small">Or press Ctrl+Shift+O any time, even in a game. Press it again (or Esc) when you're done.</span>
+          </div>
+        </>
+      ) : popoutSupported() ? (
+        <div className="row gap" style={{ margin: "8px 0 16px" }}>
+          <button
+            className="btn primary"
+            onClick={() =>
+              pop
+                ? closePopout()
+                : openPopout().catch((e) => toast(e.message, "error"))
+            }
+          >
+            {pop ? "Close pop-out" : "Pop out overlay"}
+          </button>
+          <span className="muted small">There's also a button for it in the voice call controls.</span>
+        </div>
+      ) : (
+        <p className="error-text">This browser can't keep a window on top. Use Chrome or Edge, or the Windows app.</p>
+      )}
+
+      <h3>What to show</h3>
+      {widgetRow("voice", "Voice", "People in your voice channel")}
+      {p.widgets.voice.on && (
+        <div className="indent">
+          {row(
+            "Who to list",
+            "",
+            <select value={p.voiceMode} onChange={(e) => setOverlayPrefs({ voiceMode: e.target.value as any })}>
+              <option value="all">Everyone in the channel</option>
+              <option value="speaking">Only people talking</option>
+            </select>,
+          )}
+          {row("Pictures", "", <Toggle on={p.voiceAvatars} onChange={(v) => setOverlayPrefs({ voiceAvatars: v })} />)}
+        </div>
+      )}
+      {widgetRow("chat", "Chat", "Recent messages")}
+      {p.widgets.chat.on && (
+        <div className="indent">
+          {row(
+            "Messages from",
+            "",
+            <select value={p.chatSource} onChange={(e) => setOverlayPrefs({ chatSource: e.target.value as any })}>
+              <option value="open">The channel open in Llamble</option>
+              <option value="mentions">Only DMs and @mentions</option>
+            </select>,
+          )}
+          {row(
+            "How many",
+            "",
+            <select value={p.chatCount} onChange={(e) => setOverlayPrefs({ chatCount: +e.target.value })}>
+              {[3, 5, 8, 12].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>,
+          )}
+          {row(
+            "Fade away after",
+            "",
+            <select value={p.chatFade} onChange={(e) => setOverlayPrefs({ chatFade: +e.target.value })}>
+              {[10, 20, 60, 300, 0].map((n) => (
+                <option key={n} value={n}>
+                  {n === 0 ? "Never" : n < 60 ? n + " seconds" : n / 60 + " minute" + (n > 60 ? "s" : "")}
+                </option>
+              ))}
+            </select>,
+          )}
+        </div>
+      )}
+      {widgetRow("alerts", "Alerts", "Pop-ups for direct messages and @mentions")}
+      {p.widgets.alerts.on &&
+        row(
+          "Alerts stay for",
+          "",
+          <select value={p.alertsFade} onChange={(e) => setOverlayPrefs({ alertsFade: +e.target.value })}>
+            {[5, 8, 15, 30].map((n) => (
+              <option key={n} value={n}>
+                {n} seconds
+              </option>
+            ))}
+          </select>,
+        )}
+
+      <h3>Look</h3>
+      {row("Size", "", <input type="range" min={0.6} max={1.6} step={0.05} value={p.scale} onChange={(e) => setOverlayPrefs({ scale: +e.target.value })} />)}
+      {native && row("See-through", "", <input type="range" min={0.3} max={1} step={0.05} value={p.opacity} onChange={(e) => setOverlayPrefs({ opacity: +e.target.value })} />)}
+      {row(
+        "When",
+        "",
+        <select value={p.when} onChange={(e) => setOverlayPrefs({ when: e.target.value as any })}>
+          <option value="voice">Only while I'm in a voice channel</option>
+          <option value="always">Always</option>
+        </select>,
+      )}
+      {native && row("Hide while Llamble is in front", "No need for it when you're looking at Llamble itself", <Toggle on={p.hideWhenFocused} onChange={(v) => setOverlayPrefs({ hideWhenFocused: v })} />)}
+      {native && (
+        <p className="muted small">
+          Works over windowed and borderless full-screen games. A few games use exclusive full-screen, which nothing can draw over; switch those to "Borderless" or "Windowed full-screen" in the game's video settings.
+        </p>
       )}
     </div>
   );

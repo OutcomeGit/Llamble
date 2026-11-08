@@ -9,6 +9,8 @@ import { currentChannelId, memberName, mentionsMe, onEvent, selectChannel, total
 import { openModal } from "./ui";
 import { toggleDeafen, toggleMute } from "./voice";
 import { sounds } from "./sounds";
+import { pushOverlayAlert, startOverlayFeed } from "./overlay";
+import { avatarUrl } from "./api";
 import type { Message } from "./types";
 
 // a shared invite link (https://server/invite/CODE) opened in a browser
@@ -72,6 +74,9 @@ export default function App() {
     };
   }, []);
 
+  // feed the overlay (Windows overlay window / browser pop-out)
+  useEffect(() => startOverlayFeed(), []);
+
   // unread badge
   useEffect(() => useStore.subscribe((s) => window.llambleNative?.setUnread(totalUnreadBadge(s))), []);
 
@@ -94,6 +99,17 @@ export default function App() {
         const viewing = focused && currentChannelId() === ch.id;
         const important = ch.kind === "dm" || mentionsMe(msg.content, s.me);
         if (viewing || !important) return;
+        pushOverlayAlert(
+          {
+            id: msg.id,
+            author: memberName(ch.guild_id, msg.author),
+            avatar: avatarUrl(msg.author.avatar_file_id),
+            text: (msg.content || (msg.attachments.length ? "📎 " + msg.attachments[0].filename : "")).slice(0, 160),
+            where: ch.kind === "dm" ? "Direct message" : "#" + ch.name,
+            ts: Date.now(),
+          },
+          true,
+        );
         if (localStorage.getItem("llamble.status") === "dnd") return;
         sounds.message();
         window.llambleNative?.flash();
