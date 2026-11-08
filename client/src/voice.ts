@@ -20,6 +20,8 @@ export interface VoiceUI {
   error: string | null;
   version: number;
   pickerOpen: boolean;
+  /** the browser is blocking call audio until the user clicks */
+  audioBlocked?: boolean;
 }
 
 export const useVoice = create<VoiceUI>(() => ({
@@ -235,7 +237,9 @@ async function connect(channelId: string, rejoining: boolean) {
     .on(RoomEvent.MediaDevicesChanged, () => {
       refreshDevices().then(recoverMic);
     })
-    .on(RoomEvent.MediaDevicesError, (e: Error) => vset({ error: "Microphone/camera error: " + e.message }));
+    .on(RoomEvent.MediaDevicesError, (e: Error) => vset({ error: "Microphone/camera error: " + e.message }))
+    // browsers can refuse to play sound until the page is clicked
+    .on(RoomEvent.AudioPlaybackStatusChanged, () => vset({ audioBlocked: !r.canPlaybackAudio }));
 
   try {
     await r.connect(info.url, info.token, { autoSubscribe: true });
@@ -249,13 +253,14 @@ async function connect(channelId: string, rejoining: boolean) {
   }
   if (room !== r) return;
   rejoinStarted = 0;
-  vset({ status: "connected", canSpeak: info.can_speak, canVideo: info.can_video });
+  vset({ status: "connected", canSpeak: info.can_speak, canVideo: info.can_video, audioBlocked: !r.canPlaybackAudio });
+  if (!r.canPlaybackAudio) r.startAudio().then(() => vset({ audioBlocked: !r.canPlaybackAudio })).catch(() => {});
   if (!rejoining) sounds.join();
   if (info.can_speak) {
     try {
       await r.localParticipant.setMicrophoneEnabled(!vget().muted && !vget().deafened, audioCapture());
     } catch (e: any) {
-      vset({ error: "Microphone unavailable: " + e.message });
+      micError(e);
     }
   }
   syncServerState();
@@ -288,7 +293,7 @@ export async function toggleMute() {
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   muted ? sounds.mute() : sounds.unmute();
-  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!muted, audioCapture()).catch(() => {});
+  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!muted, audioCapture()).then(() => !muted && vset({ error: null })).catch(micError);
   if (room) syncServerState();
   bump();
 }
@@ -300,7 +305,7 @@ export async function toggleDeafen() {
   localStorage.setItem("llamble.deafened", deafened ? "1" : "0");
   applyDeafen();
   deafened ? sounds.mute() : sounds.unmute();
-  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!deafened && !s.muted, audioCapture()).catch(() => {});
+  if (room && s.canSpeak) await room.localParticipant.setMicrophoneEnabled(!deafened && !s.muted, audioCapture()).catch(micError);
   if (room) syncServerState();
   bump();
 }
@@ -409,3 +414,26 @@ onEvent((t, d) => {
       .catch(() => {});
   }
 });
+
+/** Explain why the microphone didn't start, in words people can act on. */
+function micError(e: any) {
+  const name = e?.name || "";
+  const msg =
+    name === "NotAllowedError" || /permission/i.test(e?.message || "")
+      ? "Your browser blocked the microphone. Click the lock/settings icon next to the address, allow Microphone, then mute and unmute."
+      : name === "NotFoundError"
+        ? "No microphone found. Plug one in or pick one in Settings → Voice & Video."
+        : name === "NotReadableError"
+          ? "The microphone is busy or failed to start (another app may be using it)."
+          : "Microphone unavailable: " + (e?.message || e);
+  vset({ error: msg });
+}
+
+/** Turn call audio on after the browser blocked it (must run from a click). */
+export async function enableAudio() {
+  if (!room) return;
+  try {
+    await room.startAudio();
+  } catch {}
+  vset({ audioBlocked: !room.canPlaybackAudio });
+}

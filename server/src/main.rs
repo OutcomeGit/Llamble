@@ -12,6 +12,7 @@ mod perms;
 mod relay;
 mod remote;
 mod settings;
+mod shows;
 mod state;
 mod voice_server;
 
@@ -76,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
         login_guard: Default::default(),
     });
 
+    shows::migrate(&state.db).await?;
     settings::load_into_cache(&state).await;
     // once: give servers made before role presets existed the standard roles
     let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'presets_v1'").fetch_optional(&state.db).await?;

@@ -70,6 +70,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
         "read_states": reads.into_iter().map(|(c, m)| json!({ "channel_id": c, "last_read_id": m })).collect::<Vec<_>>(),
         "presences": presences,
         "voice_states": voice,
+        "shows": crate::shows::active(state).await,
         "config": {
             "voice_enabled": crate::voice_server::enabled(state),
             "max_upload_bytes": state.s().max_upload_bytes(),

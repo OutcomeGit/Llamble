@@ -3,7 +3,7 @@ import { Track, type Participant } from "livekit-client";
 import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
 import { openModal } from "../ui";
-import { getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
+import { enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
 import { Avatar, Icon } from "./common";
 import { userMenu } from "./Sidebar";
 
@@ -49,6 +49,19 @@ export function VoiceView({ channel }: { channel: Channel }) {
         <span className="chat-title">{channel.name}</span>
         <span className={"voice-label " + v.status}>{v.status === "connected" ? "Connected" : v.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</span>
       </header>
+      {v.audioBlocked && (
+        <button className="voice-alert clickable" onClick={enableAudio}>
+          🔇 Your browser paused call sound. <b>Click here to hear everyone.</b>
+        </button>
+      )}
+      {v.error && (
+        <div className="voice-alert error">
+          {v.error}
+          <button className="btn small link" onClick={() => useVoice.setState({ error: null })}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {focused ? (
         <div className="stage">
           <div className="stage-main">

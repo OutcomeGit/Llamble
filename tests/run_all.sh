@@ -34,5 +34,6 @@ run relay LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk.yaml -
 # connect over the network address: relayed (localhost) visitors only get the per-account limit
 LAN_IP=$(hostname -I 2>/dev/null | awk "{print \$1}")
 run accounts -- accounts_test.py http://127.0.0.1:8099
+run shows LLAMBLE_LIVEKIT_BIN=$T/fake_livekit.py FAKE_LK_OUT=/tmp/fake_lk2.yaml -- shows_test.py http://127.0.0.1:8099
 run login_guard LLAMBLE_BIND=0.0.0.0:8099 -- login_guard_test.py http://${LAN_IP:-127.0.0.1}:8099
 exit $FAIL

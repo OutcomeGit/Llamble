@@ -588,3 +588,6 @@ a.update-pill { text-decoration: none; }
 .msg { position: relative; }
 .select-bar { display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; padding: 8px 12px; background: #2b2d31; border-radius: 8px; }
 @media (max-width: 700px) { .kid-chats-body { grid-template-columns: 1fr; height: auto; } }
+.voice-alert { display: block; width: calc(100% - 32px); margin: 8px 16px 0; padding: 10px 14px; border-radius: 8px; background: #3a3220; color: #f5d78a; text-align: left; border: none; font-size: 14px; }
+.voice-alert.clickable { cursor: pointer; }
+.voice-alert.error { background: #3d2224; color: #ffb4b4; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
