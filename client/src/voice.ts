@@ -431,14 +431,17 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
     await room.localParticipant.setScreenShareEnabled(
       true,
       {
-        audio,
+        // game/app sound: stereo, untouched (voice processing would mangle music and effects)
+        audio: audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } : false,
         resolution: { width: p.width, height: p.height, frameRate: p.fps },
         contentHint: p.fps >= 60 ? "motion" : "detail",
         selfBrowserSurface: "exclude",
         systemAudio: audio ? "include" : "exclude",
       },
       // AV1/H.264 on the graphics card when it can, else VP9 (see encoder.ts)
-      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec) },
+      // shared sound goes out as stereo Opus at music quality, without the voice-call
+      // tricks (DTX cuts "silence", RED doubles packets) that suit speech, not game audio
+      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: 160_000 } },
     );
     watchEncoder("screen", codec);
     vset({ screen: true, pickerOpen: false });
