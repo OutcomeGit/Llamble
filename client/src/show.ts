@@ -507,7 +507,10 @@ class Recorder {
     }
     this.comp.destroy();
     this.audio.close().catch(() => {});
-    await this.pump();
+    // let every last piece reach the server (up to ~2 minutes of retries)
+    this.pump();
+    const until = Date.now() + 120_000;
+    while ((this.queue.length || this.sending) && Date.now() < until) await new Promise((r) => setTimeout(r, 250));
     useRecorder.setState({ showId: null });
   }
 }
