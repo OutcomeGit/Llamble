@@ -1,4 +1,5 @@
 import { GamesSettings } from "./Games";
+import { PerformanceSettings } from "./Performance";
 import { CODEC_LABELS, clearBad, codecChoice, describe, hardwareEncoders, setCodecChoice, useEncoder, type CodecChoice } from "../encoder";
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, setWidget, useOverlayPrefs, usePopout, type WidgetId } from "../overlay";
 import { useShallow } from "zustand/react/shallow";
@@ -492,6 +493,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "notifications", label: "Notifications" },
         { id: "overlay", label: "Overlay" },
         { id: "games", label: "Games", hidden: !window.llambleNative?.games },
+        { id: "performance", label: "Performance", hidden: !window.llambleNative?.metrics },
         { id: "recordings", label: "Recordings" },
         { id: "sessions", label: "Devices" },
         { id: "family", label: "Family", hidden: !!me.is_kid },
@@ -511,6 +513,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "notifications" && <NotifSettings />}
       {tab === "overlay" && <OverlaySettings />}
       {tab === "games" && <GamesSettings />}
+      {tab === "performance" && <PerformanceSettings />}
       {tab === "recordings" && <Recordings />}
       {tab === "sessions" && <Sessions />}
       {tab === "admin" && <Admin />}
@@ -717,7 +720,22 @@ function VoiceSettings() {
       </label>
       <ShareDefault />
       <EncoderSetting />
-      {flag("studioMic", "Studio mic", "Your mic exactly as it is: no noise suppression, echo cancellation or volume leveling, stereo if your mic is stereo, nothing trimmed during quiet moments. Use headphones (others will hear echo otherwise) and pair it with 256 kbps or more.", false)}
+      <div className="perm-row">
+        <div>
+          <div className="bold">Studio mic</div>
+          <div className="muted small">
+            Sends your mic in stereo (if it's a stereo mic), without trimming quiet moments or adding repair packets. Turning it on also switches off
+            the three cleanup options below; turn any of them back on if you need it. Best with headphones and 256 kbps or more.
+          </div>
+        </div>
+        <Toggle
+          on={prefs.bool("studioMic", false)}
+          onChange={(v) => {
+            if (v) for (const k of ["noiseSuppression", "echoCancellation", "autoGainControl"]) prefs.set(k, "0");
+            set("studioMic", v ? "1" : "0");
+          }}
+        />
+      </div>
       {flag("noiseSuppression", "Noise suppression", "Filter background noise (keyboard, fans)")}
       {flag("echoCancellation", "Echo cancellation", "Turn off if you use headphones and want the most natural sound")}
       {flag("autoGainControl", "Automatic gain control", "Keep your volume level consistent")}

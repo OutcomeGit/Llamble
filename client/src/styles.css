@@ -743,3 +743,10 @@ body.pop-body > .pop { height: 100vh; }
 .playing { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; min-width: 0; }
 .playing b { color: var(--text); font-weight: 600; }
 .member-text { display: flex; flex-direction: column; min-width: 0; }
+
+/* Settings → Performance */
+.perf-total { font-size: 20px; margin: 8px 0 14px; }
+.perf-list { display: flex; flex-direction: column; gap: 12px; }
+.perf-head { display: flex; justify-content: space-between; gap: 12px; }
+.perf-bar { height: 6px; background: var(--bg-tertiary, rgba(127,127,127,.2)); border-radius: 3px; margin: 4px 0 2px; overflow: hidden; }
+.perf-bar > div { height: 100%; background: var(--accent, #5865f2); border-radius: 3px; transition: width .4s; }

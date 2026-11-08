@@ -125,6 +125,8 @@ async function generate(job, gpu) {
   try {
     await new Promise((resolve, reject) => {
       const p = spawn(findExe(binDir()), args, { cwd: path.dirname(exe), env, windowsHide: true });
+      drawing = p;
+      p.on("exit", () => { if (drawing === p) drawing = null; });
       let err = "";
       p.stderr.on("data", (d) => (err = (err + d).slice(-2000)));
       p.stdout.on("data", (d) => (err = (err + d).slice(-2000)));
@@ -143,7 +145,10 @@ async function generate(job, gpu) {
   }
 }
 
+let drawing = null;
+
 module.exports = {
+  pid: () => (drawing ? drawing.pid : null),
   init(sender) {
     emit = sender;
   },

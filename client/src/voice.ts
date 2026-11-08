@@ -83,7 +83,7 @@ async function refreshDevices() {
   }
 }
 
-/** Studio mic: your mic exactly as it sounds — no processing, stereo if the mic is, no voice-call tricks. Needs headphones. */
+/** Studio mic: stereo (if the mic is), no DTX/RED. Turning it on in Settings also switches the cleanup options off; each can be turned back on. */
 export function studioMic(): boolean {
   return prefs.bool("studioMic", false);
 }
@@ -94,9 +94,9 @@ function audioCapture() {
   const studio = studioMic();
   return {
     deviceId: dev || undefined,
-    echoCancellation: !studio && prefs.bool("echoCancellation"),
-    noiseSuppression: !studio && prefs.bool("noiseSuppression"),
-    autoGainControl: !studio && prefs.bool("autoGainControl"),
+    echoCancellation: prefs.bool("echoCancellation"),
+    noiseSuppression: prefs.bool("noiseSuppression"),
+    autoGainControl: prefs.bool("autoGainControl"),
     channelCount: studio ? 2 : 1,
     sampleRate: 48000,
   };

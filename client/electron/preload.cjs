@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("llambleNative", {
     ipcRenderer.on("hotkey", h);
     return () => ipcRenderer.removeListener("hotkey", h);
   },
+  metrics: () => ipcRenderer.invoke("app-metrics"),
   games: {
     current: () => ipcRenderer.invoke("games-current"),
     running: () => ipcRenderer.invoke("games-running"),

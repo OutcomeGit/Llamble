@@ -226,6 +226,7 @@ async function gpuUtil(index) {
 }
 
 module.exports = {
+  pid: () => (proc && proc.exitCode === null ? proc.pid : null),
   gpuUtil,
   init(sender) {
     emit = sender;

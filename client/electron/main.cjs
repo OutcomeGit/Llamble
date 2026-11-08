@@ -270,6 +270,44 @@ ipcMain.handle("app-version", () => app.getVersion());
 ipcMain.on("quit", () => { quitting = true; app.quit(); });
 ipcMain.on("set-autostart", (_e, on) => app.setLoginItemSettings({ openAtLogin: !!on, args: ["--hidden"] }));
 
+// ---- memory breakdown (Settings → About) ----
+ipcMain.handle("app-metrics", async () => {
+  const helper = require("./helper.cjs");
+  const pidOf = (w) => { try { return w && !w.isDestroyed() ? w.webContents.getOSProcessId() : -1; } catch { return -1; } };
+  const mainPid = pidOf(win);
+  const overlayPid = pidOf(overlay);
+  const rows = app.getAppMetrics().map((m) => {
+    const svc = String(m.serviceName || m.name || "").toLowerCase();
+    let label = "Other";
+    let what = "";
+    if (m.type === "Browser") { label = "App core"; what = "Electron/Node: windows, hotkeys, updates, downloads"; }
+    else if (m.type === "Tab" && m.pid === mainPid) { label = "Interface & calls"; what = "the Llamble window: chat, React, LiveKit, decoding audio"; }
+    else if (m.type === "Tab" && m.pid === overlayPid) { label = "Overlay"; what = "the in-game overlay window"; }
+    else if (m.type === "Tab") { label = "Other windows"; what = "pop-outs and hidden pages"; }
+    else if (m.type === "GPU") { label = "Graphics & video"; what = "drawing the window, video decode/encode on the graphics card"; }
+    else if (svc.includes("audio")) { label = "Sound"; what = "mic capture and playback"; }
+    else if (svc.includes("network")) { label = "Network"; what = "connections to your server"; }
+    else if (svc.includes("video_capture") || svc.includes("capture")) { label = "Camera & screen capture"; what = ""; }
+    else if (svc.includes("storage")) { label = "Storage"; what = "saved settings and cache"; }
+    else { label = m.type === "Utility" ? "Other helpers" : m.type; what = m.serviceName || m.name || ""; }
+    return { label, what, pid: m.pid, mb: Math.round((m.memory.workingSetSize || 0) / 1024), cpu: Math.round((m.cpu.percentCPUUsage || 0) * 10) / 10 };
+  });
+  // our own extra programs (not part of Electron's list)
+  const extra = [
+    [helper.pid(), "Windows helper", "game detection, graphics card info"],
+    [llm.pid(), "Local AI (llama.cpp)", "the AI model you lend to the server"],
+    [require("./images.cjs").pid(), "Picture engine", "drawing a picture right now"],
+  ].filter(([pid]) => pid);
+  if (extra.length) {
+    const mem = (await helper.ask("mem " + extra.map(([p]) => p).join(" "))) || [];
+    for (const [pid, label, what] of extra) {
+      const m = mem.find((x) => x.pid === pid);
+      rows.push({ label, what, pid, mb: m ? m.mb : null, cpu: null });
+    }
+  }
+  return rows;
+});
+
 // ---- game detection ----
 const games = require("./games.cjs");
 ipcMain.handle("games-current", () => games.poll());

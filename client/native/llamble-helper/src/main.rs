@@ -3,6 +3,7 @@
 //! Commands (one per line on stdin), each answered with one JSON line on stdout:
 //!   windows  -> [{"pid":1,"exe":"robloxplayerbeta","path":"C:\\...","title":"Roblox","hwnd":123}]
 //!   gpus     -> [{"name":"NVIDIA GeForce RTX 4090","vram_mb":24564,"vendor":4318}]
+//!   mem 1234 5678 -> [{"pid":1234,"mb":52}]   (memory in use by those programs, for Settings → About)
 //!   exit
 //!
 //! It only reads: window titles, which program owns each window and where that
@@ -31,7 +32,9 @@ fn main() {
     let mut out = std::io::stdout().lock();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
-        let answer = match line.trim() {
+        let t = line.trim();
+        let answer = match t {
+            _ if t.starts_with("mem ") => sys::mem(&t[4..].split_whitespace().filter_map(|p| p.parse().ok()).take(32).collect::<Vec<u32>>()),
             "windows" => sys::windows(),
             "gpus" => sys::gpus(),
             "exit" => break,
@@ -51,6 +54,7 @@ mod sys {
     use windows::core::PWSTR;
     use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE};
+    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
     use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
     use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER};
 
@@ -130,6 +134,21 @@ mod sys {
         format!("[{}]", items.join(","))
     }
 
+    pub fn mem(pids: &[u32]) -> String {
+        let mut items = Vec::new();
+        for &pid in pids {
+            unsafe {
+                let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { continue };
+                let mut c = PROCESS_MEMORY_COUNTERS { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32, ..Default::default() };
+                if GetProcessMemoryInfo(h, &mut c, c.cb).is_ok() {
+                    items.push(format!("{{\"pid\":{},\"mb\":{}}}", pid, c.WorkingSetSize / (1024 * 1024)));
+                }
+                let _ = CloseHandle(h);
+            }
+        }
+        format!("[{}]", items.join(","))
+    }
+
     pub fn gpus() -> String {
         let mut items = Vec::new();
         unsafe {
@@ -157,6 +176,9 @@ mod sys {
 
 #[cfg(not(windows))]
 mod sys {
+    pub fn mem(_pids: &[u32]) -> String {
+        "[]".into()
+    }
     pub fn windows() -> String {
         "[]".into()
     }
