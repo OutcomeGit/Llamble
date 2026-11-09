@@ -7,6 +7,7 @@ import { toast } from "../ui";
 import { Toggle } from "./common";
 
 export const HIGHLIGHT_TYPES: [HighlightType, string][] = [
+  ["shows", "Shows"],
   ["pictures", "Pictures"],
   ["videos", "Videos"],
   ["recordings", "Recordings"],

@@ -2,7 +2,7 @@ import { listeningIn, useListen } from "../listen";
 import { useShows } from "../show";
 import { api } from "../api";
 import { sendGateway } from "../gateway";
-import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, openHome, selectChannel, useStore } from "../store";
+import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, openHome, openLibrary, selectChannel, useStore } from "../store";
 import { P, type Channel } from "../types";
 import { copy, openMenu, openModal, toggleCollapsed, toast, useUI } from "../ui";
 import { canShareScreen, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
@@ -309,7 +309,8 @@ function VolumeSlider({ userId, initial }: { userId: string; initial: number }) 
 /** Sidebar while Home is open: nothing in the list area, just the bottom panel. */
 /** Home's left column: the board and its parts, then things coming to Home. */
 function HomeSidebar() {
-  const filter = useStore((s) => s.boardFilter["@home"] ?? "all");
+  const page = useStore((s) => s.homePage);
+  const filter = useStore((s) => (s.homePage === "board" ? s.boardFilter["@home"] ?? "all" : null));
   const unread = useStore((s) => notesForMe(s).filter((n) => !n.read).length);
   const soon = (emoji: string, label: string, what: string) => (
     <div className="channel soon" title={what + " (coming soon)"}>
@@ -343,7 +344,10 @@ function HomeSidebar() {
           </div>
         </div>
         <div className="sidebar-sep" />
-        {soon("📚", "Library", "Everything you've posted: files, pictures, recordings, and your post history")}
+        <div className={"channel" + (page === "library" ? " active" : "")} onClick={() => openLibrary()} title="Your recordings (your files and post history come later)">
+          <span className="channel-emoji">📚</span>
+          <span className="ellipsis">Library</span>
+        </div>
         {soon("🎮", "Games", "Your games, who's playing, start one with friends")}
         {soon("🧩", "Apps", "Soundboard packs, GIF packs, board themes, bots")}
         {soon("🛍️", "Store", "The Llamble store")}

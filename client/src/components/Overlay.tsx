@@ -67,11 +67,18 @@ function Widget({ id, s }: { id: WidgetId; s: OverlaySnapshot }) {
 }
 
 /** The whole-screen overlay (Windows app). `edit` lets the widgets be dragged. */
+const EMPTY_SNAP: OverlaySnapshot = { inVoice: false, channelName: "", muted: false, deafened: false, people: [], chat: [], alerts: [], now: 0 };
+
 export function ScreenOverlay({ snap, edit, onDone }: { snap: OverlaySnapshot | null; edit: boolean; onDone?: () => void }) {
   const p = useOverlayPrefs();
   const drag = useRef<{ id: WidgetId; dx: number; dy: number } | null>(null);
   const [, force] = useState(0);
-  if (!snap) return null;
+  // the Windows app must know the "Done" bar is really on screen (else it lets go of the mouse)
+  useEffect(() => {
+    if (edit) window.llambleNative?.overlay?.editShown?.();
+  }, [edit]);
+  if (!snap && !edit) return null;
+  snap = snap || EMPTY_SNAP;
 
   const move = (e: React.PointerEvent) => {
     const d = drag.current;

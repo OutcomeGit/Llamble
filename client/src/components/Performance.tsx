@@ -38,8 +38,7 @@ export function PerformanceSettings() {
     <div>
       <h2>Performance</h2>
       <p className="muted small">
-        What this app is using right now, updated every 2 seconds. Memory is each part's working set (close to Task Manager's numbers; parts share some
-        memory, so the total can read a little high).
+        What this app is using right now, updated every 2 seconds. Memory is each part's private memory, the same measure Task Manager uses, so the total should match it.
       </p>
       <div className="perf-total">
         <b>{total.toLocaleString()} MB</b> total

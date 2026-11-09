@@ -256,5 +256,5 @@ wsMom.close()
 call("PUT", "/api/admin/settings", M, expect=400, json={"max_share": "4k"})
 call("PUT", "/api/admin/settings", M, expect=400, json={"mic_default_kbps": 384})  # above the maximum
 call("PUT", "/api/admin/settings", M, expect=400, json={"mic_max_kbps": 300})  # not an offered bitrate
-assert ready(MOM)["config"]["media"] == {"max_share": "1080p30", "max_camera": "360p", "mic_default_kbps": 96, "mic_max_kbps": 256}
+assert ready(MOM)["config"]["media"] == {"max_share": "1080p30", "max_camera": "360p", "mic_default_kbps": 96, "mic_max_kbps": 256, "server_recording": False}
 print("voice/video limits set by the Master reach clients")

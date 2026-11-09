@@ -53,7 +53,7 @@ export interface HighlightRecording {
   duration_ms?: number;
 }
 
-export type HighlightType = "pictures" | "videos" | "recordings" | "links" | "posts";
+export type HighlightType = "shows" | "pictures" | "videos" | "recordings" | "links" | "posts";
 
 export interface Highlight {
   /** what kind of thing it is, for the type filters */
@@ -159,7 +159,13 @@ export interface EmbedMedia {
 }
 
 export interface Embed {
-  type: "link" | "image" | "video" | "gifv";
+  type: "link" | "image" | "video" | "gifv" | "show";
+  /** type "show": a published recording ("show" = a Show post, "video" = just the video) */
+  style?: "show" | "video";
+  show_id?: string;
+  duration_ms?: number | null;
+  people?: string[];
+  recorded_at?: number | null;
   url: string;
   title?: string | null;
   description?: string | null;
@@ -314,6 +320,7 @@ declare global {
         set: (o: { show: boolean; hideWhenFocused: boolean }) => void;
         update: (snap: unknown) => void;
         edit: (on: boolean) => void;
+        editShown?: () => void;
         onSnapshot: (cb: (s: any) => void) => () => void;
         onEdit: (cb: (on: boolean) => void) => () => void;
         /** main window → show (or clear with null) an alarm/reminder on the overlay */

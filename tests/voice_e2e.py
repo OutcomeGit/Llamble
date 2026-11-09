@@ -179,7 +179,8 @@ with sync_playwright() as p:
     st = ok(requests.get(B + "/api/admin/settings", headers=TA))["voice"]
     print("both rejoined on their own; voice server", st["state"])
 
-    # ---- Show: bran records both of them (voice + camera) in his app, and it lands on the server
+    # ---- Show: bran records both of them (voice + camera) in his app: it stays in his app
+    # until he shares it from the Library, which uploads it
     pages[0].evaluate("() => window.llambleDebug.toggleCamera()")
     pages[0].wait_for_function("() => window.llambleDebug.voice().camera", timeout=30000)
     # the other person sees the camera, can hide it (stops downloading it) and show it again
@@ -201,7 +202,21 @@ with sync_playwright() as p:
     pages[0].wait_for_function("() => !window.llambleDebug.recorder().showId", timeout=60000)
     rec = ok(requests.get(B + "/api/shows", headers=TB))
     mine = [x for x in rec if x["id"] == show["id"]]
-    assert mine and mine[0]["size"] > 50_000, rec
+    assert mine and mine[0]["on_server"] is False and mine[0]["size"] > 50_000, rec
+    assert requests.get(B + f"/api/shows/{show['id']}/video", headers=TA).status_code == 404, "nothing uploaded by itself"
+    local = pages[0].evaluate("async (id) => (await window.llambleDebug.localrec.list()).find((r) => r.id === id)", show["id"])
+    assert local and local["size"] == mine[0]["size"], (local, mine[0]["size"])
+    print(f"show kept on the recorder's device ({local['size'] // 1000} KB), nothing on the server; the other person sees it's on his device")
+    # the Library opens and lists it
+    pages[0].evaluate("() => window.llambleDebug.openLibrary()")
+    pages[0].wait_for_selector(".library .recording", timeout=15000)
+    assert "Something went wrong" not in pages[0].inner_text("body")
+    pages[0].screenshot(path="/tmp/library.png")
+    # sharing it uploads it
+    pages[0].evaluate("async (id) => window.llambleDebug.localrec.uploadToServer(id)", show["id"])
+    rec = ok(requests.get(B + "/api/shows", headers=TB))
+    mine = [x for x in rec if x["id"] == show["id"]]
+    assert mine[0]["on_server"] is True and mine[0]["size"] == local["size"], mine
     v = requests.get(B + f"/api/shows/{show['id']}/video", headers=TA)
     assert v.status_code == 200 and len(v.content) >= mine[0]["size"], (v.status_code, len(v.content), mine[0]["size"])
     open("/tmp/show.webm", "wb").write(v.content)
@@ -212,7 +227,7 @@ with sync_playwright() as p:
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "6", "-i", "/tmp/show.webm", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x36", "/tmp/frame.raw"], check=True)
     px = open("/tmp/frame.raw", "rb").read()
     assert len(set(px)) > 8, "recorded frame is blank"
-    print(f"show recorded: {mine[0]['size'] // 1000} KB of 1080p video with sound, visible to the other person in it")
+    print(f"show shared from the Library: {mine[0]['size'] // 1000} KB of 1080p video with sound, uploaded whole, visible to the other person in it")
 
     # ---- "Hey Llamble" with the real speech tools in the image (Whisper tiny + Kokoro)
     ok(requests.put(B + "/api/admin/voice-ai", headers=TA, json={"enabled": True, "stt": "whisper-tiny.en"}))

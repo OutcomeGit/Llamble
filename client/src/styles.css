@@ -1134,3 +1134,13 @@ body.pop-body > .pop { height: 100vh; }
 .al-event-time { min-width: 140px; font-weight: 600; }
 .al-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 8px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(240, 178, 50, 0.5); background: rgba(240, 178, 50, 0.12); color: inherit; font-size: 13px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-sound-warn { color: #ffb020; }
+
+/* Library */
+.library { padding: 24px 32px; overflow-y: auto; height: 100%; max-width: 980px; }
+.library-title { margin: 0 0 8px; font-size: 24px; }
+.publish-panel { margin-top: 10px; padding: 10px 12px; background: #2b2d31; border-radius: 8px; }
+.publish-panel select { margin-left: 4px; }
+/* a published Show in chat */
+.show-post { margin-top: 6px; padding: 10px 12px; border-left: 4px solid #8ad13c; background: #2b2d31; border-radius: 6px; max-width: 640px; }
+.show-post-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.show-post-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #8ad13c; }

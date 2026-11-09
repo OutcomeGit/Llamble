@@ -234,8 +234,8 @@ pub async fn edit_message(State(state): State<Shared>, auth: AuthUser, Path(mid)
     if content.chars().count() > 4000 {
         return Err(AppError::bad("message too long"));
     }
-    sqlx::query("UPDATE messages SET content = ?, edited_at = ?, embeds = '[]' WHERE id = ?")
-        .bind(&content).bind(now_ms()).bind(&mid).execute(&state.db).await?;
+    sqlx::query("UPDATE messages SET content = ?, edited_at = ?, embeds = ? WHERE id = ?")
+        .bind(&content).bind(now_ms()).bind(Value::Array(kept_embeds(&row.embeds)).to_string()).bind(&mid).execute(&state.db).await?;
     let msg = load_message(&state.db, &mid).await?;
     state.emit_channel(&ch, "MESSAGE_UPDATE", &msg).await;
     if p & perms::EMBED_LINKS != 0 && state.s().unfurl_links {
@@ -255,6 +255,19 @@ pub async fn delete_message(State(state): State<Shared>, auth: AuthUser, Path(mi
     sqlx::query("DELETE FROM messages WHERE id = ?").bind(&mid).execute(&state.db).await?;
     state.emit_channel(&ch, "MESSAGE_DELETE", &json!({ "id": mid, "channel_id": ch.id })).await;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Remove a message for everyone (no permission checks: callers decide).
+pub async fn remove_message(state: &Shared, mid: &str) {
+    let Ok((_, ch)) = get_msg_and_channel(state, mid).await else { return };
+    crate::api::highlights::forget(state, "message_id", mid).await;
+    let _ = sqlx::query("DELETE FROM messages WHERE id = ?").bind(mid).execute(&state.db).await;
+    state.emit_channel(&ch, "MESSAGE_DELETE", &json!({ "id": mid, "channel_id": ch.id })).await;
+}
+
+/// The embeds an edit or a link preview must keep: a published show's player.
+pub fn kept_embeds(embeds: &str) -> Vec<Value> {
+    serde_json::from_str::<Vec<Value>>(embeds).unwrap_or_default().into_iter().filter(|e| e["type"] == "show").collect()
 }
 
 pub async fn add_reaction(State(state): State<Shared>, auth: AuthUser, Path((mid, emoji)): Path<(String, String)>) -> ApiResult<Json<Value>> {

@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS board_prefs (
 // ---------------------------------------------------------------------------------------
 // board preferences
 
-pub const HIGHLIGHT_TYPES: [&str; 5] = ["pictures", "videos", "recordings", "links", "posts"];
+pub const HIGHLIGHT_TYPES: [&str; 6] = ["shows", "pictures", "videos", "recordings", "links", "posts"];
 
 #[derive(Clone, Debug)]
 pub struct Pref {

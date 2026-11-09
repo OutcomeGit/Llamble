@@ -393,6 +393,10 @@ pub fn spawn_unfurl(state: Shared, ch: Channel, message_id: String, content: Str
         if embeds.is_empty() {
             return;
         }
+        let cur: String = sqlx::query_scalar("SELECT embeds FROM messages WHERE id = ?").bind(&message_id).fetch_one(&state.db).await.unwrap_or_default();
+        let mut keep = crate::api::messages::kept_embeds(&cur);
+        keep.extend(embeds);
+        let embeds = keep;
         let r = sqlx::query("UPDATE messages SET embeds = ? WHERE id = ? AND content = ?")
             .bind(Value::Array(embeds).to_string())
             .bind(&message_id)

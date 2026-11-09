@@ -15,6 +15,7 @@ import { Modals } from "./Modals";
 import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
 import { VoiceView } from "./VoiceView";
+import { Library } from "./Library";
 
 export function Shell() {
   const ready = useStore((s) => s.ready);
@@ -23,6 +24,7 @@ export function Shell() {
   const channel = useStore((s) => (channelId ? s.channels[channelId] : undefined));
   const memberListOpen = useStore((s) => s.memberListOpen);
   const selectedGuild = useStore((s) => s.selectedGuild);
+  const homePage = useStore((s) => s.homePage);
   const guildView = useStore((s) => s.guildView[s.selectedGuild]);
   const ringing = useStore((s) => s.ringing);
   const [update, setUpdate] = useState<string | null>(null);
@@ -79,7 +81,11 @@ export function Shell() {
         <Sidebar />
         <main className="main">
           {selectedGuild === "@home" ? (
-            <Board key="@home" scope="@home" />
+            homePage === "library" ? (
+              <Library />
+            ) : (
+              <Board key="@home" scope="@home" />
+            )
           ) : guildView ? (
             <Board key={selectedGuild} scope={selectedGuild} />
           ) : channel ? (

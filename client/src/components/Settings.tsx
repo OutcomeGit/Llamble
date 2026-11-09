@@ -22,7 +22,7 @@ import { RecoveryCodeSection } from "./Recovery";
 import { CameraFxPicker } from "./CameraFx";
 import { PicturesAdmin } from "./PicturesAdmin";
 import { BotToolsAdmin, GuildVoiceListen, MicTest, VoiceAiAdmin } from "./VoiceAi";
-import { Recordings } from "./Show";
+import { Recordings } from "./Library";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
 class PageGuard extends React.Component<{ children: React.ReactNode; page: string }, { err: Error | null }> {
@@ -1561,8 +1561,8 @@ function ServerConfig() {
       <div className="profile-section">Recording</div>
       <div className="perm-row">
         <div>
-          <div className="bold">Allow recording on the server</div>
-          <div className="muted small">Lets show recordings be saved on the NAS instead of a member's PC. Everyone included is always asked first.</div>
+          <div className="bold">Allow saving show recordings to the server</div>
+          <div className="muted small">Off: a show is kept on the device that records it, and only reaches the server if someone shares it (Highlights, Publish as a Show, Post the video). On: whoever starts a show can also choose to save it straight to this server as it records, e.g. for professional shows. Everyone included is always asked first either way.</div>
         </div>
         <input type="checkbox" className="switch" checked={f.allow_server_recording} onChange={(e) => set("allow_server_recording", e.target.checked)} />
       </div>
@@ -2157,7 +2157,7 @@ function OverlaySettings() {
           )}
         </div>
       )}
-      {widgetRow("alerts", "Alerts", "Pop-ups for direct messages and @mentions")}
+      {widgetRow("alerts", "Alerts", "Pop-ups for direct messages and @mentions. (Alarms aren't part of this: they always ring on top of games, even with the overlay off. Reminders pop up over games while the overlay is on.)")}
       {p.widgets.alerts.on &&
         row(
           "Alerts stay for",

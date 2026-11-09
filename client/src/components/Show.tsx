@@ -1,11 +1,8 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { Track } from "livekit-client";
-import { api, media } from "../api";
-import { can, memberName, useStore } from "../store";
-import { P } from "../types";
+import { memberName, useStore } from "../store";
 import { toast } from "../ui";
-import { addHighlight } from "../notes";
 import { canShareScreen, defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
 import { openModal } from "../ui";
 
@@ -49,6 +46,8 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
   const [picks, setPicks] = useState<Record<string, Streams>>({});
   const [recorder, setRecorder] = useState(me.id);
   const [director, setDirector] = useState(me.id);
+  const serverOk = useStore((s) => !!s.config.media?.server_recording);
+  const [saveTo, setSaveTo] = useState<"member" | "server">("member");
   const [res, setRes] = useState<RecRes>((localStorage.getItem("llamble.showRes") as RecRes) || "1080p");
   const [busy, setBusy] = useState(false);
   const bot = useStore((s) => s.config.bot?.id);
@@ -64,6 +63,7 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
         people: people.map((u) => ({ user_id: u, ...(picks[u] || ALL) })),
         recorder_id: recorder,
         director_id: director,
+        record_on: serverOk ? saveTo : "member",
       });
       onClose();
       if ((picks[me.id] || ALL).screen && people.includes(me.id) && !useVoice.getState().screen) pickScreen();
@@ -112,6 +112,15 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
             ))}
           </select>
         </label>
+        {serverOk && (
+          <label title="Kept on the recorder's device unless someone shares it, or saved straight to this server as it records">
+            Saved
+            <select value={saveTo} onChange={(e) => setSaveTo(e.target.value as "member" | "server")}>
+              <option value="member">{recorder === me.id ? "On my device" : "On their device"}</option>
+              <option value="server">To the server</option>
+            </select>
+          </label>
+        )}
         <label>
           Director
           <select value={director} onChange={(e) => setDirector(e.target.value)}>
@@ -134,7 +143,8 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
         )}
       </div>
       <p className="muted small">
-        Everyone picked gets asked first and can say yes to some, all, or none, and change their mind any time. Kids are covered by their parent. Everyone in the call sees REC while it records.
+        Everyone picked gets asked first and can say yes to some, all, or none, and change their mind any time. Kids are covered by their parent. Everyone in the call sees REC while it records.{" "}
+        {saveTo === "server" && serverOk ? "It's saved on the server as it records." : "It's kept on the recorder's device (their Library → Recordings) and only reaches the server if they share it."}
       </p>
       <button className="btn primary" disabled={busy || !people.length} onClick={go}>
         Ask everyone
@@ -180,7 +190,7 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
         {rec.showId === show.id && (
           <span className="muted small">
             {" "}
-            · saved {(rec.uploaded / 1e6).toFixed(0)} MB{rec.error ? " · " + rec.error : ""}
+            · {(rec.uploaded / 1e6).toFixed(0)} MB {rec.where === "server" ? "saved to the server" : "saved on this device"}{rec.error ? " · " + rec.error : ""}
             {soundWarn && <b className="rec-sound-warn"> · 🔇 Tap anywhere to turn on sound in the recording</b>}
           </span>
         )}
@@ -454,68 +464,6 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
 }
 
 // ---------------------------------------------------------------- recordings
-
-/** The server a show's voice channel belongs to (none for DM calls). */
-function guildOf(channelId: string): string | null {
-  return useStore.getState().channels[channelId]?.guild_id ?? null;
-}
-
-export function Recordings() {
-  const [list, setList] = useState<(Show & { channel_name?: string })[] | null>(null);
-  const me = useStore((s) => s.me);
-  const name = (uid: string) => memberName(null, useStore.getState().users[uid]);
-  const load = () => api("/api/shows").then(setList).catch(() => setList([]));
-  useEffect(() => {
-    load();
-  }, []);
-  if (!list) return <p className="muted">Loading…</p>;
-  return (
-    <div>
-      <h2>Recordings</h2>
-      <p className="muted small">Shows you were in, crewed, or that your kids were in.</p>
-      {!list.length && <p className="muted">No recordings yet. Start one with the 🎬 button in a voice call.</p>}
-      {list.map((s) => (
-        <div key={s.id} className="recording">
-          <div className="row gap" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
-            <div>
-              <b>{s.title || "Show"}</b>{" "}
-              <span className="muted small">
-                {s.channel_name ? "🔊 " + s.channel_name + " · " : ""}
-                {s.started_at ? new Date(s.started_at).toLocaleString() : ""}
-                {s.started_at && s.ended_at ? ` · ${Math.round((s.ended_at - s.started_at) / 60000)} min` : ""} · {(s.size / 1e6).toFixed(0)} MB
-              </span>
-              <div className="muted small">With {s.people.filter((p) => p.consent && (p.consent.voice || p.consent.camera || p.consent.screen)).map((p) => name(p.user_id)).join(", ")}</div>
-            </div>
-            <span className="row gap">
-              <a className="btn small" href={media(`/api/shows/${s.id}/video`)} download>
-                Download
-              </a>
-              {guildOf(s.channel_id) && can(guildOf(s.channel_id)!, P.ADD_HIGHLIGHTS) && (
-                <button
-                  className="btn small"
-                  title="Add this recording to the server's Highlights"
-                  onClick={() =>
-                    addHighlight(guildOf(s.channel_id)!, { show_id: s.id })
-                      .then(() => toast("Added to Highlights"))
-                      .catch((e) => toast(e.message, "error"))
-                  }
-                >
-                  ✨ Add to Highlights
-                </button>
-              )}
-              {(s.initiator_id === me?.id || me?.is_admin) && (
-                <button className="btn small red" onClick={() => api(`/api/shows/${s.id}`, { method: "DELETE" }).then(load).catch((e) => toast(e.message, "error"))}>
-                  Delete
-                </button>
-              )}
-            </span>
-          </div>
-          <Player src={media(`/api/shows/${s.id}/video`)} />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /** Browser-recorded WebM has no length written in it; this makes the seek bar work. */
 export function Player({ src }: { src: string }) {

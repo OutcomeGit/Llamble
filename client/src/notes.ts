@@ -227,6 +227,8 @@ export function highlightType(h: Highlight): HighlightType {
   if (h.kind === "recording") return "recordings";
   const m = h.message;
   const files = m?.attachments || [];
+  if (m?.embeds?.some((e) => e.type === "show" && e.style !== "video")) return "shows";
+  if (m?.embeds?.some((e) => e.type === "show")) return "videos";
   if (files.some((a) => (a.mime || "").startsWith("video/"))) return "videos";
   if (files.some((a) => (a.mime || "").startsWith("image/"))) return "pictures";
   if ((m?.embeds && m.embeds.length) || /https?:\/\//.test(m?.content || "")) return "links";

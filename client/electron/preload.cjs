@@ -17,6 +17,16 @@ contextBridge.exposeInMainWorld("llambleNative", {
     return () => ipcRenderer.removeListener("hotkey", h);
   },
   metrics: () => ipcRenderer.invoke("app-metrics"),
+  recordings: {
+    begin: (id, meta) => ipcRenderer.invoke("rec-begin", id, meta),
+    append: (id, data) => ipcRenderer.invoke("rec-append", id, data),
+    meta: (id, meta) => ipcRenderer.invoke("rec-meta", id, meta),
+    list: () => ipcRenderer.invoke("rec-list"),
+    read: (id, offset, length) => ipcRenderer.invoke("rec-read", id, offset, length),
+    remove: (id) => ipcRenderer.invoke("rec-remove", id),
+    reveal: (id) => ipcRenderer.invoke("rec-reveal", id),
+    folder: () => ipcRenderer.invoke("rec-folder"),
+  },
   ptt: {
     start: (vk) => ipcRenderer.invoke("ptt-start", vk),
     stop: () => ipcRenderer.invoke("ptt-stop"),
@@ -76,6 +86,7 @@ contextBridge.exposeInMainWorld("llambleNative", {
     set: (o) => ipcRenderer.send("overlay-set", o),
     update: (snap) => ipcRenderer.send("overlay-update", snap),
     edit: (on) => ipcRenderer.send("overlay-edit", on),
+    editShown: () => ipcRenderer.send("overlay-edit-shown"),
     onSnapshot: (cb) => {
       const h = (_e, s) => cb(s);
       ipcRenderer.on("overlay-snapshot", h);

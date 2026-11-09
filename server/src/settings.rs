@@ -195,7 +195,7 @@ pub async fn put_settings(State(state): State<Shared>, auth: AuthUser, Json(req)
         &json!({
             "max_upload_bytes": s.max_upload_bytes(),
             "guild_create": s.guild_create,
-            "media": { "max_share": s.max_share, "max_camera": s.max_camera, "mic_default_kbps": s.mic_default_kbps, "mic_max_kbps": s.mic_max_kbps },
+            "media": { "max_share": s.max_share, "max_camera": s.max_camera, "mic_default_kbps": s.mic_default_kbps, "mic_max_kbps": s.mic_max_kbps, "server_recording": s.allow_server_recording },
         }),
     );
     Ok(Json(json!({ "settings": s })))

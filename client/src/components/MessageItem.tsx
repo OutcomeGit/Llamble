@@ -8,6 +8,7 @@ import { copy, openMenu, openModal, setReply, toast, useUI } from "../ui";
 import { Avatar, BotTag, Icon, formatTime } from "./common";
 import { EmojiPicker } from "./Pickers";
 import { addHighlight } from "../notes";
+import { Player } from "./Show";
 
 export const MessageItem = memo(function MessageItem({ msg, guildId, compact, readOnly }: { msg: Message; guildId: string | null; compact: boolean; readOnly?: boolean }) {
   const me = useStore((s) => s.me)!;
@@ -331,8 +332,29 @@ function Spoilable({ spoiler, children }: { spoiler: boolean; children: React.Re
   );
 }
 
+function ShowEmbed({ e }: { e: Embed }) {
+  const users = useStore((s) => s.users);
+  const mins = e.duration_ms ? Math.max(1, Math.round(e.duration_ms / 60000)) : null;
+  if (e.style === "video") return <Player src={media(e.url)} />;
+  return (
+    <div className="show-post">
+      <div className="show-post-head">
+        <span className="show-post-tag">🎬 Show</span>
+        <b>{e.title || "Show"}</b>
+        <span className="muted small">
+          {mins ? ` · ${mins} min` : ""}
+          {e.recorded_at ? ` · ${new Date(e.recorded_at).toLocaleDateString()}` : ""}
+        </span>
+      </div>
+      {!!e.people?.length && <div className="muted small">With {e.people.map((u) => memberName(null, users[u])).join(", ")}</div>}
+      <Player src={media(e.url)} />
+    </div>
+  );
+}
+
 function EmbedView({ e }: { e: Embed }) {
   const [playing, setPlaying] = useState(false);
+  if (e.type === "show") return <ShowEmbed e={e} />;
   if (e.type === "image" && e.image) {
     return (
       <img

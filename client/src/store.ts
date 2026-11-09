@@ -10,7 +10,7 @@ export interface ServerConfig {
   version?: string;
   client_download?: string;
   /** server-wide limits set by the Master Admin */
-  media?: { max_share: string; max_camera: string; mic_default_kbps?: number; mic_max_kbps?: number };
+  media?: { max_share: string; max_camera: string; mic_default_kbps?: number; mic_max_kbps?: number; server_recording?: boolean };
   bot?: { id: string; name: string; server_backend: boolean; worker_policy: string };
 }
 
@@ -43,6 +43,8 @@ interface State {
   boardSection: "notes" | "highlights" | null;
   /** what each board shows ("@home" or a server id): everything, or one kind */
   boardFilter: Record<string, BoardFilter>;
+  /** what Home's main area shows: the board, or the Library */
+  homePage: "board" | "library";
   /** notes I can see (Home's "For you" and boards I've opened) */
   notes: Record<string, Note>;
   highlights: Record<string, Highlight>;
@@ -80,6 +82,7 @@ export const useStore = create<State>(() => ({
   guildView: {},
   boardSection: null,
   boardFilter: {},
+  homePage: "board",
   notes: {},
   highlights: {},
   news: {},
@@ -109,7 +112,12 @@ export type BoardFilter = "all" | "notes" | "highlights" | "news";
 
 export function openHome(filter: BoardFilter = "all") {
   localStorage.setItem("llamble.lastGuild", "@home");
-  set({ selectedGuild: "@home", boardFilter: { ...get().boardFilter, "@home": filter } });
+  set({ selectedGuild: "@home", homePage: "board", boardFilter: { ...get().boardFilter, "@home": filter } });
+}
+
+export function openLibrary() {
+  localStorage.setItem("llamble.lastGuild", "@home");
+  set({ selectedGuild: "@home", homePage: "library" });
 }
 
 /** Open a server's board in the main area, showing everything or just notes / highlights. */

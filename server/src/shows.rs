@@ -7,8 +7,14 @@
 //! everyone in the channel sees REC.
 //!
 //! The recorder's app mixes the picture and sound (auto-switching to whoever talks unless
-//! the director holds a shot) and uploads the video in pieces as it goes, so a crash
-//! doesn't lose the recording. People in the show, their parents and admins can watch it.
+//! the director holds a shot). Where the video goes:
+//! - normally it stays on the recorder's device (their Library → Recordings). Nothing reaches
+//!   the server until they choose to share it: Add to Highlights, Publish as a Show, or Post
+//!   the video. Only then is it uploaded (in pieces, resumable).
+//! - if the instance admin allows it (off by default) a show can instead be saved straight
+//!   to the server as it records ("record_on": "server"), streamed up a few seconds at a time.
+//! People in the show, their parents and admins can watch a recording that's on the server;
+//! once it's published or highlighted, so can everyone who can see where it was put.
 use crate::error::{new_id, now_ms, ApiResult, AppError};
 use crate::models::load_channel;
 use crate::state::{AuthUser, Shared};
@@ -60,6 +66,12 @@ CREATE TABLE IF NOT EXISTS shows (
     next_seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_shows_channel ON shows(channel_id, created_at);
+CREATE TABLE IF NOT EXISTS show_posts (
+    message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    show_id TEXT NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_show_posts_show ON show_posts(show_id);
 CREATE TABLE IF NOT EXISTS show_people (
     show_id TEXT NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL,
@@ -71,6 +83,12 @@ CREATE TABLE IF NOT EXISTS show_people (
     )
     .execute(pool)
     .await?;
+    // where the recording is: 'member' (the recorder's device) or 'server' (streamed to the NAS)
+    crate::db::add_column(pool, "shows", "record_on", "TEXT NOT NULL DEFAULT 'member'").await?;
+    // is the video file on the server? Recordings made before this existed all were (DEFAULT 1).
+    crate::db::add_column(pool, "shows", "on_server", "INTEGER NOT NULL DEFAULT 1").await?;
+    // length of a recording kept on a device, as its app reported it
+    crate::db::add_column(pool, "shows", "local_size", "INTEGER NOT NULL DEFAULT 0").await?;
     Ok(())
 }
 
@@ -95,9 +113,13 @@ struct ShowRow {
     ended_at: Option<i64>,
     size: i64,
     next_seq: i64,
+    record_on: String,
+    on_server: bool,
+    local_size: i64,
 }
 
 async fn load(state: &Shared, id: &str) -> ApiResult<ShowRow> {
+    #[allow(clippy::type_complexity)]
     let r: Option<(String, String, String, String, String, String, bool, bool, String, String, i64, Option<i64>, Option<i64>, i64, i64)> = sqlx::query_as(
         "SELECT id, channel_id, title, initiator_id, recorder_id, director_id, recorder_ok, director_ok, status, state, created_at, started_at, ended_at, size, next_seq FROM shows WHERE id = ?",
     )
@@ -105,6 +127,8 @@ async fn load(state: &Shared, id: &str) -> ApiResult<ShowRow> {
     .fetch_optional(&state.db)
     .await?;
     let r = r.ok_or_else(AppError::not_found)?;
+    let (record_on, on_server, local_size): (String, bool, i64) =
+        sqlx::query_as("SELECT record_on, on_server, local_size FROM shows WHERE id = ?").bind(id).fetch_one(&state.db).await?;
     Ok(ShowRow {
         id: r.0,
         channel_id: r.1,
@@ -121,6 +145,9 @@ async fn load(state: &Shared, id: &str) -> ApiResult<ShowRow> {
         ended_at: r.12,
         size: r.13,
         next_seq: r.14,
+        record_on,
+        on_server,
+        local_size,
     })
 }
 
@@ -142,10 +169,17 @@ async fn show_json(state: &Shared, s: &ShowRow) -> ApiResult<Value> {
         "initiator_id": s.initiator_id, "recorder_id": s.recorder_id, "director_id": s.director_id,
         "recorder_ok": s.recorder_ok, "director_ok": s.director_ok,
         "status": s.status, "state": serde_json::from_str::<Value>(&s.state).unwrap_or(json!({})),
-        "created_at": s.created_at, "started_at": s.started_at, "ended_at": s.ended_at, "size": s.size,
+        "created_at": s.created_at, "started_at": s.started_at, "ended_at": s.ended_at,
+        "size": if s.on_server { s.size } else { s.local_size },
         "people": ppl,
-        "video_url": (s.status == "ended" && s.size > 0).then(|| format!("/api/shows/{}/video", s.id)),
+        "record_on": s.record_on,
+        "on_server": s.on_server && s.status == "ended" && s.size > 0,
+        "video_url": has_video(s).then(|| format!("/api/shows/{}/video", s.id)),
     }))
+}
+
+fn has_video(s: &ShowRow) -> bool {
+    s.status == "ended" && s.on_server && s.size > 0
 }
 
 /// Who hears about a show: everyone in the call, everyone in it, and its crew.
@@ -183,6 +217,19 @@ async fn can_watch(state: &Shared, auth: &AuthUser, s: &ShowRow) -> bool {
             return true;
         }
     }
+    // shared: posted somewhere they can see, or highlighted in its own server
+    let mut places: Vec<String> = sqlx::query_scalar("SELECT channel_id FROM show_posts WHERE show_id = ?").bind(&s.id).fetch_all(&state.db).await.unwrap_or_default();
+    let highlighted: Option<i64> = sqlx::query_scalar("SELECT 1 FROM highlights WHERE show_id = ?").bind(&s.id).fetch_optional(&state.db).await.unwrap_or(None);
+    if highlighted.is_some() {
+        places.push(s.channel_id.clone());
+    }
+    for cid in places {
+        if let Ok(ch) = load_channel(&state.db, &cid).await {
+            if crate::perms::require_channel(&state.db, &ch, &auth.id, crate::perms::VIEW).await.is_ok() || crate::kids::guardian_can_read(state, &ch, &auth.id).await {
+                return true;
+            }
+        }
+    }
     false
 }
 
@@ -190,7 +237,7 @@ async fn can_watch(state: &Shared, auth: &AuthUser, s: &ShowRow) -> bool {
 /// "duration_ms") if `auth` may watch it and it has video.
 pub async fn recording_for(state: &Shared, auth: &AuthUser, id: &str) -> Option<Value> {
     let s = load(state, id).await.ok()?;
-    if s.status != "ended" || s.size <= 0 || !can_watch(state, auth, &s).await {
+    if !has_video(&s) || !can_watch(state, auth, &s).await {
         return None;
     }
     let mut v = show_json(state, &s).await.ok()?;
@@ -240,11 +287,9 @@ pub struct CreateShow {
 
 pub async fn create(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>, Json(req): Json<CreateShow>) -> ApiResult<Json<Value>> {
     let ch = require_in_channel(&state, &auth, &cid).await?;
-    if req.record_on == "server" {
-        if !state.s().allow_server_recording {
-            return Err(AppError::bad("recording on the server is turned off (Master Admin: Settings → Server)"));
-        }
-        return Err(AppError::bad("recording on the server isn't available yet; pick a member's app"));
+    let on_server = req.record_on == "server";
+    if on_server && !state.s().allow_server_recording {
+        return Err(AppError::bad("saving recordings to the server is turned off on this instance"));
     }
     let busy: Option<String> = sqlx::query_scalar("SELECT id FROM shows WHERE channel_id = ? AND status IN ('setup','recording')").bind(&cid).fetch_optional(&state.db).await?;
     if busy.is_some() {
@@ -263,7 +308,7 @@ pub async fn create(State(state): State<Shared>, auth: AuthUser, Path(cid): Path
     }
     let id = new_id();
     let title: String = req.title.trim().chars().take(100).collect();
-    sqlx::query("INSERT INTO shows (id, channel_id, title, initiator_id, recorder_id, director_id, recorder_ok, director_ok, status, created_at) VALUES (?,?,?,?,?,?,?,?,'setup',?)")
+    sqlx::query("INSERT INTO shows (id, channel_id, title, initiator_id, recorder_id, director_id, recorder_ok, director_ok, status, created_at, record_on, on_server) VALUES (?,?,?,?,?,?,?,?,'setup',?,?,?)")
         .bind(&id)
         .bind(&cid)
         .bind(&title)
@@ -273,6 +318,8 @@ pub async fn create(State(state): State<Shared>, auth: AuthUser, Path(cid): Path
         .bind(recorder == auth.id)
         .bind(director == auth.id)
         .bind(now_ms())
+        .bind(if on_server { "server" } else { "member" })
+        .bind(on_server)
         .execute(&state.db)
         .await?;
     for p in &req.people {
@@ -385,8 +432,10 @@ pub async fn start(State(state): State<Shared>, auth: AuthUser, Path(id): Path<S
     if !s.recorder_ok {
         return Err(AppError::bad("waiting for the recorder to accept"));
     }
-    tokio::fs::create_dir_all(state.cfg.data_dir.join("recordings")).await.map_err(|e| AppError::bad(e.to_string()))?;
-    let _ = tokio::fs::remove_file(video_path(&state, &id)).await;
+    if s.on_server {
+        tokio::fs::create_dir_all(state.cfg.data_dir.join("recordings")).await.map_err(|e| AppError::bad(e.to_string()))?;
+        let _ = tokio::fs::remove_file(video_path(&state, &id)).await;
+    }
     sqlx::query("UPDATE shows SET status = 'recording', started_at = ?, director_ok = 1 WHERE id = ?").bind(now_ms()).bind(&id).execute(&state.db).await?;
     Ok(Json(broadcast(&state, &id).await?))
 }
@@ -417,15 +466,21 @@ pub async fn set_state(State(state): State<Shared>, auth: AuthUser, Path(id): Pa
     Ok(Json(broadcast(&state, &id).await?))
 }
 
-/// The recorder's app sends the video in order, a few seconds at a time.
+/// The recorder's app sends the video in order, a few seconds at a time: live while recording
+/// when the show is saved to the server, or afterwards when they share a recording kept on
+/// their device (after `upload_begin`).
 pub async fn upload_chunk(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
     let s = load(&state, &id).await?;
     if s.recorder_id != auth.id {
         return Err(AppError::forbidden());
     }
-    let late_ok = s.status == "ended" && now_ms() - s.ended_at.unwrap_or(0) < 120_000;
-    if s.status != "recording" && !late_ok {
-        return Err(AppError::bad("not recording"));
+    if s.record_on == "server" {
+        let late_ok = s.status == "ended" && now_ms() - s.ended_at.unwrap_or(0) < 120_000;
+        if s.status != "recording" && !late_ok {
+            return Err(AppError::bad("not recording"));
+        }
+    } else if s.status != "ended" || s.on_server {
+        return Err(AppError::bad("start the upload first"));
     }
     let seq: i64 = headers.get("x-seq").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).ok_or_else(|| AppError::bad("missing x-seq"))?;
     if seq < s.next_seq {
@@ -439,6 +494,117 @@ pub async fn upload_chunk(State(state): State<Shared>, auth: AuthUser, Path(id):
     f.flush().await.map_err(|e| AppError::bad(e.to_string()))?;
     sqlx::query("UPDATE shows SET size = size + ?, next_seq = next_seq + 1 WHERE id = ?").bind(body.len() as i64).bind(&id).execute(&state.db).await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct UploadDone {
+    pub size: i64,
+}
+
+/// Before uploading a recording kept on the recorder's device: start a clean file.
+pub async fn upload_begin(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let s = load(&state, &id).await?;
+    if s.recorder_id != auth.id {
+        return Err(AppError::forbidden_msg("only the device that recorded it has the video"));
+    }
+    if s.status != "ended" {
+        return Err(AppError::bad("this show isn't finished"));
+    }
+    if s.on_server && s.size > 0 {
+        return Ok(Json(json!({ "already": true, "show": show_json(&state, &s).await? })));
+    }
+    tokio::fs::create_dir_all(state.cfg.data_dir.join("recordings")).await.map_err(|e| AppError::bad(e.to_string()))?;
+    let _ = tokio::fs::remove_file(video_path(&state, &id)).await;
+    sqlx::query("UPDATE shows SET on_server = 0, size = 0, next_seq = 0 WHERE id = ?").bind(&id).execute(&state.db).await?;
+    Ok(Json(json!({ "already": false })))
+}
+
+/// After the last piece: the server checks it got all of it and it's ready to share.
+pub async fn upload_done(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>, Json(req): Json<UploadDone>) -> ApiResult<Json<Value>> {
+    let s = load(&state, &id).await?;
+    if s.recorder_id != auth.id {
+        return Err(AppError::forbidden());
+    }
+    if s.on_server && s.size > 0 {
+        return Ok(Json(show_json(&state, &s).await?));
+    }
+    let on_disk = tokio::fs::metadata(video_path(&state, &id)).await.map(|m| m.len() as i64).unwrap_or(0);
+    if on_disk == 0 || on_disk != req.size || s.size != req.size {
+        return Err(AppError::bad(format!("the upload is incomplete ({on_disk} of {} bytes); try again", req.size)));
+    }
+    sqlx::query("UPDATE shows SET on_server = 1 WHERE id = ?").bind(&id).execute(&state.db).await?;
+    let s = load(&state, &id).await?;
+    Ok(Json(show_json(&state, &s).await?))
+}
+
+/// The recorder's app reports how big the recording it kept is (shown to the others in it).
+pub async fn local_size(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>, Json(req): Json<UploadDone>) -> ApiResult<Json<Value>> {
+    let s = load(&state, &id).await?;
+    if s.recorder_id != auth.id {
+        return Err(AppError::forbidden());
+    }
+    sqlx::query("UPDATE shows SET local_size = ? WHERE id = ?").bind(req.size.max(0)).bind(&id).execute(&state.db).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct Publish {
+    pub channel_id: String,
+    /// "show" (a Show post: title, who's in it) or "video" (just the video)
+    #[serde(default)]
+    pub style: String,
+    #[serde(default)]
+    pub comment: String,
+}
+
+/// Publish as a Show / Post the video: a post in a channel that plays the recording.
+/// The recording has to be on the server first (the app uploads it, then calls this).
+pub async fn publish(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>, headers: HeaderMap, Json(req): Json<Publish>) -> ApiResult<Json<Value>> {
+    let s = load(&state, &id).await?;
+    if !can_watch(&state, &auth, &s).await || ![&s.initiator_id, &s.recorder_id, &s.director_id].contains(&&auth.id) && !auth.is_admin {
+        return Err(AppError::forbidden_msg("only the show's crew can publish it"));
+    }
+    if !has_video(&s) {
+        return Err(AppError::bad("upload the recording first"));
+    }
+    let style = if req.style == "video" { "video" } else { "show" };
+    let title = if s.title.is_empty() { "Show".to_string() } else { s.title.clone() };
+    let comment = req.comment.trim().chars().take(2000).collect::<String>();
+    let content = match (style, comment.is_empty()) {
+        ("show", true) => format!("🎬 **{title}**"),
+        ("show", false) => format!("🎬 **{title}**\n{comment}"),
+        (_, true) => "🎬".to_string(),
+        (_, false) => comment.clone(),
+    };
+    let Json(msg) = crate::api::messages::create_message(
+        State(state.clone()),
+        auth.clone(),
+        Path(req.channel_id.clone()),
+        headers,
+        Json(crate::api::messages::CreateMsg { content, reply_to: None, attachments: vec![], nonce: None, effect: None, shared_from: None }),
+    )
+    .await?;
+    let mid = msg["id"].as_str().unwrap_or_default().to_string();
+    let with: Vec<String> = people(&state, &id)
+        .await?
+        .into_iter()
+        .filter(|(_, _, c)| c.map(|c| c.any()).unwrap_or(false))
+        .map(|(u, _, _)| u)
+        .collect();
+    let embed = json!({
+        "type": "show", "style": style, "show_id": id, "title": title,
+        "url": format!("/api/shows/{id}/video"),
+        "duration_ms": match (s.started_at, s.ended_at) { (Some(a), Some(b)) => json!(b - a), _ => Value::Null },
+        "people": with, "recorded_at": s.started_at,
+    });
+    sqlx::query("INSERT OR REPLACE INTO show_posts (message_id, show_id, channel_id) VALUES (?,?,?)").bind(&mid).bind(&id).bind(&req.channel_id).execute(&state.db).await?;
+    sqlx::query("UPDATE messages SET embeds = ? WHERE id = ?").bind(json!([embed]).to_string()).bind(&mid).execute(&state.db).await?;
+    let ch = load_channel(&state.db, &req.channel_id).await?;
+    let m = crate::models::load_message(&state.db, &mid).await?;
+    let mut payload = serde_json::to_value(&m).unwrap();
+    payload["guild_id"] = json!(ch.guild_id);
+    state.emit_channel(&ch, "MESSAGE_UPDATE", &payload).await;
+    Ok(Json(payload))
 }
 
 pub async fn stop(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
@@ -467,7 +633,7 @@ pub async fn list(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
         let s = load(&state, &id).await?;
         if ["setup", "recording"].contains(&s.status.as_str()) {
             live = show_json(&state, &s).await?;
-        } else if can_watch(&state, &auth, &s).await && s.size > 0 {
+        } else if can_watch(&state, &auth, &s).await && (has_video(&s) || s.status == "ended") {
             past.push(show_json(&state, &s).await?);
         }
     }
@@ -476,11 +642,22 @@ pub async fn list(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
 
 /// Recordings across the server that this person may watch (for parents: their kids').
 pub async fn mine(State(state): State<Shared>, auth: AuthUser) -> ApiResult<Json<Value>> {
-    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM shows WHERE status = 'ended' AND size > 0 ORDER BY created_at DESC LIMIT 300").fetch_all(&state.db).await?;
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM shows WHERE status = 'ended' ORDER BY created_at DESC LIMIT 300").fetch_all(&state.db).await?;
     let mut out = vec![];
     for id in ids {
         let s = load(&state, &id).await?;
-        if can_watch(&state, &auth, &s).await {
+        // people only see what's theirs here (a published show is watched where it was posted)
+        let theirs = auth.is_admin || [&s.initiator_id, &s.recorder_id, &s.director_id].contains(&&auth.id) || {
+            let mut t = false;
+            for (u, _, _) in people(&state, &s.id).await.unwrap_or_default() {
+                if u == auth.id || crate::kids::is_guardian(&state, &u, &auth.id).await {
+                    t = true;
+                    break;
+                }
+            }
+            t
+        };
+        if theirs && (has_video(&s) || s.record_on == "member") {
             let mut v = show_json(&state, &s).await?;
             if let Ok(ch) = load_channel(&state.db, &s.channel_id).await {
                 v["channel_name"] = json!(ch.name);
@@ -510,10 +687,15 @@ pub async fn video(State(state): State<Shared>, auth: AuthUser, Path(id): Path<S
 
 pub async fn delete(State(state): State<Shared>, auth: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let s = load(&state, &id).await?;
-    if s.initiator_id != auth.id && !auth.is_admin {
-        return Err(AppError::forbidden_msg("only whoever started the show (or an admin) can delete it"));
+    if s.initiator_id != auth.id && s.recorder_id != auth.id && !auth.is_admin {
+        return Err(AppError::forbidden_msg("only whoever started or recorded the show (or an admin) can delete it"));
     }
     let _ = tokio::fs::remove_file(video_path(&state, &id)).await;
+    // posts that played it go too
+    let posts: Vec<String> = sqlx::query_scalar("SELECT message_id FROM show_posts WHERE show_id = ?").bind(&id).fetch_all(&state.db).await.unwrap_or_default();
+    for mid in posts {
+        crate::api::messages::remove_message(&state, &mid).await;
+    }
     crate::api::highlights::forget(&state, "show_id", &id).await;
     sqlx::query("DELETE FROM shows WHERE id = ?").bind(&id).execute(&state.db).await?;
     Ok(Json(json!({ "ok": true })))

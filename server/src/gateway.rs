@@ -82,6 +82,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
                 "max_camera": state.s().max_camera,
                 "mic_default_kbps": state.s().mic_default_kbps,
                 "mic_max_kbps": state.s().mic_max_kbps,
+                "server_recording": state.s().allow_server_recording,
             },
             "public_domain": crate::remote::public_domain(state).await,
             "version": crate::config::server_version(),

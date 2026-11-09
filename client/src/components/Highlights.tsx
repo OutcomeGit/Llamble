@@ -37,6 +37,8 @@ function Visual({ h }: { h: Highlight }) {
       />
     );
   }
+  const show = m.embeds.find((x) => x.type === "show");
+  if (show) return <Player src={media(show.url)} />;
   const e = m.embeds.find((x) => x.image || x.video);
   if (e?.video) return <video className="hl-media" src={media(e.video.proxy_url)} muted loop autoPlay playsInline />;
   if (e?.image) return <img className="hl-media" src={media(e.image.proxy_url)} alt="" loading="lazy" />;

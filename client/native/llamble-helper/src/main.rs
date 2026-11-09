@@ -86,7 +86,7 @@ mod sys {
     use windows::core::PWSTR;
     use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE};
-    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
     use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
     use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER};
 
@@ -176,9 +176,11 @@ mod sys {
         for &pid in pids {
             unsafe {
                 let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { continue };
-                let mut c = PROCESS_MEMORY_COUNTERS { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32, ..Default::default() };
-                if GetProcessMemoryInfo(h, &mut c, c.cb).is_ok() {
-                    items.push(format!("{{\"pid\":{},\"mb\":{}}}", pid, c.WorkingSetSize / (1024 * 1024)));
+                // private memory (PrivateUsage), like Task Manager, not the working set (which
+                // includes memory shared with other programs)
+                let mut c = PROCESS_MEMORY_COUNTERS_EX { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32, ..Default::default() };
+                if GetProcessMemoryInfo(h, &mut c as *mut PROCESS_MEMORY_COUNTERS_EX as *mut PROCESS_MEMORY_COUNTERS, c.cb).is_ok() {
+                    items.push(format!("{{\"pid\":{},\"mb\":{}}}", pid, c.PrivateUsage / (1024 * 1024)));
                 }
                 let _ = CloseHandle(h);
             }

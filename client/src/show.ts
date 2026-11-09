@@ -1,12 +1,16 @@
 // Show: record a call like a produced show.
 // The recorder's app mixes the picture (auto-switching to whoever is talking unless the
-// director holds a shot) and the sound of everyone who said yes, records it, and uploads
-// it to the server a few seconds at a time so a crash never loses the recording.
+// director holds a shot) and the sound of everyone who said yes, and records it:
+//  - normally onto the recorder's own device (Library → Recordings), a few seconds at a time
+//    so a crash keeps everything; nothing reaches the server until they share it
+//  - or, if the show was set to save to the server (an instance option, off by default),
+//    streamed up to the server a few seconds at a time instead.
 import { create } from "zustand";
 import { Track, type Participant } from "livekit-client";
 import { api, session } from "./api";
 import { memberName, onEvent, useStore } from "./store";
 import { needVideo, participants, useVoice } from "./voice";
+import * as localrec from "./localrec";
 
 export interface Streams {
   voice: boolean;
@@ -42,6 +46,10 @@ export interface Show {
   size: number;
   people: ShowPerson[];
   video_url: string | null;
+  /** "member": kept on the recorder's device; "server": saved on the server as it records */
+  record_on?: "member" | "server";
+  /** the video is on the server (saved there, or shared from the device) */
+  on_server?: boolean;
 }
 
 /** live shows by channel; `status` only for channels you aren't part of */
@@ -404,7 +412,7 @@ function name(uid: string) {
 
 // ---------------------------------------------------------------- recorder
 
-export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean }>(() => ({
+export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean; where?: "device" | "server" }>(() => ({
   showId: null,
   uploaded: 0,
   pending: 0,
@@ -422,8 +430,27 @@ class Recorder {
   private queue: Blob[] = [];
   private sending = false;
   stopped = false;
+  private toServer: boolean;
+  private local: Promise<void> = Promise.resolve();
+  private localSize = 0;
 
   constructor(public showId: string, res: RecRes) {
+    const show = Object.values(useShows.getState().live).find((s) => s.id === showId);
+    this.toServer = show?.record_on === "server";
+    if (!this.toServer) {
+      const st = useStore.getState();
+      const ch = show ? st.channels[show.channel_id] : undefined;
+      this.local = localrec
+        .begin({
+          id: showId,
+          title: show?.title || "",
+          channel_id: show?.channel_id || "",
+          channel_name: ch?.name,
+          server_name: ch?.guild_id ? st.guilds[ch.guild_id]?.name : undefined,
+          started_at: show?.started_at || Date.now(),
+        })
+        .catch((e) => useRecorder.setState({ error: "Couldn't save on this device: " + (e?.message || e) }));
+    }
     const [w, h] = RES[res];
     this.comp = new Compositor(() => Object.values(useShows.getState().live).find((s) => s.id === this.showId), w, h);
     const [, , bitrate] = RES[res];
@@ -432,11 +459,24 @@ class Recorder {
     const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
     this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate, audioBitsPerSecond: 160_000 });
     this.rec.ondataavailable = (e) => {
-      if (e.data.size) {
+      if (!e.data.size) return;
+      if (this.toServer) {
         this.queue.push(e.data);
         useRecorder.setState({ pending: this.queue.length });
         this.pump();
+        return;
       }
+      // onto this device, in order
+      const piece = e.data;
+      this.local = this.local.then(() =>
+        localrec
+          .append(this.showId, piece)
+          .then((size) => {
+            this.localSize = size;
+            useRecorder.setState({ uploaded: size, error: null });
+          })
+          .catch((err) => useRecorder.setState({ error: "Couldn't save on this device: " + (err?.message || err) })),
+      );
     };
     this.unblockSound();
     this.rec.start(4000);
@@ -445,7 +485,7 @@ class Recorder {
       this.comp.draw();
       this.mixAudio();
     }, 33);
-    useRecorder.setState({ showId, uploaded: 0, pending: 0, error: null });
+    useRecorder.setState({ showId, uploaded: 0, pending: 0, error: null, where: this.toServer ? "server" : "device" });
   }
 
   /**
@@ -552,6 +592,16 @@ class Recorder {
     }
     this.comp.destroy();
     this.audio.close().catch(() => {});
+    if (!this.toServer) {
+      await this.local;
+      const s = useShows.getState();
+      const show = Object.values(s.live).find((x) => x.id === this.showId);
+      await localrec.updateMeta({ id: this.showId, ended_at: Date.now(), title: show?.title || "" } as localrec.RecMeta).catch(() => {});
+      // tell the others in it how big it is (they see "on <recorder>'s device")
+      await api(`/api/shows/${this.showId}/local-size`, { body: { size: this.localSize } }).catch(() => {});
+      useRecorder.setState({ showId: null });
+      return;
+    }
     // let every last piece reach the server (up to ~2 minutes of retries)
     this.pump();
     const until = Date.now() + 120_000;

@@ -9,13 +9,14 @@ const llm = require("./llm.cjs");
 // The app's own audio-processing files (noise suppression, noise gate) are served from
 // llamble-asset://audio/... : browsers won't load audio modules straight from disk (file://).
 protocol.registerSchemesAsPrivileged([
-  { scheme: "llamble-asset", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  { scheme: "llamble-asset", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ]);
 const ASSET_TYPES = { ".js": "text/javascript", ".wasm": "application/wasm" };
 function serveAssets() {
   const base = path.join(__dirname, "..", "dist", "audio");
   protocol.handle("llamble-asset", async (req) => {
     const u = new URL(req.url);
+    if (u.host === "recordings") return serveRecording(req, u);
     const full = path.normalize(path.join(base, decodeURIComponent(u.pathname)));
     if (u.host !== "audio" || !full.startsWith(base + path.sep)) return new Response("not found", { status: 404 });
     try {
@@ -27,6 +28,95 @@ function serveAssets() {
       return new Response("not found", { status: 404 });
     }
   });
+}
+
+// ---- recordings kept on this PC (Library → Recordings) ----
+// Shows recorded on this app are written to Videos\Llamble as they record. Nothing is sent
+// to the server unless the person shares one from the Library.
+const fsp = require("fs").promises;
+const REC_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const recDir = () => path.join(app.getPath("videos"), "Llamble");
+const recFile = (id) => path.join(recDir(), id + ".webm");
+const recMeta = (id) => path.join(recDir(), id + ".json");
+function checkId(id) {
+  if (typeof id !== "string" || !REC_ID.test(id)) throw new Error("bad recording id");
+  return id;
+}
+ipcMain.handle("rec-begin", async (_e, id, meta) => {
+  checkId(id);
+  await fsp.mkdir(recDir(), { recursive: true });
+  await fsp.writeFile(recFile(id), Buffer.alloc(0));
+  await fsp.writeFile(recMeta(id), JSON.stringify(meta || {}));
+  return true;
+});
+ipcMain.handle("rec-append", async (_e, id, data) => {
+  checkId(id);
+  await fsp.appendFile(recFile(id), Buffer.from(data));
+  return (await fsp.stat(recFile(id))).size;
+});
+ipcMain.handle("rec-meta", async (_e, id, meta) => {
+  checkId(id);
+  let cur = {};
+  try { cur = JSON.parse(await fsp.readFile(recMeta(id), "utf8")); } catch {}
+  await fsp.writeFile(recMeta(id), JSON.stringify({ ...cur, ...(meta || {}) }));
+  return true;
+});
+ipcMain.handle("rec-list", async () => {
+  let names = [];
+  try { names = await fsp.readdir(recDir()); } catch { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.endsWith(".webm")) continue;
+    const id = n.slice(0, -5);
+    if (!REC_ID.test(id)) continue;
+    let meta = { id, title: "", started_at: 0 };
+    try { meta = { ...meta, ...JSON.parse(await fsp.readFile(recMeta(id), "utf8")) }; } catch {}
+    try { out.push({ id, size: (await fsp.stat(recFile(id))).size, meta }); } catch {}
+  }
+  return out.sort((a, b) => (b.meta.started_at || 0) - (a.meta.started_at || 0));
+});
+ipcMain.handle("rec-read", async (_e, id, offset, length) => {
+  checkId(id);
+  const fh = await fsp.open(recFile(id), "r");
+  try {
+    const buf = Buffer.alloc(Math.max(0, Math.min(length | 0, 16 * 1024 * 1024)));
+    const { bytesRead } = await fh.read(buf, 0, buf.length, offset);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+});
+ipcMain.handle("rec-remove", async (_e, id) => {
+  checkId(id);
+  await fsp.rm(recFile(id), { force: true });
+  await fsp.rm(recMeta(id), { force: true });
+  return true;
+});
+ipcMain.handle("rec-reveal", async (_e, id) => {
+  checkId(id);
+  shell.showItemInFolder(recFile(id));
+  return true;
+});
+ipcMain.handle("rec-folder", () => recDir());
+// play a recording in the app (with seeking: Range requests)
+async function serveRecording(req, u) {
+  const id = decodeURIComponent(u.pathname.replace(/^\//, "").replace(/\.webm$/, ""));
+  if (!REC_ID.test(id)) return new Response("not found", { status: 404 });
+  let size;
+  try { size = (await fsp.stat(recFile(id))).size; } catch { return new Response("not found", { status: 404 }); }
+  const m = /bytes=(\d*)-(\d*)/.exec(req.headers.get("range") || "");
+  let start = 0, end = size - 1, status = 200;
+  if (m) {
+    start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+    end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+    status = 206;
+  }
+  if (size === 0 || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+  const { Readable } = require("stream");
+  const body = Readable.toWeb(require("fs").createReadStream(recFile(id), { start, end }));
+  const headers = { "content-type": "video/webm", "accept-ranges": "bytes", "content-length": String(end - start + 1) };
+  if (status === 206) headers["content-range"] = `bytes ${start}-${end}/${size}`;
+  return new Response(body, { status, headers });
 }
 
 // ---- push-to-talk: llamble-helper.exe watches the one chosen key, even while a game has focus ----
@@ -347,7 +437,10 @@ ipcMain.handle("app-metrics", async () => {
     else if (svc.includes("video_capture") || svc.includes("capture")) { label = "Camera & screen capture"; what = ""; }
     else if (svc.includes("storage")) { label = "Storage"; what = "saved settings and cache"; }
     else { label = m.type === "Utility" ? "Other helpers" : m.type; what = m.serviceName || m.name || ""; }
-    return { label, what, pid: m.pid, mb: Math.round((m.memory.workingSetSize || 0) / 1024), cpu: Math.round((m.cpu.percentCPUUsage || 0) * 10) / 10 };
+    // private memory (what Task Manager shows). Working set would count memory the processes
+    // share (Chromium's libraries, graphics buffers) once per process and add up to far too much.
+    const kb = m.memory.privateBytes ?? m.memory.workingSetSize ?? 0;
+    return { label, what, pid: m.pid, mb: Math.round(kb / 1024), cpu: Math.round((m.cpu.percentCPUUsage || 0) * 10) / 10 };
   });
   // our own extra programs (not part of Electron's list)
   const extra = [
@@ -436,6 +529,8 @@ function makeOverlay() {
   overlay.webContents.on("did-finish-load", () => {
     if (lastSnap) overlay.webContents.send("overlay-snapshot", lastSnap);
     if (overlayAlarm) overlay.webContents.send("overlay-alarm", { ...overlayAlarm, only: !overlayWanted });
+    // a window made just for "Move widgets" loads after we asked: tell it now
+    if (overlayEditing) overlay.webContents.send("overlay-edit", true);
   });
   overlay.on("closed", () => { overlay = null; overlayEditing = false; overlayInteractive = false; });
 }
@@ -453,8 +548,19 @@ function syncOverlay() {
   } else if (overlay.isVisible()) overlay.hide();
 }
 
+// While moving widgets the overlay takes the mouse for the whole screen. If its page never
+// shows the "Done" bar (didn't load, crashed), that would lock the screen: so it must say
+// it's showing the bar within a few seconds, and Esc always gets you out.
+let editAckTimer = null;
 function setOverlayEdit(on) {
   overlayEditing = !!on;
+  clearTimeout(editAckTimer);
+  if (overlayEditing) {
+    editAckTimer = setTimeout(() => { if (overlayEditing) setOverlayEdit(false); }, 5000);
+    try { globalShortcut.register("Escape", () => setOverlayEdit(false)); } catch {}
+  } else {
+    try { globalShortcut.unregister("Escape"); } catch {}
+  }
   if (overlayEditing && !overlay) makeOverlay();
   if (overlay) {
     overlay.setIgnoreMouseEvents(!(overlayEditing || overlayInteractive), { forward: true });
@@ -475,6 +581,7 @@ ipcMain.on("overlay-update", (_e, snap) => {
   if (overlay && !overlay.isDestroyed()) overlay.webContents.send("overlay-snapshot", snap);
 });
 ipcMain.on("overlay-edit", (_e, on) => setOverlayEdit(on));
+ipcMain.on("overlay-edit-shown", () => clearTimeout(editAckTimer));
 
 // Alarms: the main window sends the ringing alarm (or null when it stops). Alarms show on
 // the overlay whatever the overlay settings say; reminders only when the overlay is on.

@@ -173,7 +173,7 @@ pub async fn connect(data_dir: &Path) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
-async fn add_column(pool: &SqlitePool, table: &str, col: &str, def: &str) -> anyhow::Result<()> {
+pub async fn add_column(pool: &SqlitePool, table: &str, col: &str, def: &str) -> anyhow::Result<()> {
     let cols: Vec<String> = sqlx::query_scalar(&format!("SELECT name FROM pragma_table_info('{table}')")).fetch_all(pool).await?;
     if !cols.iter().any(|c| c == col) {
         sqlx::query(&format!("ALTER TABLE {table} ADD COLUMN {col} {def}")).execute(pool).await?;

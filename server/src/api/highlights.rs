@@ -91,7 +91,10 @@ fn kind_of(r: &Row, message: &Value) -> &'static str {
         return "pictures";
     }
     let embeds = message["embeds"].as_array().cloned().unwrap_or_default();
-    if atts.iter().any(|a| mime(a).starts_with("video/")) || embeds.iter().any(|e| matches!(e["type"].as_str(), Some("video") | Some("gifv"))) {
+    if embeds.iter().any(|e| e["type"] == "show" && e["style"] == "show") {
+        return "shows";
+    }
+    if atts.iter().any(|a| mime(a).starts_with("video/")) || embeds.iter().any(|e| matches!(e["type"].as_str(), Some("video") | Some("gifv") | Some("show"))) {
         return "videos";
     }
     let content = message["content"].as_str().unwrap_or_default();
