@@ -1,6 +1,6 @@
 # Llamble server image: Rust API + web client + bundled llama.cpp (llama-server) + LiveKit (voice) + ffmpeg
 # The same image also runs as a relay on a VPS: `llamble-server relay`
-FROM node:22-bookworm-slim AS web
+FROM node:22-trixie-slim AS web
 ARG LLAMBLE_VERSION=0.0.0
 WORKDIR /web
 COPY client/package.json client/package-lock.json ./
@@ -8,7 +8,7 @@ RUN npm ci --ignore-scripts
 COPY client/ ./
 RUN npm version "$LLAMBLE_VERSION" --no-git-tag-version --allow-same-version >/dev/null && npm run build
 
-FROM rust:1-bookworm AS server
+FROM rust:1-trixie AS server
 WORKDIR /src
 COPY server/Cargo.toml server/Cargo.lock ./
 RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm -rf src
@@ -17,17 +17,17 @@ COPY server/src ./src
 COPY server/news_pubkey.txt ./news_pubkey.txt
 RUN touch src/main.rs && cargo build --release
 
-# llama.cpp's official CPU server build (binary + its shared libs live in /app).
-# Pinned: newer images are built for a newer glibc/OpenSSL than our Ubuntu 24.04 runtime
-# (the image check below caught it on Nov 9). Bump deliberately and let that check confirm.
-FROM ghcr.io/ggml-org/llama.cpp:server@sha256:ca40726778c25a7fadce42c09bada8484eab22e28bc283bdbf212e87b1555390 AS llama
+# llama.cpp's official CPU server build (binary + its shared libs live in /app), always current.
+# Our runtime below must be at least as new a Linux as theirs; the check at the end of this
+# file fails the build if it ever isn't, so we find out in CI, never on the NAS.
+FROM ghcr.io/ggml-org/llama.cpp:server AS llama
 
 # LiveKit voice/video server (single static binary), run and configured by Llamble itself
 FROM livekit/livekit-server:latest AS livekit
 
 # sherpa-onnx: speech recognition (Whisper) and natural speech (Kokoro) for "Hey Llamble",
 # all on the CPU. Only the two tools we use; models are downloaded when it's turned on.
-FROM ubuntu:24.04 AS sherpa
+FROM ubuntu:26.04 AS sherpa
 ARG SHERPA_VERSION=1.12.9
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bzip2 \
     && curl -fsSL "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VERSION}/sherpa-onnx-v${SHERPA_VERSION}-linux-x64-shared.tar.bz2" | tar xj -C /tmp \
@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 # stable-diffusion.cpp: pictures (FLUX.2 klein / Z-Image) on the NAS when no GPU is lent.
 # Vulkan uses the NAS's built-in graphics if the container is given /dev/dri; else the CPU.
-FROM ubuntu:24.04 AS sdcpp
+FROM ubuntu:26.04 AS sdcpp
 ARG SD_COMMIT=de00bafc3d473069583752c80a0d56140477ede2
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential git cmake libvulkan-dev glslc spirv-headers ca-certificates \
     && git clone https://github.com/leejet/stable-diffusion.cpp /sd && cd /sd && git checkout "$SD_COMMIT" \
@@ -51,7 +51,7 @@ RUN cd /sd && cmake -B build -DSD_VULKAN=ON -DSD_BUILD_SHARED_LIBS=ON -DGGML_NAT
 COPY tools/ggml_check.c /tmp/ggml_check.c
 RUN gcc -O1 -o /opt/sd-check /tmp/ggml_check.c -ldl
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg libgomp1 curl bzip2 libvulkan1 mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=llama /app /opt/llama
