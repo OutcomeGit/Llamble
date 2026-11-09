@@ -820,6 +820,11 @@ export async function applyDevicePrefs() {
   }
 }
 
+/** Phones and tablets (Android Chrome, iOS) can't share their screen from a browser. */
+export function canShareScreen(): boolean {
+  return !!window.llambleNative || typeof navigator.mediaDevices?.getDisplayMedia === "function";
+}
+
 export function participants(): Participant[] {
   if (!room) return [];
   return [room.localParticipant as LocalParticipant, ...Array.from(room.remoteParticipants.values())];

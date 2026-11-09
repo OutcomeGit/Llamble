@@ -5,7 +5,7 @@ import { sendGateway } from "../gateway";
 import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, openHome, selectChannel, useStore } from "../store";
 import { P, type Channel } from "../types";
 import { copy, openMenu, openModal, toggleCollapsed, toast, useUI } from "../ui";
-import { joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
+import { canShareScreen, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
 import { Avatar, BotTag, Icon } from "./common";
 import { markGuildRead } from "./Shell";
 import { useShallow } from "zustand/react/shallow";
@@ -441,9 +441,9 @@ function VoicePanel() {
         </button>
         <button
           className={"vbtn" + (v.screen ? " on" : "")}
-          disabled={!v.canVideo}
-          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : import("../voice").then((m) => m.startScreenShare("", true, "1080p30")))}
-          title="Share your screen"
+          disabled={!v.canVideo || (!v.screen && !canShareScreen())}
+          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : import("../voice").then((m) => m.startScreenShare("", true, m.defaultShareQuality())))}
+          title={canShareScreen() ? "Share your screen" : "This device can't share its screen"}
         >
           <Icon name="screen" size={18} /> {v.screen ? "Stop" : "Screen"}
         </button>

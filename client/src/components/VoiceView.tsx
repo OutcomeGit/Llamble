@@ -15,7 +15,7 @@ import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
 import { refreshGames, useGames } from "../games";
 import { keyLabel } from "../micsound";
-import { pushToTalk } from "../voice";
+import { canShareScreen, pushToTalk } from "../voice";
 
 interface TileSpec {
   key: string;
@@ -132,9 +132,9 @@ export function VoiceView({ channel }: { channel: Channel }) {
         )}
         <button
           className={"call-btn" + (v.screen ? " on" : "")}
-          disabled={!v.canVideo}
+          disabled={!v.canVideo || (!v.screen && !canShareScreen())}
           onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, defaultShareQuality()))}
-          title={v.screen ? "Stop sharing your screen" : "Share screen"}
+          title={v.screen ? "Stop sharing your screen" : canShareScreen() ? "Share screen" : "This device can't share its screen"}
         >
           <Icon name={v.screen ? "x" : "screen"} size={22} />
         </button>

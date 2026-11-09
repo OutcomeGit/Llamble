@@ -1133,3 +1133,4 @@ body.pop-body > .pop { height: 100vh; }
 .al-event { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border, #3f4147); }
 .al-event-time { min-width: 140px; font-weight: 600; }
 .al-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 8px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(240, 178, 50, 0.5); background: rgba(240, 178, 50, 0.12); color: inherit; font-size: 13px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-sound-warn { color: #ffb020; }

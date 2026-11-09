@@ -17,8 +17,10 @@ COPY server/src ./src
 COPY server/news_pubkey.txt ./news_pubkey.txt
 RUN touch src/main.rs && cargo build --release
 
-# llama.cpp's official CPU server build (binary + its shared libs live in /app)
-FROM ghcr.io/ggml-org/llama.cpp:server AS llama
+# llama.cpp's official CPU server build (binary + its shared libs live in /app).
+# Pinned: newer images are built for a newer glibc/OpenSSL than our Ubuntu 24.04 runtime
+# (the image check below caught it on Nov 9). Bump deliberately and let that check confirm.
+FROM ghcr.io/ggml-org/llama.cpp:server@sha256:ca40726778c25a7fadce42c09bada8484eab22e28bc283bdbf212e87b1555390 AS llama
 
 # LiveKit voice/video server (single static binary), run and configured by Llamble itself
 FROM livekit/livekit-server:latest AS livekit

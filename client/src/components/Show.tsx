@@ -6,11 +6,15 @@ import { can, memberName, useStore } from "../store";
 import { P } from "../types";
 import { toast } from "../ui";
 import { addHighlight } from "../notes";
-import { defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
+import { canShareScreen, defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
 import { openModal } from "../ui";
 
 /** Pick a screen, window or app to share (same picker as the Share Screen button). */
 async function pickScreen(replace = false) {
+  if (!canShareScreen()) {
+    toast("This device can't share its screen, so the show uses your camera and voice only.");
+    return;
+  }
   if (replace && useVoice.getState().screen) await stopScreenShare();
   if (window.llambleNative) openModal({ kind: "screenPicker" });
   else startScreenShare("", true, defaultShareQuality());
@@ -154,6 +158,7 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
   // every hook must run on every render, show or not (React crashes otherwise)
   const sharing = useVoice((s) => s.screen);
   if (!show) return null;
+  const soundWarn = rec.showId === show.id && rec.soundBlocked;
   const crew = [show.initiator_id, show.recorder_id, show.director_id].includes(me || "");
   const waiting = show.people.filter((p) => !p.consent).map((p) => name(p.user_id));
   const mine = show.people.find((p) => p.user_id === me);
@@ -176,6 +181,7 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
           <span className="muted small">
             {" "}
             · saved {(rec.uploaded / 1e6).toFixed(0)} MB{rec.error ? " · " + rec.error : ""}
+            {soundWarn && <b className="rec-sound-warn"> · 🔇 Tap anywhere to turn on sound in the recording</b>}
           </span>
         )}
       </span>
@@ -185,7 +191,7 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
             Change mine
           </button>
         )}
-        {mine?.consent?.screen && (
+        {mine?.consent?.screen && canShareScreen() && (
           <button className={"btn small" + (sharing ? "" : " primary")} onClick={() => pickScreen(sharing)} title="Pick which screen, window or app goes in the show">
             {sharing ? "Change what I share" : "Pick my screen"}
           </button>
@@ -280,7 +286,10 @@ export function ShowPrompts() {
 
 function ConsentBox({ show, wanted, current, joining, onDone }: { show: Show; wanted: Streams; current: Streams | null; joining?: boolean; onDone: () => void }) {
   const name = useName();
-  const [c, setC] = useState<Streams>(current || wanted);
+  const [c, setC] = useState<Streams>(() => {
+    const start = current || wanted;
+    return { ...start, screen: start.screen && canShareScreen() };
+  });
   const send = (s: Streams) =>
     showApi
       .consent(show.id, s)
@@ -299,11 +308,12 @@ function ConsentBox({ show, wanted, current, joining, onDone }: { show: Show; wa
       </b>
       <p className="muted small">
         {joining ? "You're not in it. Want to join in?" : "Pick what can be recorded. You can change this any time."}
-        {wanted.screen ? " If you include your screen, you'll pick which screen, window or app next." : ""}
+        {wanted.screen && canShareScreen() ? " If you include your screen, you'll pick which screen, window or app next." : ""}
+        {wanted.screen && !canShareScreen() ? " This device can't share its screen, so only your voice and camera can be included." : ""}
       </p>
       <div className="row gap">
         {(["voice", "camera", "screen"] as const)
-          .filter((k) => wanted[k])
+          .filter((k) => wanted[k] && (k !== "screen" || canShareScreen()))
           .map((k) => (
             <label key={k} className="check">
               <input type="checkbox" checked={c[k]} onChange={() => setC((x) => ({ ...x, [k]: !x[k] }))} /> my {k}

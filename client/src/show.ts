@@ -404,7 +404,12 @@ function name(uid: string) {
 
 // ---------------------------------------------------------------- recorder
 
-export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null }>(() => ({ showId: null, uploaded: 0, pending: 0, error: null }));
+export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean }>(() => ({
+  showId: null,
+  uploaded: 0,
+  pending: 0,
+  error: null,
+}));
 
 class Recorder {
   comp: Compositor;
@@ -433,7 +438,7 @@ class Recorder {
         this.pump();
       }
     };
-    this.audio.resume().catch(() => {});
+    this.unblockSound();
     this.rec.start(4000);
     // draw at ~30 fps even when the app is in the background
     this.timer = window.setInterval(() => {
@@ -441,6 +446,33 @@ class Recorder {
       this.mixAudio();
     }, 33);
     useRecorder.setState({ showId, uploaded: 0, pending: 0, error: null });
+  }
+
+  /**
+   * Phones (and some browsers) keep audio paused until the person taps something; the
+   * recorder starts on its own, so it would record silence. Resume on the next tap/key
+   * and tell the person until it's running.
+   */
+  private unblockSound() {
+    const tryResume = () => {
+      if (this.stopped) return done();
+      this.audio
+        .resume()
+        .then(() => {
+          if (this.audio.state === "running") done();
+        })
+        .catch(() => {});
+    };
+    const done = () => {
+      useRecorder.setState({ soundBlocked: false });
+      for (const ev of ["pointerdown", "keydown", "touchstart"]) window.removeEventListener(ev, tryResume, true);
+    };
+    tryResume();
+    if (this.audio.state !== "running") {
+      useRecorder.setState({ soundBlocked: true });
+      for (const ev of ["pointerdown", "keydown", "touchstart"]) window.addEventListener(ev, tryResume, true);
+    }
+    this.audio.onstatechange = () => useRecorder.setState({ soundBlocked: this.audio.state !== "running" && !this.stopped });
   }
 
   /** Mix the voices (and shared-screen sound) of everyone who agreed to voice. */
