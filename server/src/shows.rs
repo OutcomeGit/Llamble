@@ -449,10 +449,6 @@ pub async fn stop(State(state): State<Shared>, auth: AuthUser, Path(id): Path<St
     let status = if s.status == "recording" { "ended" } else { "cancelled" };
     if ["setup", "recording"].contains(&s.status.as_str()) {
         sqlx::query("UPDATE shows SET status = ?, ended_at = ? WHERE id = ?").bind(status).bind(now_ms()).bind(&id).execute(&state.db).await?;
-        if status == "ended" {
-            // never let highlights get in the way of saving the recording
-            crate::api::highlights::auto_recording(&state, &id, &s.initiator_id).await;
-        }
     }
     Ok(Json(broadcast(&state, &id).await?))
 }

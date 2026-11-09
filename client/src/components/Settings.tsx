@@ -186,7 +186,6 @@ function Overview({ guildId }: { guildId: string }) {
       {(
         [
           ["highlights_auto_pictures", "Auto-add AI pictures", "Every picture Llamble draws here (/imagine or asking the AI) goes to Highlights."],
-          ["highlights_auto_recordings", "Auto-add show recordings", "Every finished show recorded in this server's voice channels goes to Highlights."],
         ] as const
       ).map(([k, label, desc]) => (
         <div key={k} className="perm-row">

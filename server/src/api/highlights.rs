@@ -310,15 +310,3 @@ pub async fn auto_picture(state: &Shared, ch: &Channel, message_id: &str, drawn_
     }
 }
 
-/// A show recording finished.
-pub async fn auto_recording(state: &Shared, show_id: &str, initiator: &str) {
-    let Some((cid, _)) = crate::shows::show_channel(state, show_id).await else { return };
-    let Ok(ch) = load_channel(&state.db, &cid).await else { return };
-    let Some(gid) = ch.guild_id.as_deref() else { return };
-    if !auto_on(state, gid, "recordings").await {
-        return;
-    }
-    if let Err(e) = insert(state, gid, "recording", None, Some(show_id), initiator, true).await {
-        tracing::warn!("auto highlight (recording): {e:?}");
-    }
-}
