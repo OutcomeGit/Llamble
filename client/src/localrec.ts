@@ -5,6 +5,7 @@
 //  - Windows app: a real file in the Videos\Llamble folder (plus a small .json beside it)
 //  - browsers (incl. Android): the browser's own storage for this site (IndexedDB)
 import { session } from "./api";
+import { androidSave, isAndroidApp } from "./android";
 
 export interface RecMeta {
   id: string;
@@ -152,10 +153,16 @@ export async function download(id: string, name: string) {
     await n.reveal(id);
     return;
   }
+  const file = (name.replace(/[^\w \-]/g, "") || "show") + ".webm";
+  if (isAndroidApp) {
+    // the Android app saves it to Downloads (its WebView can't download blob: links)
+    await androidSave(new Blob(await idbPieces(id), { type: "video/webm" }), file);
+    return;
+  }
   const url = await playUrl(id);
   const a = document.createElement("a");
   a.href = url;
-  a.download = (name.replace(/[^\w \-]/g, "") || "show") + ".webm";
+  a.download = file;
   document.body.appendChild(a);
   a.click();
   a.remove();

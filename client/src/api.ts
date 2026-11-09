@@ -13,7 +13,8 @@ export const TZ = (() => {
 })();
 
 export const session = {
-  server: (localStorage.getItem(LS_SERVER) || (location.protocol.startsWith("http") && !location.port.startsWith("517") ? location.origin : "")).replace(/\/+$/, ""),
+  // in a browser the page's own server; in the Windows and Android apps you pick one when logging in
+  server: (localStorage.getItem(LS_SERVER) || (location.protocol.startsWith("http") && !location.port.startsWith("517") && location.hostname !== "appassets.androidplatform.net" ? location.origin : "")).replace(/\/+$/, ""),
   token: localStorage.getItem(LS_TOKEN) || "",
 };
 

@@ -1,14 +1,16 @@
 import React from "react";
+// first: inside the Android app this sets up notifications before anything uses them
+import { androidSend, installBack, isAndroidApp, onAndroid } from "./android";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 import { getRoom, joinVoice, leaveVoice, micSound, setMicSound, setWatching, toggleCamera, useVoice } from "./voice";
 import { PRESETS } from "./micsound";
-import { openGuildView, openHome, openLibrary } from "./store";
+import { openGuildView, openHome, openLibrary, useStore } from "./store";
 import { useRecorder } from "./show";
 import * as localrec from "./localrec";
 import { api } from "./api";
-import { openModal } from "./ui";
+import { closeMenu, closeModal, openModal, useUI } from "./ui";
 
 // handle for automated tests and troubleshooting from the dev console
 (window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), localrec, openLibrary, micSound, setMicSound, PRESETS, openHome, openGuildView,
@@ -46,6 +48,30 @@ class Crash extends React.Component<{ children: React.ReactNode }, { err: Error 
 createRoot(document.getElementById("root")!).render(isOverlay ? <OverlayApp /> : <Crash><App /></Crash>);
 
 // installable web app (only in browsers served over http(s), not inside Electron)
-if (!isOverlay && !window.llambleNative && "serviceWorker" in navigator && location.protocol.startsWith("http")) {
+if (!isOverlay && !window.llambleNative && !isAndroidApp && "serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
+// ---- inside the Android app
+if (isAndroidApp && !isOverlay) {
+  // in a call: the app keeps running with the screen off (its "in a call" notification)
+  let inCall: string | null = null;
+  const sync = (v: ReturnType<typeof useVoice.getState>) => {
+    const on = v.channelId && v.status !== "idle" ? v.channelId : null;
+    if (on === inCall) return;
+    inCall = on;
+    const ch = on ? useStore.getState().channels[on] : null;
+    androidSend("voice", { on: !!on, title: ch ? `In a call · ${ch.name}` : "In a call" });
+  };
+  useVoice.subscribe(sync);
+  onAndroid((m) => {
+    if (m.event === "leave-voice") leaveVoice();
+  });
+  // the phone's back button closes menus and windows first
+  installBack(() => {
+    const ui = useUI.getState();
+    if (ui.menu) return closeMenu(), true;
+    if (ui.modals.length) return closeModal(), true;
+    return false;
+  });
 }

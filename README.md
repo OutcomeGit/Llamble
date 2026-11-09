@@ -62,6 +62,7 @@ GitHub Actions builds the server image (`ghcr.io/outcomegit/llamble:latest`, pub
    - **First server name:** optional; the AI bot is switched on in it.
    - **AI model:** pick from the list (sizes and RAM needs shown) or paste any Hugging Face GGUF repo and choose a quantization. It downloads in the background with progress, then runs on the NAS. Change it later under **Settings → AI Model**.
 3. **Desktop app:** download the installer from this repo's Releases (`Llamble-Setup.exe`). It updates itself.
+4. **Android app:** download `Llamble.apk` from the same Releases and open it on the phone (allow "install unknown apps" once). It offers its own updates. Built from `android/`: a small Java app with no libraries that runs the same web app.
 
 Every other server setting is in the app for admins: **Settings → Server** (upload limit, link previews, who can create servers, bot name, recording), **AI Model** (model and GPU sharing), and **Remote Access**.
 

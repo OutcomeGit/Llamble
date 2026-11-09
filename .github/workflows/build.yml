@@ -3,6 +3,9 @@
 #  - Windows app   -> published as a GitHub Release on every push to main
 #                     download: https://github.com/OutcomeGit/Llamble/releases/latest/download/Llamble-Setup.exe
 #                     installed apps update themselves from these releases
+#  - Android app   -> Llamble.apk on the same release (signed with the key in the
+#                     ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets), after it
+#                     opens without crashing in an Android emulator
 name: build
 on:
   push:
@@ -149,3 +152,67 @@ jobs:
         with:
           name: Llamble-Setup
           path: client/release/*.exe
+
+  android-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Build the web app
+        working-directory: client
+        run: npm ci && npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Signing key
+        id: key
+        env:
+          B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$B64" ]; then
+            echo "$B64" | base64 -d > "$RUNNER_TEMP/llamble.jks"
+            echo "LLAMBLE_KEYSTORE=$RUNNER_TEMP/llamble.jks" >> "$GITHUB_ENV"
+            echo "signed=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret yet: building a test-signed APK that won't be published (updates need one permanent key)"
+          fi
+      - name: Build Llamble.apk
+        working-directory: android
+        env:
+          LLAMBLE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease -PversionName=0.1.${{ github.run_number }}
+          cp app/build/outputs/apk/release/app-release.apk ../Llamble.apk
+          ls -la ../Llamble.apk
+      - name: Open it in an Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          bash tests/android_smoke.sh Llamble.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test
+          path: |
+            /tmp/android.png
+            /tmp/android-logcat.txt
+          if-no-files-found: ignore
+      - name: Add it to the release
+        if: steps.key.outputs.signed == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=v0.1.${{ github.run_number }}
+          # the Windows job creates the release; wait for it
+          for i in $(seq 1 60); do gh release view "$tag" --repo ${{ github.repository }} >/dev/null 2>&1 && break; sleep 20; done
+          gh release upload "$tag" Llamble.apk --clobber --repo ${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Llamble-apk
+          path: Llamble.apk

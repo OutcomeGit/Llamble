@@ -1,0 +1,19 @@
+// Llamble for Android: a small Java app (no libraries) that runs the Llamble web app in
+// Android's WebView, plus the bits only a real app can do (voice with the screen off,
+// notifications, updates, and later screen sharing).
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "Llamble"
+include ":app"

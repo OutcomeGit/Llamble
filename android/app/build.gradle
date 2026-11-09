@@ -1,0 +1,65 @@
+plugins {
+    id "com.android.application"
+}
+
+// version comes from the release (CI passes -PversionName=0.1.N); local builds are 0.0.1
+def ver = (project.findProperty("versionName") ?: "0.0.1").toString()
+def parts = ver.tokenize(".").collect { it.isInteger() ? it.toInteger() : 0 } + [0, 0, 0]
+def verCode = parts[0] * 100000000 + parts[1] * 1000000 + parts[2]   // 0.1.89 -> 1000089
+
+android {
+    namespace "com.llamble.app"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.llamble.app"
+        minSdk 29          // Android 10+
+        targetSdk 35
+        versionCode Math.max(1, verCode)
+        versionName ver
+    }
+
+    // The release key lives only in GitHub's secrets (never in the repo). Every build is
+    // signed with the same key, so new versions install over old ones.
+    signingConfigs {
+        release {
+            def ks = System.getenv("LLAMBLE_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("LLAMBLE_KEYSTORE_PASSWORD")
+                keyAlias "llamble"
+                keyPassword System.getenv("LLAMBLE_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            if (System.getenv("LLAMBLE_KEYSTORE")) signingConfig signingConfigs.release
+            else signingConfig signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    androidResources {
+        // the web app's files are served as they are
+        noCompress += ["wasm", "onnx", "tflite", "binarypb"]
+    }
+}
+
+// The web app (built by `npm run build` in client/) goes in as assets/www.
+def webDist = file("../../client/dist")
+tasks.register("copyWebApp", Copy) {
+    from webDist
+    into layout.buildDirectory.dir("generated/www/www")
+    doFirst {
+        if (!new File(webDist, "index.html").exists())
+            throw new GradleException("Build the web app first: cd client && npm run build")
+    }
+}
+android.sourceSets.main.assets.srcDirs += layout.buildDirectory.dir("generated/www").get().asFile
+preBuild.dependsOn "copyWebApp"
