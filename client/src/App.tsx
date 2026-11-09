@@ -4,6 +4,8 @@ import { api, session, setSession } from "./api";
 import { initAiWorker } from "./aiWorker";
 import { startGameDetection } from "./games";
 import "./notes"; // loads Home (notes + highlights) after connecting
+import "./alarms"; // alarms + reminders (ringing, local backup timers)
+import { AlarmRinging, AlarmSuggestion } from "./components/Alarms";
 import { connectGateway, disconnectGateway } from "./gateway";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
@@ -136,7 +138,13 @@ export default function App() {
 
   if (emailReset && !resetDone) return <EmailResetLanding server={location.origin} id={emailReset.id} secret={emailReset.secret} onDone={(t) => (setResetDone(true), setToken(t))} />;
   if (!token || !session.server) return <Login onDone={(t) => setToken(t)} />;
-  return <Shell />;
+  return (
+    <>
+      <Shell />
+      <AlarmSuggestion />
+      <AlarmRinging />
+    </>
+  );
 }
 
 export async function logout() {

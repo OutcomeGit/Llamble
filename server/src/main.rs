@@ -84,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
     shows::migrate(&state.db).await?;
     api::highlights::migrate(&state.db).await?;
     api::news::migrate(&state.db).await?;
+    api::alarms::migrate(&state.db).await?;
+    api::schedule::migrate(&state.db).await?;
     soundboard::migrate(&state.db).await?;
     voicebot::migrate(&state.db).await?;
     settings::load_into_cache(&state).await;
@@ -102,6 +104,8 @@ async fn main() -> anyhow::Result<()> {
     voicebot::boot(state.clone());
     images::boot(state.clone());
     api::news::start(state.clone());
+    api::alarms::start(state.clone());
+    api::schedule::start(state.clone());
 
     let mut app = api::router(state.clone());
     if let Ok(web) = std::env::var("LLAMBLE_WEB_DIR") {

@@ -15,6 +15,7 @@ import type { HighlightType } from "../types";
 /** What a server's board is called everywhere in the app (one place, so it's easy to rename). */
 export { BOARD_NAME } from "../names";
 import { BOARD_NAME } from "../names";
+import { fmtTime, fmtWhen, nextAlarm, useAlarms } from "../alarms";
 
 /** "@home" = everything across my servers; a guild id = that one server. */
 type Scope = string;
@@ -346,10 +347,22 @@ function RightNow({ scope }: { scope: Scope }) {
   const games = useStore((s) => s.games);
   const inCall = useVoice((v) => v.channelId);
   const profile = (userId: string) => openModal({ kind: "profile", userId, guildId: null });
+  const alarmList = useAlarms((s) => s.list);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const soon = useMemo(() => (home ? nextAlarm(alarmList, 12) : null), [alarmList, home, tick]);
 
   return (
     <section className="hb-index">
       <h2 className="hb-index-title">Right now</h2>
+      {soon && soon.next_at && (
+        <button className="al-chip" title="Schedule & alarms settings" onClick={() => openModal({ kind: "userSettings", tab: "schedule" })}>
+          ⏰ Next alarm: {fmtWhen(soon.next_at).startsWith("Today") ? fmtTime(soon.next_at) : fmtWhen(soon.next_at)} — {soon.label || "Alarm"}
+        </button>
+      )}
       {calls.map(({ cid, users: inIt }) => {
         const ch = channels[cid];
         if (!ch) return null;

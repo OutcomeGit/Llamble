@@ -1,9 +1,11 @@
+pub mod alarms;
 pub mod auth;
 pub mod embeds;
 pub mod files;
 pub mod gifs;
 pub mod highlights;
 pub mod notes;
+pub mod schedule;
 pub mod news;
 pub mod guilds;
 pub mod messages;
@@ -107,6 +109,15 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/reset-requests/{id}", post(auth::decide_reset))
         // kids & parents
         .route("/api/kids", get(crate::kids::list_kids).post(crate::kids::create_kid))
+        .route("/api/alarms", get(alarms::list).post(alarms::create))
+        .route("/api/alarms/{id}", patch(alarms::update).delete(alarms::delete))
+        .route("/api/alarms/{id}/snooze", post(alarms::snooze))
+        .route("/api/alarms/{id}/dismiss", post(alarms::dismiss))
+        .route("/api/kids/{kid}/alarms", get(alarms::kid_list).post(alarms::kid_create))
+        .route("/api/schedule", get(schedule::get).put(schedule::put))
+        .route("/api/schedule/upcoming", get(schedule::upcoming))
+        .route("/api/schedule/suggestion", get(schedule::suggestion))
+        .route("/api/schedule/suggestion/decline", post(schedule::decline))
         .route("/api/kids/{kid}/settings", post(crate::kids::update_kid_settings))
         .route("/api/kids/{kid}/guardians", post(crate::kids::add_guardian))
         .route("/api/kids/{kid}/guardians/{g}", delete(crate::kids::remove_guardian))

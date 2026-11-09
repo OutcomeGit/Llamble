@@ -1,4 +1,5 @@
 import { GamesSettings } from "./Games";
+import { ScheduleSettings } from "./Alarms";
 import { MicSoundPanel } from "./MicSoundPanel";
 import { BITRATES } from "../micsound";
 import { PerformanceSettings } from "./Performance";
@@ -516,6 +517,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "voice", label: "Voice & Video" },
         { id: "ai", label: "Lend My GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
+        { id: "schedule", label: "Schedule & alarms" },
         { id: "overlay", label: "Overlay" },
         { id: "games", label: "Games", hidden: !window.llambleNative?.games },
         { id: "performance", label: "Performance", hidden: !window.llambleNative?.metrics },
@@ -536,6 +538,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
       {tab === "voice" && <VoiceSettings />}
       {tab === "ai" && <AiSettings />}
       {tab === "notifications" && <NotifSettings />}
+      {tab === "schedule" && <ScheduleSettings />}
       {tab === "overlay" && <OverlaySettings />}
       {tab === "games" && <GamesSettings />}
       {tab === "performance" && <PerformanceSettings />}

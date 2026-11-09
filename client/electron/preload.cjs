@@ -86,6 +86,19 @@ contextBridge.exposeInMainWorld("llambleNative", {
       ipcRenderer.on("overlay-edit", h);
       return () => ipcRenderer.removeListener("overlay-edit", h);
     },
+    alarm: (p) => ipcRenderer.send("overlay-alarm", p),
+    alarmAction: (a) => ipcRenderer.send("overlay-alarm-action", a),
+    interactive: (on) => ipcRenderer.send("overlay-interactive", !!on),
+    onAlarm: (cb) => {
+      const h = (_e, p) => cb(p);
+      ipcRenderer.on("overlay-alarm", h);
+      return () => ipcRenderer.removeListener("overlay-alarm", h);
+    },
+    onAlarmAction: (cb) => {
+      const h = (_e, a) => cb(a);
+      ipcRenderer.on("alarm-action", h);
+      return () => ipcRenderer.removeListener("alarm-action", h);
+    },
   },
   images: {
     status: () => ipcRenderer.invoke("img-status"),

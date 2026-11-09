@@ -19,6 +19,8 @@ class H(BaseHTTPRequestHandler):
             sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"timezone\": \"America/New_York\"}"}}]}}]})
         elif "generate_image" in names and "draw" in last_user.lower():
             sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c3","type":"function","function":{"name":"generate_image","arguments":"{\"prompt\":\"a llama in a spacesuit\",\"shape\":\"wide\"}"}}]}}]})
+        elif "set_reminder" in names and "remind me" in last_user.lower():
+            sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c4","type":"function","function":{"name":"set_reminder","arguments":"{\"text\":\"Take the bins out\",\"minutes_from_now\":20}"}}]}}]})
         elif "calculate" in names and "times" in last_user.lower():
             sse(self.wfile, {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c2","type":"function","function":{"name":"calculate","arguments":"{\"expression\":\"12*12\"}"}}]}}]})
         else:

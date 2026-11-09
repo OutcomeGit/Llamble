@@ -1,5 +1,6 @@
 // Family: kid accounts and their parents. Also the password-reset approvals list.
 import { useEffect, useState } from "react";
+import { KidAlarms } from "./Alarms";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api";
 import { can, onEvent, useStore } from "../store";
@@ -368,6 +369,8 @@ function KidCard({ k, open, onToggle, onChange, me }: { k: Kid; open: boolean; o
           <button className="btn small" onClick={() => addBy("guardians", "Add a parent", "Their username (any regular account)")}>
             + Add a parent
           </button>
+
+          <KidAlarms kidId={kidId} name={k.user.display_name} />
 
           <div className="profile-section">Sign-in</div>
           <button

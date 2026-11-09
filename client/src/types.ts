@@ -316,6 +316,15 @@ declare global {
         edit: (on: boolean) => void;
         onSnapshot: (cb: (s: any) => void) => () => void;
         onEdit: (cb: (on: boolean) => void) => () => void;
+        /** main window → show (or clear with null) an alarm/reminder on the overlay */
+        alarm?: (payload: unknown) => void;
+        /** overlay → snooze/dismiss pressed on the overlay card */
+        alarmAction?: (a: { id: string; action: "snooze" | "dismiss"; minutes?: number }) => void;
+        /** overlay → let clicks through or not (for the card area) */
+        interactive?: (on: boolean) => void;
+        onAlarm?: (cb: (p: any) => void) => () => void;
+        /** main window ← snooze/dismiss pressed on the overlay */
+        onAlarmAction?: (cb: (a: { id: string; action: "snooze" | "dismiss"; minutes?: number }) => void) => () => void;
       };
       readAsset?: (name: string) => Promise<Uint8Array>;
       images?: {

@@ -145,6 +145,8 @@ async fn session(state: Shared, auth: AuthUser, sock: WebSocket) {
         }
         return;
     }
+    // an alarm still ringing rings on this device too
+    crate::api::alarms::on_ready(&state, &auth.id).await;
 
     let mut last_seen = Instant::now();
     let mut ping = tokio::time::interval(Duration::from_secs(25));

@@ -68,6 +68,13 @@ pub async fn definitions(state: &Shared, ctx: &Ctx) -> Vec<Value> {
             "type": "object", "properties": { "timezone": { "type": "string", "description": "IANA time zone like America/New_York. Leave out to use the asker's own." } } })));
         out.push(func("calculate", "Work out arithmetic exactly. Supports + - * / ^ % parentheses and sqrt, abs, round, floor, ceil, sin, cos, tan, ln, log10, pi, e.", json!({
             "type": "object", "properties": { "expression": { "type": "string" } }, "required": ["expression"] })));
+        if ctx.user.is_some() {
+            out.push(func("set_reminder", "Set a one-time reminder for the person asking. It pops up as a notification on all their devices at that time. Use when someone says \"remind me ...\".", json!({
+                "type": "object", "properties": {
+                    "text": { "type": "string", "description": "What to remind them of, short, e.g. \"Take the bins out\"" },
+                    "at": { "type": "string", "description": "Local date and time, ISO-8601, e.g. 2026-11-10T07:30. Use this OR minutes_from_now." },
+                    "minutes_from_now": { "type": "integer", "description": "Minutes from now, e.g. 20" } }, "required": ["text"] })));
+        }
     }
     if s.web {
         out.push(func("get_weather", "Current weather and the next days' forecast for a place.", json!({
@@ -90,12 +97,50 @@ pub async fn run(state: &Shared, ctx: &Ctx, name: &str, args: &Value) -> String 
         "web_search" if s.web => search(&s, args["query"].as_str().unwrap_or(""), ctx.kid).await,
         "read_webpage" if s.web => read_page(args["url"].as_str().unwrap_or("")).await,
         "generate_image" => draw(state, ctx, args).await,
+        "set_reminder" if s.basic => set_reminder(state, ctx, args).await,
         _ => Err(anyhow::anyhow!("that tool isn't available")),
     };
     match r {
         Ok(t) => t.chars().take(8000).collect(),
         Err(e) => format!("Error: {e}"),
     }
+}
+
+// ---------------------------------------------------------------- reminders
+
+/// "remind me …": a one-time reminder in the asker's own time zone.
+async fn set_reminder(state: &Shared, ctx: &Ctx, args: &Value) -> anyhow::Result<String> {
+    use chrono::TimeZone;
+    let Some(uid) = ctx.user.clone() else { anyhow::bail!("reminders need a signed-in person") };
+    let text = args["text"].as_str().unwrap_or("").trim();
+    if text.is_empty() {
+        anyhow::bail!("say what the reminder is for");
+    }
+    let tz_name = ctx.tz.clone().filter(|t| t.parse::<chrono_tz::Tz>().is_ok()).unwrap_or_else(|| crate::api::alarms::user_tz(&uid));
+    let tz = crate::api::alarms::parse_tz(&tz_name);
+    let now = crate::error::now_ms();
+    let at = if let Some(m) = args["minutes_from_now"].as_f64().or_else(|| args["minutes_from_now"].as_str().and_then(|s| s.trim().parse().ok())) {
+        if !(1.0..=60.0 * 24.0 * 366.0).contains(&m) {
+            anyhow::bail!("pick a time from 1 minute to a year away");
+        }
+        now + (m * 60_000.0) as i64
+    } else if let Some(s) = args["at"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
+            t.timestamp_millis()
+        } else {
+            let naive = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"].iter().find_map(|f| chrono::NaiveDateTime::parse_from_str(s, f).ok());
+            let Some(n) = naive else { anyhow::bail!("couldn't read the time {s:?}: use YYYY-MM-DDTHH:MM") };
+            crate::api::alarms::local_ms(tz, n.date(), n.time()).ok_or_else(|| anyhow::anyhow!("that time doesn't exist there"))?
+        }
+    } else {
+        anyhow::bail!("say when: a time or minutes_from_now");
+    };
+    let label: String = text.chars().take(80).collect();
+    let a = crate::api::alarms::create_alarm(state, &uid, &label, "reminder", Some(at), None, None, &tz_name, None, None, None, false)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.1))?;
+    let when = tz.timestamp_millis_opt(a.at.unwrap_or(at)).single().map(|t| t.format("%A %-d %B at %-I:%M %p").to_string()).unwrap_or_default();
+    Ok(format!("Reminder set: \"{label}\" on {when}."))
 }
 
 // ---------------------------------------------------------------- pictures

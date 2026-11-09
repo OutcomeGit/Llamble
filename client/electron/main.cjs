@@ -408,6 +408,8 @@ let overlayWanted = false;
 let overlayHideWhenFocused = true;
 let overlayEditing = false;
 let lastSnap = null;
+let overlayAlarm = null; // a ringing alarm shows on the overlay even when the overlay is off
+let overlayInteractive = false;
 
 function makeOverlay() {
   const d = displays.getPrimaryDisplay();
@@ -431,13 +433,16 @@ function makeOverlay() {
   else overlay.loadFile(path.join(__dirname, "..", "dist", "index.html"), { hash: "overlay" });
   overlay.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   overlay.webContents.on("will-navigate", (e) => e.preventDefault());
-  overlay.webContents.on("did-finish-load", () => lastSnap && overlay.webContents.send("overlay-snapshot", lastSnap));
-  overlay.on("closed", () => { overlay = null; overlayEditing = false; });
+  overlay.webContents.on("did-finish-load", () => {
+    if (lastSnap) overlay.webContents.send("overlay-snapshot", lastSnap);
+    if (overlayAlarm) overlay.webContents.send("overlay-alarm", { ...overlayAlarm, only: !overlayWanted });
+  });
+  overlay.on("closed", () => { overlay = null; overlayEditing = false; overlayInteractive = false; });
 }
 
 function syncOverlay() {
   const mainInFront = win && win.isFocused() && win.isVisible();
-  const show = overlayEditing || (overlayWanted && !(overlayHideWhenFocused && mainInFront));
+  const show = overlayEditing || (!!overlayAlarm && !mainInFront) || (overlayWanted && !(overlayHideWhenFocused && mainInFront));
   if (show && !overlay) makeOverlay();
   if (!overlay) return;
   if (show) {
@@ -452,7 +457,7 @@ function setOverlayEdit(on) {
   overlayEditing = !!on;
   if (overlayEditing && !overlay) makeOverlay();
   if (overlay) {
-    overlay.setIgnoreMouseEvents(!overlayEditing, { forward: true });
+    overlay.setIgnoreMouseEvents(!(overlayEditing || overlayInteractive), { forward: true });
     overlay.setFocusable(overlayEditing);
     overlay.webContents.send("overlay-edit", overlayEditing);
     if (overlayEditing) { overlay.showInactive(); overlay.focus(); }
@@ -470,6 +475,37 @@ ipcMain.on("overlay-update", (_e, snap) => {
   if (overlay && !overlay.isDestroyed()) overlay.webContents.send("overlay-snapshot", snap);
 });
 ipcMain.on("overlay-edit", (_e, on) => setOverlayEdit(on));
+
+// Alarms: the main window sends the ringing alarm (or null when it stops). Alarms show on
+// the overlay whatever the overlay settings say; reminders only when the overlay is on.
+ipcMain.on("overlay-alarm", (_e, p) => {
+  if (p && p.kind === "reminder") {
+    if (!overlayWanted) return;
+    if (!overlay) makeOverlay();
+    overlay.webContents.send("overlay-alarm", p);
+    syncOverlay();
+    return;
+  }
+  overlayAlarm = p || null;
+  if (overlayAlarm && !overlay) makeOverlay();
+  if (overlay && !overlay.isDestroyed()) overlay.webContents.send("overlay-alarm", overlayAlarm && { ...overlayAlarm, only: !overlayWanted });
+  if (!overlayAlarm && overlayInteractive) {
+    overlayInteractive = false;
+    if (overlay && !overlayEditing) overlay.setIgnoreMouseEvents(true, { forward: true });
+  }
+  try { if (win && !win.isDestroyed()) win.flashFrame(!!overlayAlarm && !win.isFocused()); } catch {}
+  syncOverlay();
+});
+// the overlay turns click-through off only while the pointer is over the alarm card
+ipcMain.on("overlay-interactive", (_e, on) => {
+  overlayInteractive = !!on && !!overlayAlarm;
+  if (overlay && !overlay.isDestroyed() && !overlayEditing) {
+    overlay.setIgnoreMouseEvents(!overlayInteractive, { forward: true });
+  }
+});
+ipcMain.on("overlay-alarm-action", (_e, a) => {
+  if (win && !win.isDestroyed()) win.webContents.send("alarm-action", a);
+});
 
 // Camera-effect models + runtime ship in dist/mediapipe. Chromium can't fetch() file://
 // URLs, so the app reads them here (only from that folder) and hands over the bytes.
