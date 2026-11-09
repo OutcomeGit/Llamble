@@ -8,24 +8,28 @@ IMG="system-images;android-35;google_apis;x86_64"
 yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
 "$SDK/cmdline-tools/latest/bin/sdkmanager" "emulator" "platform-tools" "$IMG" >/dev/null
 echo no | "$SDK/cmdline-tools/latest/bin/avdmanager" create avd -n llamble -k "$IMG" -d pixel_6 --force >/dev/null
+"$SDK/emulator/emulator" -accel-check || true
 "$SDK/emulator/emulator" -avd llamble -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 3072 >/tmp/emulator.log 2>&1 &
 ADB="$SDK/platform-tools/adb"
-"$ADB" wait-for-device
-for i in $(seq 1 120); do
-  [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && break
+fail() { echo "ANDROID: $1"; echo "--- emulator log"; tail -40 /tmp/emulator.log; exit 1; }
+timeout 300 "$ADB" wait-for-device || fail "the emulator didn't start"
+booted=""
+for i in $(seq 1 100); do
+  [ "$(timeout 10 "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && booted=1 && break
   sleep 3
 done
+[ -n "$booted" ] || fail "Android didn't finish booting"
 echo "emulator booted: Android $("$ADB" shell getprop ro.build.version.release | tr -d '\r')"
 "$ADB" shell settings put global window_animation_scale 0 || true
-"$ADB" install -r -g "$APK"
+timeout 180 "$ADB" install -r -g "$APK"
 "$ADB" logcat -c
-"$ADB" shell am start -W -n com.llamble.app/.MainActivity
+timeout 60 "$ADB" shell am start -W -n com.llamble.app/.MainActivity
 # the web app loads and shows its login screen (the WebView's text is visible to uiautomator)
 ok=""
 for i in $(seq 1 40); do
   sleep 3
-  "$ADB" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue
-  "$ADB" shell cat /sdcard/ui.xml > /tmp/android-ui.xml 2>/dev/null || continue
+  timeout 30 "$ADB" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue
+  timeout 10 "$ADB" shell cat /sdcard/ui.xml > /tmp/android-ui.xml 2>/dev/null || continue
   if grep -q "Welcome back" /tmp/android-ui.xml; then ok=1; break; fi
 done
 "$ADB" exec-out screencap -p > /tmp/android.png || true
