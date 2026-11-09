@@ -6,9 +6,18 @@ import { getRoom, joinVoice, leaveVoice, micSound, setMicSound, setWatching, tog
 import { PRESETS } from "./micsound";
 import { openGuildView, openHome } from "./store";
 import { useRecorder } from "./show";
+import { api } from "./api";
+import { openModal } from "./ui";
 
 // handle for automated tests and troubleshooting from the dev console
-(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), micSound, setMicSound, PRESETS, openHome, openGuildView };
+(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), micSound, setMicSound, PRESETS, openHome, openGuildView,
+  // tests: open "Share to…" for a message
+  openShare: async (cid: string, mid: string) => {
+    const msgs = await api<any[]>(`/api/channels/${cid}/messages?limit=20`);
+    const msg = msgs.find((m) => m.id === mid);
+    if (msg) openModal({ kind: "share", msg });
+    return !!msg;
+  } };
 
 import { OverlayApp } from "./OverlayApp";
 

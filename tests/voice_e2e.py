@@ -92,6 +92,14 @@ with sync_playwright() as p:
     m = ok(requests.post(B + f"/api/channels/{tc}/messages", headers=TA, json={"content": "highlight me"}))
     ok(requests.post(B + f"/api/guilds/{gid}/highlights", headers=TA, json={"message_id": m["id"]}))
     pages[1].wait_for_function("() => document.body.innerText.includes('highlight me')", timeout=15000)
+    # "Share to…" opens without crashing (it crashed once with React #185)
+    assert pages[1].evaluate("([c, m]) => window.llambleDebug.openShare(c, m)", [tc, m["id"]]), "share: message not found"
+    pages[1].wait_for_function("() => document.querySelector('.share-modal')", timeout=10000)
+    pages[1].wait_for_timeout(1000)
+    assert not pages[1].evaluate(crashed), "Share to… crashed"
+    pages[1].keyboard.press("Escape")
+    pages[1].get_by_text("Cancel").first.click() if pages[1].query_selector(".share-modal") else None
+    print("Share to…: opens fine")
     pages[1].get_by_text("✓ Dismiss").first.click()
     pages[1].wait_for_function("() => !document.querySelector('.hb-board')?.innerText.includes('on around 10 pm tonight')", timeout=10000)
     assert ok(requests.get(B + "/api/home", headers={"Authorization": "Bearer " + b["token"]}))["notes"] == [], "dismissed on the server too"

@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { api } from "../api";
 import { selectChannel, useStore } from "../store";
 import type { Message } from "../types";
@@ -11,26 +10,29 @@ type Dest = { id: string; label: string; group: string; guildId: string | null }
 /** "Share to…": send a message (text, links, pictures, files) to another channel or DM. */
 export function ShareModal({ msg }: { msg: Message }) {
   const me = useStore((s) => s.me);
-  const dests = useStore(
-    useShallow((s) => {
-      const out: Dest[] = [];
-      for (const gid of s.guildOrder) {
-        const g = s.guilds[gid];
-        if (!g) continue;
-        Object.values(s.channels)
-          .filter((c) => c.guild_id === gid && c.kind === "text")
-          .sort((a, b) => a.position - b.position)
-          .forEach((c) => out.push({ id: c.id, label: "#" + c.name, group: g.name, guildId: gid }));
-      }
-      Object.values(s.channels)
-        .filter((c) => !c.guild_id && c.recipients?.length)
-        .forEach((c) => {
-          const others = (c.recipients || []).filter((r) => r.id !== s.me?.id);
-          out.push({ id: c.id, label: "@" + (others.map((r) => r.display_name).join(", ") || "Notes to self"), group: "Direct messages", guildId: null });
-        });
-      return out;
-    }),
-  );
+  // raw store objects in, list built with useMemo: building new objects inside a store
+  // selector makes React re-render forever (error #185)
+  const guildOrder = useStore((s) => s.guildOrder);
+  const guilds = useStore((s) => s.guilds);
+  const channels = useStore((s) => s.channels);
+  const dests = useMemo(() => {
+    const out: Dest[] = [];
+    for (const gid of guildOrder) {
+      const g = guilds[gid];
+      if (!g) continue;
+      Object.values(channels)
+        .filter((c) => c.guild_id === gid && c.kind === "text")
+        .sort((a, b) => a.position - b.position)
+        .forEach((c) => out.push({ id: c.id, label: "#" + c.name, group: g.name, guildId: gid }));
+    }
+    Object.values(channels)
+      .filter((c) => !c.guild_id && c.recipients?.length)
+      .forEach((c) => {
+        const others = (c.recipients || []).filter((r) => r.id !== me?.id);
+        out.push({ id: c.id, label: "@" + (others.map((r) => r.display_name).join(", ") || "Notes to self"), group: "Direct messages", guildId: null });
+      });
+    return out;
+  }, [guildOrder, guilds, channels, me?.id]);
   const [q, setQ] = useState("");
   const [to, setTo] = useState<Dest | null>(null);
   const [comment, setComment] = useState("");
