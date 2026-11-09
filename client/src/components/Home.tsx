@@ -8,7 +8,7 @@ import { joinVoice, useVoice } from "../voice";
 import { Avatar, Icon } from "./common";
 import { HighlightCard } from "./Highlights";
 import { NoteCard, NoteComposer } from "./Notes";
-import { NewsSection } from "./News";
+import { FeaturedLlambleNews, NewsSection } from "./News";
 import { BoardCustomize, HIGHLIGHT_TYPES } from "./BoardCustomize";
 import type { HighlightType } from "../types";
 
@@ -49,8 +49,6 @@ const FILTER_TITLES: Record<string, string> = {
   notes: "Notes",
   highlights: "Highlights",
   news: "News",
-  "instance-news": "Instance news",
-  "llamble-news": "Llamble news",
 };
 
 function greeting(): string {
@@ -139,13 +137,12 @@ export function Board({ scope }: { scope: Scope }) {
           </div>
         )}
 
+        {home && show === "all" && <FeaturedLlambleNews />}
         {(show === "all" || show === "news") && (
           <div className="hb-news">
             <NewsSection scope={scope} />
           </div>
         )}
-        {show === "instance-news" && <NewsSection scope={scope} view="instance" />}
-        {show === "llamble-news" && <NewsSection scope={scope} view="llamble" />}
 
         {(show === "all" || show === "notes") && (home ? <ForYou /> : <ServerNotes guildId={scope} />)}
         {(show === "all" || show === "highlights") && <Highlights scope={scope} />}

@@ -141,6 +141,10 @@ function BoardRows({ guildId }: { guildId: string }) {
       <div className={"channel sub" + (open && filter === "news" ? " active" : "")} onClick={() => openGuildView(guildId, "news")}>
         <span className="ellipsis">News</span>
       </div>
+      <div className="channel sub soon" title="Game nights and shows, with RSVPs and reminders (coming soon)">
+        <span className="ellipsis">Events</span>
+        <span className="soon-tag">soon</span>
+      </div>
     </div>
   );
 }
@@ -330,17 +334,19 @@ function HomeSidebar() {
           <div className={"channel sub" + (filter === "highlights" ? " active" : "")} onClick={() => openHome("highlights")}>
             <span className="ellipsis">Highlights</span>
           </div>
+          <div className={"channel sub" + (filter === "news" ? " active" : "")} onClick={() => openHome("news")}>
+            <span className="ellipsis">News</span>
+          </div>
+          <div className="channel sub soon" title="Game nights and shows, with RSVPs and reminders (coming soon)">
+            <span className="ellipsis">Events</span>
+            <span className="soon-tag">soon</span>
+          </div>
         </div>
         <div className="sidebar-sep" />
-        <div className={"channel" + (filter === "instance-news" ? " active" : "")} onClick={() => openHome("instance-news")} title="News from whoever runs this Llamble">
-          <span className="channel-emoji">📢</span>
-          <span className="ellipsis">Instance news</span>
-        </div>
-        <div className={"channel" + (filter === "llamble-news" ? " active" : "")} onClick={() => openHome("llamble-news")} title="What's new in Llamble, from the Llamble project">
-          <span className="channel-emoji">🦙</span>
-          <span className="ellipsis">Llamble news</span>
-        </div>
-        {soon("🛍️", "Store", "Games and add-ons")}
+        {soon("📚", "Library", "Everything you've posted: files, pictures, recordings, and your post history")}
+        {soon("🎮", "Games", "Your games, who's playing, start one with friends")}
+        {soon("🧩", "Apps", "Soundboard packs, GIF packs, board themes, bots")}
+        {soon("🛍️", "Store", "The Llamble store")}
       </div>
     </>
   );

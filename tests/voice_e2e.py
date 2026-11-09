@@ -132,12 +132,12 @@ with sync_playwright() as p:
     pages[1].wait_for_timeout(800)
     pages[1].screenshot(path="/tmp/home-news.png", full_page=True)
     assert not pages[1].evaluate(crashed), "Home with news crashed"
-    pages[1].evaluate("() => window.llambleDebug.openHome('instance-news')")
+    pages[1].evaluate("() => window.llambleDebug.openHome('news')")
     pages[1].wait_for_timeout(800)
-    assert not pages[1].evaluate(crashed), "Instance news view crashed"
-    pages[1].evaluate("() => window.llambleDebug.openHome('llamble-news')")
+    assert not pages[1].evaluate(crashed), "News view crashed"
+    pages[1].evaluate("() => window.llambleDebug.openHome('highlights')")
     pages[1].wait_for_timeout(800)
-    assert not pages[1].evaluate(crashed), "Llamble news view crashed"
+    assert not pages[1].evaluate(crashed), "Highlights view crashed"
     pages[1].evaluate("() => window.llambleDebug.openHome()")
     print("News: instance news shown live on Home; news views open fine")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"

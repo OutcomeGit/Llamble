@@ -105,7 +105,7 @@ export function selectChannel(guildId: string, channelId: string | null) {
   set({ selectedGuild: guildId, lastChannel, guildView });
 }
 
-export type BoardFilter = "all" | "notes" | "highlights" | "news" | "instance-news" | "llamble-news";
+export type BoardFilter = "all" | "notes" | "highlights" | "news";
 
 export function openHome(filter: BoardFilter = "all") {
   localStorage.setItem("llamble.lastGuild", "@home");

@@ -37,6 +37,13 @@ export function NewsSection({ scope, view = "all" }: { scope: string; view?: New
     return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.created_at - a.created_at);
   }, [news, guilds, prefs, llamble, home, scope, view]);
 
+  const [source, setSource] = useState<string>("all"); // all | llamble | instance | <guild id>
+  const sources = useMemo(() => {
+    const ids = new Set<string>();
+    for (const n of list) ids.add(n.scope === "guild" ? n.guild_id || "" : n.scope);
+    return [...ids];
+  }, [list]);
+  const shown = source === "all" ? list : list.filter((n) => (n.scope === "guild" ? n.guild_id : n.scope) === source);
   const mayWrite = home ? view !== "llamble" && canWriteInstanceNews(me) : can(scope, P.POST_NEWS);
   const title = !home ? "News" : view === "instance" ? "Instance news" : view === "llamble" ? "Llamble news" : "News";
 
@@ -56,8 +63,17 @@ export function NewsSection({ scope, view = "all" }: { scope: string; view?: New
         <div className="hb-paper-note">You've turned Llamble news off. Turn it back on in Customize (top right).</div>
       )}
       {home && view === "llamble" && llamble?.error && <div className="hb-paper-note">Couldn't get Llamble news: {llamble.error}</div>}
+      {home && sources.length > 1 && (
+        <div className="hb-chips">
+          {["all", ...sources].map((k) => (
+            <button key={k} className={"hb-chip" + (source === k ? " on" : "")} onClick={() => setSource(k)}>
+              {k === "all" ? "All" : k === "llamble" ? "🦙 Llamble" : k === "instance" ? "📢 Instance" : guilds[k]?.name || "Server"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="hb-news-list">
-        {list.map((n) => (
+        {shown.map((n) => (
           <NewsCard key={n.id} n={n} serverName={n.guild_id ? guilds[n.guild_id]?.name : undefined} onEdit={() => setWriting(n)} />
         ))}
         {!list.length && (
@@ -196,6 +212,41 @@ function NewsComposer({ guildId, item, onClose }: { guildId: string | null; item
             {item ? "Save" : "Post"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const FEATURE_DAYS = 14;
+/** New Llamble announcements get a featured banner at the top of Home's board until seen. */
+export function FeaturedLlambleNews() {
+  const llamble = useStore((s) => s.llambleNews);
+  const prefs = useStore((s) => s.boardPrefs);
+  const [seen, setSeen] = useState(() => localStorage.getItem("llamble.featuredSeen") || "");
+  if (!llamble?.enabled || !prefs.llamble_news) return null;
+  const n = [...llamble.items].sort((a, b) => b.created_at - a.created_at)[0];
+  if (!n || n.id === seen || Date.now() - n.created_at > FEATURE_DAYS * 864e5) return null;
+  const close = () => {
+    localStorage.setItem("llamble.featuredSeen", n.id);
+    setSeen(n.id);
+  };
+  return (
+    <div className="hb-featured" role="region" aria-label="Llamble announcement">
+      <img src="./icon-192.png" alt="" className="hb-featured-logo" />
+      <div className="hb-featured-text">
+        <div className="hb-featured-kicker">New from Llamble</div>
+        <div className="hb-featured-title">{n.title}</div>
+        {n.body && <div className="hb-featured-body">{n.body.replace(/[#*_`>]/g, "").slice(0, 220)}</div>}
+      </div>
+      <div className="hb-featured-actions">
+        {n.url && (
+          <a className="hb-featured-btn" href={n.url} target="_blank" rel="noreferrer">
+            Read more
+          </a>
+        )}
+        <button className="hb-featured-x" title="Got it" onClick={close}>
+          ✕
+        </button>
       </div>
     </div>
   );

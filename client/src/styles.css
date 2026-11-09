@@ -1074,3 +1074,14 @@ body.pop-body > .pop { height: 100vh; }
 .hb-cust-types { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .hb-customize .hb-chip { background: var(--bg-3, rgba(127, 127, 127, 0.2)); color: var(--text); box-shadow: none; }
 .hb-customize .hb-chip.on { background: var(--brand, #5865f2); color: #fff; }
+
+/* featured Llamble announcement on Home's board */
+.hb-featured { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 12px; background: linear-gradient(120deg, #5b3fd6, #7d5cf0 55%, #4fae3c); color: #fff; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.hb-featured-logo { width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6); }
+.hb-featured-text { flex: 1; min-width: 0; }
+.hb-featured-kicker { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; opacity: 0.85; }
+.hb-featured-title { font-size: 20px; font-weight: 800; margin: 2px 0; }
+.hb-featured-body { font-size: 14px; opacity: 0.92; }
+.hb-featured-actions { display: flex; align-items: center; gap: 8px; }
+.hb-featured-btn { background: #fff; color: #4b32b8; font-weight: 700; padding: 7px 14px; border-radius: 999px; text-decoration: none; }
+.hb-featured-x { background: rgba(255, 255, 255, 0.2); border: 0; color: #fff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; }
