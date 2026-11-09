@@ -87,6 +87,18 @@ call("POST", "/api/alarms", M, expect=400, json={"label": "", "kind": "alarm", "
 call("POST", "/api/alarms", M, expect=400, json={"label": "x" * 81, "kind": "alarm", "at": now() + 60000})
 call("POST", "/api/alarms", M, expect=400, json={"label": "x", "kind": "nap", "at": now() + 60000})
 call("POST", "/api/alarms", M, expect=400, json={"label": "x", "kind": "alarm", "time": "7:30", "days": [1]})
+# levels: 1 Chime … 5 Siren, Nudge (3) by default; older apps' kind still works
+call("POST", "/api/alarms", M, expect=400, json={"label": "x", "level": 0, "at": now() + 60000})
+call("POST", "/api/alarms", M, expect=400, json={"label": "x", "level": 6, "at": now() + 60000})
+lv = call("POST", "/api/alarms", M, json={"label": "lv", "at": now() + 600000})
+assert lv["level"] == 3, lv
+assert call("PATCH", f"/api/alarms/{lv['id']}", M, json={"level": 5})["level"] == 5
+assert call("POST", "/api/alarms", M, json={"label": "old", "kind": "reminder", "at": now() + 600000})["level"] == 3
+assert call("POST", "/api/alarms", M, json={"label": "old2", "kind": "alarm", "at": now() + 600000})["level"] == 4
+for x in call("GET", "/api/alarms", M):
+    if x["label"] in ("lv", "old", "old2"):
+        call("DELETE", f"/api/alarms/{x['id']}", M)
+print("levels: default Nudge, 1-5 only, editable; older apps' alarm/reminder map to Ring/Nudge")
 print("validation OK")
 
 # ---- repeating: 07:30 on weekdays in New York

@@ -4,7 +4,7 @@ import { api, session, setSession } from "./api";
 import { initAiWorker } from "./aiWorker";
 import { startGameDetection } from "./games";
 import "./notes"; // loads Home (notes + highlights) after connecting
-import "./alarms"; // alarms + reminders (ringing, local backup timers)
+import "./alarms"; // alarms (ringing, local backup timers)
 import { AlarmRinging, AlarmSuggestion } from "./components/Alarms";
 import { connectGateway, disconnectGateway } from "./gateway";
 import { Login } from "./components/Login";

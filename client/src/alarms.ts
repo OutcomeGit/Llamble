@@ -1,5 +1,6 @@
-// Alarms and reminders. Alarms always ring (no notification or overlay setting can silence
-// them, like a phone alarm) until snoozed or dismissed; reminders are ordinary notices.
+// Alarms. Each has a level, from Chime (one chime, the notice waits in Llamble) to Siren
+// (rings until you stop it in Llamble); see LEVELS. Every level makes a sound or shows
+// something, and no setting (not even Do Not Disturb) turns an alarm down: you picked it.
 // The server fires them (ALARM_FIRE); this app also keeps local timers so an alarm still
 // rings if the connection drops for a moment (deduped per alarm + occurrence).
 import { create } from "zustand";
@@ -9,10 +10,30 @@ import type { User } from "./types";
 import { toast } from "./ui";
 
 export type AlarmKind = "alarm" | "reminder";
+export type AlarmLevel = 1 | 2 | 3 | 4 | 5;
+export interface LevelInfo {
+  name: string;
+  annoy: string;
+  /** "once": one chime when it goes off; "loop": rings until snoozed or dismissed */
+  sound: "none" | "once" | "loop";
+  /** shows on top of games (the overlay) until dismissed */
+  overlay: boolean;
+}
+export const LEVELS: Record<AlarmLevel, LevelInfo> = {
+  1: { name: "Chime", annoy: "not annoying", sound: "once", overlay: false },
+  2: { name: "Note", annoy: "barely annoying", sound: "none", overlay: true },
+  3: { name: "Nudge", annoy: "a little annoying", sound: "once", overlay: true },
+  4: { name: "Ring", annoy: "annoying", sound: "loop", overlay: true },
+  5: { name: "Siren", annoy: "really annoying", sound: "loop", overlay: false },
+};
+export const DEFAULT_LEVEL: AlarmLevel = 3;
+export const levelOf = (a: Pick<Alarm, "level" | "kind">): AlarmLevel => (a.level as AlarmLevel) || (a.kind === "reminder" ? 3 : 4);
 export interface Alarm {
   id: string;
   label: string;
+  /** older servers only */
   kind: AlarmKind;
+  level?: AlarmLevel;
   at: number | null;
   time: string | null;
   days: number[] | null;
@@ -159,15 +180,14 @@ export function previewSound(sound: string) {
 const rung = new Set<string>();
 const key = (id: string, occ: number) => `${id}:${occ}`;
 
-function overlayPayload() {
-  const r = get().ringing[0];
-  return r ? { kind: r.alarm.kind, alarm: r.alarm, occurrence_at: r.occurrence_at } : null;
-}
-
 function syncOutside() {
-  const r = get().ringing[0];
-  window.llambleNative?.overlay?.alarm?.(overlayPayload());
-  if (r) startSound(r.alarm.sound);
+  const ringing = get().ringing;
+  // on top of games: the first one whose level shows there
+  const shown = ringing.find((r) => LEVELS[levelOf(r.alarm)].overlay);
+  window.llambleNative?.overlay?.alarm?.(shown ? { kind: "alarm", alarm: shown.alarm, occurrence_at: shown.occurrence_at } : null);
+  // a repeating sound while any Ring/Siren is going
+  const loud = ringing.find((r) => LEVELS[levelOf(r.alarm)].sound === "loop");
+  if (loud) startSound(loud.alarm.sound);
   else stopSound();
 }
 
@@ -175,20 +195,10 @@ function ring(alarm: Alarm, occurrence_at: number) {
   const k = key(alarm.id, occurrence_at);
   if (rung.has(k)) return;
   rung.add(k);
-  if (alarm.kind === "reminder") {
-    // reminders follow the notification settings (alarms never do)
-    if (localStorage.getItem("llamble.status") === "dnd") return;
-    toast(`🔔 ${alarm.label || "Reminder"}`);
-    try {
-      if (localStorage.getItem("llamble.notifications") !== "off" && "Notification" in window && Notification.permission === "granted")
-        new Notification("Reminder", { body: alarm.label, silent: false });
-    } catch {}
-    // the overlay only shows reminders when overlay notifications are on (the app decides)
-    window.llambleNative?.overlay?.alarm?.({ kind: "reminder", alarm, occurrence_at });
-    return;
-  }
   if (get().ringing.some((x) => x.alarm.id === alarm.id)) return;
+  // every level waits in Llamble until it's snoozed or dismissed
   set({ ringing: [...get().ringing, { alarm, occurrence_at }] });
+  if (LEVELS[levelOf(alarm)].sound === "once") previewSound(alarm.sound);
   syncOutside();
 }
 
@@ -264,7 +274,7 @@ export async function loadAlarms() {
 }
 
 // ---------------------------------------------------------------- CRUD
-export type AlarmDraft = Partial<Pick<Alarm, "label" | "kind" | "at" | "time" | "days" | "sound" | "snooze_min" | "enabled" | "locked">> & { tz?: string };
+export type AlarmDraft = Partial<Pick<Alarm, "label" | "level" | "at" | "time" | "days" | "sound" | "snooze_min" | "enabled" | "locked">> & { tz?: string };
 const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export async function createAlarm(d: AlarmDraft, kidId?: string) {
@@ -309,7 +319,7 @@ export async function acceptSuggestion(at: number) {
   const when = new Date(s.event.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   set({ suggestion: null });
   try {
-    await createAlarm({ label: `Time to get off — ${s.event.title} at ${when}`, kind: "alarm", at });
+    await createAlarm({ label: `Time to get off — ${s.event.title} at ${when}`, level: DEFAULT_LEVEL, at });
     toast("Alarm set");
   } catch (e: any) {
     toast(e.message, "error");
@@ -350,7 +360,7 @@ export function nextAlarm(list: Record<string, Alarm>, hours = 12): Alarm | null
   let best: Alarm | null = null;
   for (const a of Object.values(list)) {
     const at = a.snoozed_until && a.snoozed_until > now ? a.snoozed_until : a.next_at;
-    if (!a.enabled || a.kind !== "alarm" || !at || at < now || at - now > hours * 3600_000) continue;
+    if (!a.enabled || !at || at < now || at - now > hours * 3600_000) continue;
     if (!best || at < (best.next_at ?? Infinity)) best = { ...a, next_at: at };
   }
   return best;

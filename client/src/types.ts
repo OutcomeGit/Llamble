@@ -323,7 +323,7 @@ declare global {
         editShown?: () => void;
         onSnapshot: (cb: (s: any) => void) => () => void;
         onEdit: (cb: (on: boolean) => void) => () => void;
-        /** main window → show (or clear with null) an alarm/reminder on the overlay */
+        /** main window → show (or clear with null) an alarm on the overlay */
         alarm?: (payload: unknown) => void;
         /** overlay → snooze/dismiss pressed on the overlay card */
         alarmAction?: (a: { id: string; action: "snooze" | "dismiss"; minutes?: number }) => void;

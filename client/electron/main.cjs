@@ -583,16 +583,9 @@ ipcMain.on("overlay-update", (_e, snap) => {
 ipcMain.on("overlay-edit", (_e, on) => setOverlayEdit(on));
 ipcMain.on("overlay-edit-shown", () => clearTimeout(editAckTimer));
 
-// Alarms: the main window sends the ringing alarm (or null when it stops). Alarms show on
-// the overlay whatever the overlay settings say; reminders only when the overlay is on.
+// Alarms: the main window sends the alarm to show over games (or null when none should).
+// It shows whatever the overlay settings say: the alarm's level decides, not the overlay.
 ipcMain.on("overlay-alarm", (_e, p) => {
-  if (p && p.kind === "reminder") {
-    if (!overlayWanted) return;
-    if (!overlay) makeOverlay();
-    overlay.webContents.send("overlay-alarm", p);
-    syncOverlay();
-    return;
-  }
   overlayAlarm = p || null;
   if (overlayAlarm && !overlay) makeOverlay();
   if (overlay && !overlay.isDestroyed()) overlay.webContents.send("overlay-alarm", overlayAlarm && { ...overlayAlarm, only: !overlayWanted });

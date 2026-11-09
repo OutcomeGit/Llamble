@@ -20,7 +20,10 @@ import {
   useAlarms,
   type Alarm,
   type AlarmDraft,
-  type AlarmKind,
+  type AlarmLevel,
+  DEFAULT_LEVEL,
+  LEVELS,
+  levelOf,
   type Schedule,
   type UpcomingEvent,
 } from "../alarms";
@@ -124,7 +127,7 @@ function AlarmRow({ a, onEdit, onDelete, onToggle }: { a: Alarm; onEdit: () => v
         <div className="al-row-time">{a.time ? formatHM(a.time) : a.at ? fmtTime(a.at) : "—"}</div>
         <div>
           <div className="bold">
-            {a.label || (a.kind === "alarm" ? "Alarm" : "Reminder")} <span className={"al-kind al-kind-" + a.kind}>{a.kind === "alarm" ? "Alarm" : "Reminder"}</span>
+            {a.label || "Alarm"} <span className={"al-kind al-kind-l" + levelOf(a)} title={LEVELS[levelOf(a)].annoy}>{LEVELS[levelOf(a)].name}</span>
           </div>
           <div className="muted small">
             {repeatText(a)} · next: {when}
@@ -152,11 +155,39 @@ function formatHM(hm: string): string {
   return fmtTime(d.getTime());
 }
 
-/** Add/edit an alarm or reminder. */
+/** The how-annoying slider: Chime … Siren, with what each step does underneath. */
+function LevelSlider({ level, onChange }: { level: AlarmLevel; onChange: (l: AlarmLevel) => void }) {
+  const L = LEVELS[level];
+  return (
+    <div className="al-level">
+      <div className="row center-v" style={{ justifyContent: "space-between" }}>
+        <span className="bold">
+          {L.name} <span className="muted">({L.annoy})</span>
+        </span>
+        {level === DEFAULT_LEVEL && <span className="muted small">default</span>}
+      </div>
+      <input type="range" min={1} max={5} step={1} value={level} aria-label="How annoying" onChange={(e) => onChange(Number(e.target.value) as AlarmLevel)} />
+      <div className="al-level-ends muted small">
+        {([1, 2, 3, 4, 5] as AlarmLevel[]).map((l) => (
+          <span key={l} className={l === level ? "on" : ""} onClick={() => onChange(l)}>
+            {LEVELS[l].name}
+          </span>
+        ))}
+      </div>
+      <div className="al-flags">
+        <span className={"al-flag" + (L.sound === "none" ? " off" : "")}>🔊 {L.sound === "loop" ? "Rings until you stop it" : L.sound === "once" ? "One chime" : "No sound"}</span>
+        <span className={"al-flag" + (L.overlay ? "" : " off")}>🖥 {L.overlay ? "Pops up over games until dismissed" : level === 5 ? "Nothing on screen: tab out and stop it in Llamble" : "Waits in Llamble, not over games"}</span>
+      </div>
+      <div className="muted small">Do Not Disturb and notification settings never turn an alarm down: it always does what you pick here.</div>
+    </div>
+  );
+}
+
+/** Add/edit an alarm. */
 export function AlarmEditor({ initial, onSave, onClose, lockedOption }: { initial?: Alarm; onSave: (d: AlarmDraft) => Promise<unknown>; onClose: () => void; lockedOption?: boolean }) {
   const now = new Date(Date.now() + 3600_000);
   const [label, setLabel] = useState(initial?.label ?? "");
-  const [kind, setKind] = useState<AlarmKind>(initial?.kind ?? "alarm");
+  const [level, setLevel] = useState<AlarmLevel>(initial ? levelOf(initial) : DEFAULT_LEVEL);
   const [repeat, setRepeat] = useState(!!initial?.days?.length);
   const [date, setDate] = useState(() => {
     const d = initial?.at ? new Date(initial.at) : now;
@@ -173,7 +204,7 @@ export function AlarmEditor({ initial, onSave, onClose, lockedOption }: { initia
   const [locked, setLocked] = useState(initial?.locked ?? !!lockedOption);
   const [busy, setBusy] = useState(false);
   const save = async () => {
-    const d: AlarmDraft = { label: label.trim(), kind, sound, snooze_min: snoozeMin, enabled: true };
+    const d: AlarmDraft = { label: label.trim(), level, sound, snooze_min: snoozeMin, enabled: true };
     if (repeat) {
       if (!days.length) return toast("Pick at least one day", "error");
       Object.assign(d, { time, days, at: null });
@@ -195,23 +226,12 @@ export function AlarmEditor({ initial, onSave, onClose, lockedOption }: { initia
   return (
     <div className="al-modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal al-editor">
-        <h2>{initial ? "Edit" : "New"} {kind === "alarm" ? "alarm" : "reminder"}</h2>
-        <div className="al-seg">
-          {(["alarm", "reminder"] as const).map((k) => (
-            <button key={k} className={"al-seg-btn" + (kind === k ? " on" : "")} onClick={() => setKind(k)}>
-              {k === "alarm" ? "⏰ Alarm" : "🔔 Reminder"}
-            </button>
-          ))}
-        </div>
-        <div className="muted small">
-          {kind === "alarm"
-            ? "Alarms always ring, even mid-game, until you snooze or dismiss them. No notification setting can silence them."
-            : "Reminders are a normal notice; they follow your notification and overlay settings."}
-        </div>
+        <h2>{initial ? "Edit" : "New"} alarm</h2>
         <label>
           Label
-          <input value={label} maxLength={100} placeholder={kind === "alarm" ? "Time to get off" : "Feed the dog"} onChange={(e) => setLabel(e.target.value)} />
+          <input value={label} maxLength={100} placeholder="Time to get off" onChange={(e) => setLabel(e.target.value)} />
         </label>
+        <LevelSlider level={level} onChange={setLevel} />
         <div className="al-seg">
           <button className={"al-seg-btn" + (!repeat ? " on" : "")} onClick={() => setRepeat(false)}>
             Once
@@ -241,7 +261,7 @@ export function AlarmEditor({ initial, onSave, onClose, lockedOption }: { initia
             ))}
           </div>
         )}
-        {kind === "alarm" && (
+        {LEVELS[level].sound !== "none" && (
           <>
             <label>
               Sound
@@ -258,6 +278,9 @@ export function AlarmEditor({ initial, onSave, onClose, lockedOption }: { initia
                 </button>
               </div>
             </label>
+          </>
+        )}
+        <>
             <label>
               Snooze length
               <select value={snoozeMin} onChange={(e) => setSnoozeMin(Number(e.target.value))}>
@@ -269,7 +292,6 @@ export function AlarmEditor({ initial, onSave, onClose, lockedOption }: { initia
               </select>
             </label>
           </>
-        )}
         {lockedOption && (
           <div className="perm-row">
             <div>
@@ -306,7 +328,7 @@ export function ScheduleSettings() {
   return (
     <div>
       <h2>Schedule &amp; alarms</h2>
-      <div className="profile-section">Alarms &amp; reminders</div>
+      <div className="profile-section">Alarms</div>
       {alarms.length === 0 && <p className="muted small">No alarms yet.</p>}
       {alarms.map((a) => (
         <AlarmRow
@@ -318,7 +340,7 @@ export function ScheduleSettings() {
         />
       ))}
       <button className="btn primary" onClick={() => setEditing("new")}>
-        + New alarm or reminder
+        + New alarm
       </button>
       {editing && (
         <AlarmEditor

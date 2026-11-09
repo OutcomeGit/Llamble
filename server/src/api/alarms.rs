@@ -49,7 +49,32 @@ CREATE INDEX IF NOT EXISTS alarms_next ON alarms(next_at);
     )
     .execute(pool)
     .await?;
+    // One kind of thing now, with a level from 1 (Chime) to 5 (Siren); see LEVELS in the app.
+    // Alarms made before keep ringing like they did (Ring); reminders become Nudge.
+    crate::db::add_column(pool, "alarms", "level", "INTEGER NOT NULL DEFAULT 3").await?;
+    let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'alarm_levels_v1'").fetch_optional(pool).await?;
+    if done.is_none() {
+        sqlx::query("UPDATE alarms SET level = 4 WHERE kind = 'alarm'").execute(pool).await?;
+        sqlx::query("UPDATE alarms SET kind = 'alarm'").execute(pool).await?;
+        sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('alarm_levels_v1', '1')").execute(pool).await?;
+    }
     Ok(())
+}
+
+/// How loud an alarm is: 1 Chime, 2 Note, 3 Nudge (default), 4 Ring, 5 Siren.
+pub const DEFAULT_LEVEL: i64 = 3;
+fn check_level(l: i64) -> ApiResult<i64> {
+    if (1..=5).contains(&l) { Ok(l) } else { Err(AppError::bad("level must be 1 (Chime) to 5 (Siren)")) }
+}
+/// Older apps still send kind: "reminder" (= Nudge) or "alarm" (= Ring).
+fn level_of(level: Option<i64>, kind: Option<&str>) -> ApiResult<Option<i64>> {
+    match (level, kind) {
+        (Some(l), _) => check_level(l).map(Some),
+        (None, Some("reminder")) => Ok(Some(3)),
+        (None, Some("alarm")) => Ok(Some(4)),
+        (None, Some(_)) => Err(AppError::bad("unknown kind")),
+        (None, None) => Ok(None),
+    }
 }
 
 #[derive(sqlx::FromRow, Clone, Debug)]
@@ -58,6 +83,7 @@ pub struct AlarmRow {
     pub user_id: String,
     pub label: String,
     pub kind: String,
+    pub level: i64,
     pub at: Option<i64>,
     pub time: Option<String>,
     pub days: Option<String>,
@@ -73,7 +99,7 @@ pub struct AlarmRow {
     pub created_at: i64,
 }
 
-const COLS: &str = "id, user_id, label, kind, at, time, days, tz, sound, snooze_min, enabled, set_by, locked, next_at, snoozed_until, snoozes_used, created_at";
+const COLS: &str = "id, user_id, label, kind, level, at, time, days, tz, sound, snooze_min, enabled, set_by, locked, next_at, snoozed_until, snoozes_used, created_at";
 
 /// Alarms ringing right now: alarm id → (user, occurrence_at, fired_at)
 static RINGING: Lazy<DashMap<String, (String, i64, i64)>> = Lazy::new(DashMap::new);
@@ -156,7 +182,7 @@ pub async fn alarm_json(state: &Shared, a: &AlarmRow) -> Value {
         None => Value::Null,
     };
     json!({
-        "id": a.id, "label": a.label, "kind": a.kind, "at": a.at, "time": a.time, "days": days_of(a),
+        "id": a.id, "label": a.label, "kind": a.kind, "level": a.level, "at": a.at, "time": a.time, "days": days_of(a),
         "tz": a.tz, "sound": a.sound, "snooze_min": a.snooze_min, "enabled": a.enabled, "set_by": set_by,
         "locked": a.locked, "next_at": a.next_at, "snoozed_until": a.snoozed_until, "created_at": a.created_at,
     })
@@ -205,6 +231,7 @@ fn stop_ringing(state: &Shared, a: &AlarmRow) {
 pub struct AlarmReq {
     pub label: Option<String>,
     pub kind: Option<String>,
+    pub level: Option<i64>,
     #[serde(default, deserialize_with = "double_option")]
     pub at: Option<Option<i64>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -257,11 +284,9 @@ fn check_sound(s: &str) -> ApiResult<String> {
 
 /// Make an alarm or reminder for `uid` (also used by the AI's set_reminder tool).
 #[allow(clippy::too_many_arguments)]
-pub async fn create_alarm(state: &Shared, uid: &str, label: &str, kind: &str, at: Option<i64>, time: Option<String>, days: Option<Vec<u32>>, tz: &str, sound: Option<String>, snooze_min: Option<i64>, set_by: Option<String>, locked: bool) -> ApiResult<AlarmRow> {
+pub async fn create_alarm(state: &Shared, uid: &str, label: &str, level: i64, at: Option<i64>, time: Option<String>, days: Option<Vec<u32>>, tz: &str, sound: Option<String>, snooze_min: Option<i64>, set_by: Option<String>, locked: bool) -> ApiResult<AlarmRow> {
     let label = clean_label(label)?;
-    if kind != "alarm" && kind != "reminder" {
-        return Err(AppError::bad("kind must be alarm or reminder"));
-    }
+    let level = check_level(level)?;
     let (at, time, days) = match (at, time, days) {
         (Some(at), None, None) => {
             if at <= now_ms() {
@@ -285,8 +310,8 @@ pub async fn create_alarm(state: &Shared, uid: &str, label: &str, kind: &str, at
         return Err(AppError::bad("that's a lot of alarms: delete some first"));
     }
     let id = new_id();
-    sqlx::query("INSERT INTO alarms (id, user_id, label, kind, at, time, days, tz, sound, snooze_min, set_by, locked, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(&id).bind(uid).bind(&label).bind(kind).bind(at).bind(&time).bind(&days).bind(tz)
+    sqlx::query("INSERT INTO alarms (id, user_id, label, kind, level, at, time, days, tz, sound, snooze_min, set_by, locked, created_at) VALUES (?,?,?,'alarm',?,?,?,?,?,?,?,?,?,?)")
+        .bind(&id).bind(uid).bind(&label).bind(level).bind(at).bind(&time).bind(&days).bind(tz)
         .bind(&sound).bind(snooze).bind(&set_by).bind(locked).bind(now_ms())
         .execute(&state.db).await?;
     let a = reschedule(state, &id).await?;
@@ -308,7 +333,7 @@ pub async fn create(State(state): State<Shared>, auth: AuthUser, headers: Header
     crate::bot::note_tz(&auth.id, &headers);
     let tz = user_tz(&auth.id);
     let a = create_alarm(
-        &state, &auth.id, req.label.as_deref().unwrap_or(""), req.kind.as_deref().unwrap_or("alarm"),
+        &state, &auth.id, req.label.as_deref().unwrap_or(""), level_of(req.level, req.kind.as_deref())?.unwrap_or(DEFAULT_LEVEL),
         req.at.flatten(), req.time.flatten(), req.days.flatten(), &tz, req.sound, req.snooze_min, None, false,
     ).await?;
     Ok(Json(alarm_json(&state, &a).await))
@@ -336,10 +361,7 @@ pub async fn update(State(state): State<Shared>, auth: AuthUser, Path(id): Path<
         Some(l) => clean_label(l)?,
         None => a.label.clone(),
     };
-    let kind = req.kind.clone().unwrap_or(a.kind.clone());
-    if kind != "alarm" && kind != "reminder" {
-        return Err(AppError::bad("kind must be alarm or reminder"));
-    }
+    let level = level_of(req.level, req.kind.as_deref())?.unwrap_or(a.level);
     let mut at = a.at;
     let mut time = a.time.clone();
     let mut days = a.days.clone();
@@ -384,8 +406,8 @@ pub async fn update(State(state): State<Shared>, auth: AuthUser, Path(id): Path<
     let locked = if guardian { req.locked.unwrap_or(a.locked) } else { a.locked };
     // a changed time starts fresh
     let timing_changed = at != a.at || time != a.time || days != a.days || enabled != a.enabled;
-    sqlx::query("UPDATE alarms SET label=?, kind=?, at=?, time=?, days=?, sound=?, snooze_min=?, enabled=?, locked=?, snoozed_until = CASE WHEN ? THEN NULL ELSE snoozed_until END WHERE id=?")
-        .bind(&label).bind(&kind).bind(at).bind(&time).bind(&days).bind(&sound).bind(snooze).bind(enabled).bind(locked).bind(timing_changed).bind(&id)
+    sqlx::query("UPDATE alarms SET label=?, level=?, at=?, time=?, days=?, sound=?, snooze_min=?, enabled=?, locked=?, snoozed_until = CASE WHEN ? THEN NULL ELSE snoozed_until END WHERE id=?")
+        .bind(&label).bind(level).bind(at).bind(&time).bind(&days).bind(&sound).bind(snooze).bind(enabled).bind(locked).bind(timing_changed).bind(&id)
         .execute(&state.db).await?;
     if timing_changed {
         stop_ringing(&state, &a);
@@ -471,7 +493,7 @@ pub async fn kid_create(State(state): State<Shared>, auth: AuthUser, headers: He
     crate::bot::note_tz(&auth.id, &headers);
     let tz = crate::bot::USER_TZ.get(&kid).map(|t| t.clone()).filter(|t| t.parse::<chrono_tz::Tz>().is_ok()).unwrap_or_else(|| user_tz(&auth.id));
     let a = create_alarm(
-        &state, &kid, req.label.as_deref().unwrap_or(""), req.kind.as_deref().unwrap_or("alarm"),
+        &state, &kid, req.label.as_deref().unwrap_or(""), level_of(req.level, req.kind.as_deref())?.unwrap_or(DEFAULT_LEVEL),
         req.at.flatten(), req.time.flatten(), req.days.flatten(), &tz, req.sound, req.snooze_min, Some(auth.id.clone()), req.locked.unwrap_or(true),
     ).await?;
     Ok(Json(alarm_json(&state, &a).await))

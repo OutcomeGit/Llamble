@@ -152,7 +152,7 @@ with sync_playwright() as p:
     # alarms: a one-off alarm ~3 s ahead must ring on client1 with a card that only Dismiss/Snooze closes
     TB = {"Authorization": "Bearer " + b["token"]}
     at_ms = int((time.time() + 3) * 1000)
-    al = ok(requests.post(B + "/api/alarms", headers=TB, json={"label": "Time to get off — e2e", "kind": "alarm", "at": at_ms, "sound": "classic", "snooze_min": 10}))
+    al = ok(requests.post(B + "/api/alarms", headers=TB, json={"label": "Time to get off — e2e", "level": 4, "at": at_ms, "sound": "classic", "snooze_min": 10}))
     pages[1].wait_for_function("() => document.querySelector('.al-card') && document.body.innerText.includes('Time to get off — e2e')", timeout=20000)
     pages[1].wait_for_timeout(500)
     pages[1].screenshot(path="/tmp/home-alarm.png", full_page=True)
@@ -162,6 +162,14 @@ with sync_playwright() as p:
     assert not pages[1].evaluate("() => !!document.querySelector('.al-card')"), "alarm rang again after dismiss"
     assert not pages[1].evaluate(crashed), "alarm crashed the app"
     print(f"Alarm {al['id']}: rang on time, dismissed, stayed dismissed")
+    # the gentlest level (Chime) still waits in the app until dismissed: never nothing
+    at_ms = int((time.time() + 3) * 1000)
+    ok(requests.post(B + "/api/alarms", headers=TB, json={"label": "Chime e2e", "level": 1, "at": at_ms}))
+    pages[1].wait_for_function("() => document.querySelector('.al-card') && document.body.innerText.includes('Chime e2e')", timeout=20000)
+    pages[1].locator(".al-card .al-dismiss").click()
+    pages[1].wait_for_function("() => !document.querySelector('.al-card')", timeout=10000)
+    assert not pages[1].evaluate(crashed), "Chime crashed the app"
+    print("Chime level: showed in the app, dismissed")
     sid = "async () => { const r = window.llambleDebug.getRoom(); try { return r ? await r.getSid() : null } catch { return null } }"
     before = [pg.evaluate(sid) for pg in pages]
     # match the process by its executable, not its command line (which would also match this shell)

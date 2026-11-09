@@ -63,7 +63,7 @@ print("tools: time + calculator OK")
 t0 = time.time()
 r = ask("llamble remind me to take the bins out in 20 minutes", lambda c: "Reminder set" in c)
 assert r.startswith("The tool says: Reminder set") and "Take the bins out" in r, r
-rem = [x for x in ok(requests.get(B+"/api/alarms",headers=T)) if x["kind"] == "reminder"]
+rem = [x for x in ok(requests.get(B+"/api/alarms",headers=T)) if x["level"] == 3]
 assert len(rem) == 1 and rem[0]["label"] == "Take the bins out" and abs(rem[0]["at"] - (t0 + 1200) * 1000) < 30000 and rem[0]["next_at"] == rem[0]["at"], rem
 print("tools: set_reminder OK")
 print("ALL BOT OK")

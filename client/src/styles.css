@@ -1144,3 +1144,17 @@ body.pop-body > .pop { height: 100vh; }
 .show-post { margin-top: 6px; padding: 10px 12px; border-left: 4px solid #8ad13c; background: #2b2d31; border-radius: 6px; max-width: 640px; }
 .show-post-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .show-post-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #8ad13c; }
+
+/* alarm level slider */
+.al-level { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; padding: 10px 12px; background: #2b2d31; border-radius: 8px; }
+.al-level input[type="range"] { width: 100%; accent-color: #8ad13c; }
+.al-level-ends { display: flex; justify-content: space-between; }
+.al-level-ends span { cursor: pointer; }
+.al-level-ends span.on { color: #fff; font-weight: 700; }
+.al-flags { display: flex; gap: 8px; flex-wrap: wrap; }
+.al-flag { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: #3a4a2a; color: #d8f5b8; }
+.al-flag.off { background: #35373c; color: #9a9ca2; }
+.al-kind-l1, .al-kind-l2 { background: #35373c; color: #b5bac1; }
+.al-kind-l3 { background: #3a5a7a; color: #fff; }
+.al-kind-l4 { background: #b8682a; color: #fff; }
+.al-kind-l5 { background: #a33; color: #fff; }

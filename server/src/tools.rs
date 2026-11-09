@@ -69,7 +69,7 @@ pub async fn definitions(state: &Shared, ctx: &Ctx) -> Vec<Value> {
         out.push(func("calculate", "Work out arithmetic exactly. Supports + - * / ^ % parentheses and sqrt, abs, round, floor, ceil, sin, cos, tan, ln, log10, pi, e.", json!({
             "type": "object", "properties": { "expression": { "type": "string" } }, "required": ["expression"] })));
         if ctx.user.is_some() {
-            out.push(func("set_reminder", "Set a one-time reminder for the person asking. It pops up as a notification on all their devices at that time. Use when someone says \"remind me ...\".", json!({
+            out.push(func("set_reminder", "Set a one-time alarm for the person asking (a chime and a pop-up on their devices at that time; they can make it louder in their alarm settings). Use when someone says \"remind me ...\".", json!({
                 "type": "object", "properties": {
                     "text": { "type": "string", "description": "What to remind them of, short, e.g. \"Take the bins out\"" },
                     "at": { "type": "string", "description": "Local date and time, ISO-8601, e.g. 2026-11-10T07:30. Use this OR minutes_from_now." },
@@ -136,7 +136,7 @@ async fn set_reminder(state: &Shared, ctx: &Ctx, args: &Value) -> anyhow::Result
         anyhow::bail!("say when: a time or minutes_from_now");
     };
     let label: String = text.chars().take(80).collect();
-    let a = crate::api::alarms::create_alarm(state, &uid, &label, "reminder", Some(at), None, None, &tz_name, None, None, None, false)
+    let a = crate::api::alarms::create_alarm(state, &uid, &label, crate::api::alarms::DEFAULT_LEVEL, Some(at), None, None, &tz_name, None, None, None, false)
         .await
         .map_err(|e| anyhow::anyhow!(e.1))?;
     let when = tz.timestamp_millis_opt(a.at.unwrap_or(at)).single().map(|t| t.format("%A %-d %B at %-I:%M %p").to_string()).unwrap_or_default();

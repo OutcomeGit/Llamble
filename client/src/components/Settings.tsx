@@ -2157,7 +2157,7 @@ function OverlaySettings() {
           )}
         </div>
       )}
-      {widgetRow("alerts", "Alerts", "Pop-ups for direct messages and @mentions. (Alarms aren't part of this: they always ring on top of games, even with the overlay off. Reminders pop up over games while the overlay is on.)")}
+      {widgetRow("alerts", "Alerts", "Pop-ups for direct messages and @mentions. (Alarms aren't part of this: each one does what its level says, even with the overlay off.)")}
       {p.widgets.alerts.on &&
         row(
           "Alerts stay for",
