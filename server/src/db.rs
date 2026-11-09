@@ -213,6 +213,13 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         sqlx::query("UPDATE roles SET permissions = permissions | ? WHERE id = guild_id").bind(crate::perms::ADD_HIGHLIGHTS).execute(pool).await?;
         sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('migr_add_highlights', '1')").execute(pool).await?;
     }
+    // AI pictures are no longer auto-added to Highlights by default: switch it off once for
+    // existing servers (admins can turn it back on; that choice then sticks)
+    let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'migr_auto_pictures_off'").fetch_optional(pool).await.unwrap_or(None);
+    if done.is_none() {
+        sqlx::query("UPDATE guilds SET highlights_auto_pictures = 0").execute(pool).await?;
+        sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('migr_auto_pictures_off', '1')").execute(pool).await?;
+    }
     sqlx::raw_sql(
         r#"
 CREATE TABLE IF NOT EXISTS guardians (

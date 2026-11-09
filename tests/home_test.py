@@ -149,7 +149,9 @@ assert wait(wsa, "HIGHLIGHT_DELETE", lambda d: d["id"] == h2["id"]), "deleting t
 assert call("GET", f"/api/guilds/{gid}/highlights", BOB) == []
 print("highlights: add, duplicate, visible only to members, delete, gone with the message")
 
-# ---- per-server auto settings
+# ---- per-server auto settings: AI pictures start off, recordings on
+g0 = next(x for x in conn(M)[1]["guilds"] if x["guild"]["id"] == gid)["guild"]
+assert g0["highlights_auto_pictures"] is False and g0["highlights_auto_recordings"] is True, g0
 g = call("PATCH", f"/api/guilds/{gid}", M, json={"highlights_auto_pictures": False})
 assert g["highlights_auto_pictures"] is False and g["highlights_auto_recordings"] is True, g
 g = call("PATCH", f"/api/guilds/{gid}", M, json={"highlights_auto_pictures": True})

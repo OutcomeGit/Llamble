@@ -63,7 +63,8 @@ pub async fn create_guild(State(state): State<Shared>, auth: AuthUser, Json(req)
     let id = new_id();
     let now = now_ms();
     let mut tx = state.db.begin().await?;
-    sqlx::query("INSERT INTO guilds (id, name, owner_id, created_at) VALUES (?,?,?,?)")
+    // AI pictures aren't auto-added to Highlights unless the server's admins turn it on
+    sqlx::query("INSERT INTO guilds (id, name, owner_id, created_at, highlights_auto_pictures) VALUES (?,?,?,?,0)")
         .bind(&id).bind(&name).bind(&auth.id).bind(now).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO roles (id, guild_id, name, permissions, position) VALUES (?,?,?,?,0)")
         .bind(&id).bind(&id).bind("@everyone").bind(perms::DEFAULT_EVERYONE).execute(&mut *tx).await?;
