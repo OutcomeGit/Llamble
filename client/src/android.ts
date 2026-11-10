@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 // Inside the Android app (android/): the page side of its private message channel.
 // The app hands the top page one end of a MessageChannel after each load; frames never get it.
 // We use it for: notifications, keeping a call alive with the screen off, saving files to
@@ -85,4 +87,23 @@ export async function androidSave(blob: Blob, name: string) {
 /** the phone's back button: close what's open; false = nothing to close (the app goes to the background) */
 export function installBack(close: () => boolean) {
   (window as any).llambleBack = close;
+}
+
+// an Android update the app found on GitHub (the pill shows only then)
+let update: string | null = null;
+const updateSubs = new Set<() => void>();
+onAndroid((m) => {
+  if (m.event === "update-available") {
+    update = String(m.version);
+    updateSubs.forEach((f) => f());
+  }
+});
+export function useAndroidUpdate(): string | null {
+  return useSyncExternalStore(
+    (f) => {
+      updateSubs.add(f);
+      return () => updateSubs.delete(f);
+    },
+    () => update,
+  );
 }

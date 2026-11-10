@@ -160,6 +160,8 @@ public class MainActivity extends Activity {
         super.onResume();
         current = this;
         web.onResume();
+        // the connection to the server may have died while Android had us frozen
+        bridge.send("resume");
         Updater.check(this, false);
     }
 

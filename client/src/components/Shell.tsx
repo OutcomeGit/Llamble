@@ -17,7 +17,7 @@ import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
 import { VoiceView } from "./VoiceView";
 import { Library } from "./Library";
-import { androidSend, isAndroidApp } from "../android";
+import { androidSend, isAndroidApp, useAndroidUpdate } from "../android";
 
 export function Shell() {
   const ready = useStore((s) => s.ready);
@@ -218,14 +218,17 @@ function GuildBar() {
         </button>
       </div>
       <div className="guild-sep" />
-      <button
-        className={"guild-btn dms" + (selected === "@me" ? " active" : "") + (unreadDms ? " has-unread" : "")}
-        onClick={() => selectChannel("@me", null)}
-        title={unreadDms ? `Direct Messages · ${unreadDms} unread` : "Direct Messages"}
-      >
-        <Icon name="chat" size={22} />
-        {unreadDms || unread["@me"]?.mentions ? <span className="badge">{Math.max(unreadDms, unread["@me"]?.mentions || 0)}</span> : null}
-      </button>
+      <div className="guild-wrap">
+        <span className={"guild-pill" + (selected === "@me" ? " active" : unreadDms ? " unread" : "")} />
+        <button
+          className={"guild-btn dms" + (selected === "@me" ? " active" : "") + (unreadDms ? " has-unread" : "")}
+          onClick={() => selectChannel("@me", null)}
+          title={unreadDms ? `Direct Messages · ${unreadDms} unread` : "Direct Messages"}
+        >
+          <Icon name="chat" size={22} />
+          {unreadDms || unread["@me"]?.mentions ? <span className="badge">{Math.max(unreadDms, unread["@me"]?.mentions || 0)}</span> : null}
+        </button>
+      </div>
       <div className="guild-sep" />
       {order.map((id) => {
         const g = guilds[id];
@@ -327,20 +330,22 @@ function VersionNotice() {
   const [mine, setMine] = useState<string>(window.llambleNative ? "" : __APP_VERSION__);
   const [status, setStatus] = useState<{ state: string; percent?: number; message?: string } | null>(null);
   const [hidden, setHidden] = useState("");
+  const androidUpdate = useAndroidUpdate();
   useEffect(() => {
     window.llambleNative?.version().then(setMine).catch(() => {});
     return window.llambleNative?.onUpdateStatus?.(setStatus);
   }, []);
   const server = config.version;
   if (!mine || !server || server === "0.0.0" || mine === "0.0.0" || hidden === server) return null;
+  if (isAndroidApp) {
+    // the phone app updates from its own downloads, not the server's: only when one exists
+    return androidUpdate ? (
+      <button className="update-pill" onClick={() => androidSend("check-update")}>
+        Llamble {androidUpdate} is out — update
+      </button>
+    ) : null;
+  }
   if (newer(server, mine)) {
-    if (isAndroidApp) {
-      return (
-        <button className="update-pill" onClick={() => androidSend("check-update")}>
-          Llamble {server} is out — update
-        </button>
-      );
-    }
     if (!window.llambleNative) {
       // web: the server already has the new page, the browser just has an old copy
       return (

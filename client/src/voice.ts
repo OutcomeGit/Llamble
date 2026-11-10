@@ -3,6 +3,7 @@ import {
   Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalAudioTrack, type LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
 } from "livekit-client";
 import { create } from "zustand";
+import { checkGateway } from "./gateway";
 import { api } from "./api";
 import { sounds } from "./sounds";
 import { helpers, needsChain, virtualKey, type MicSound, type PushToTalk } from "./micsound";
@@ -13,6 +14,8 @@ import { onEvent, useStore } from "./store";
 export interface VoiceUI {
   channelId: string | null;
   status: "idle" | "connecting" | "connected" | "reconnecting";
+  /** while connecting: which step it's on (so a slow join says where it's slow) */
+  step?: string;
   muted: boolean;
   deafened: boolean;
   camera: boolean;
@@ -424,8 +427,16 @@ async function connect(channelId: string, rejoining: boolean) {
   vset({ channelId, status: rejoining ? "reconnecting" : "connecting", error: null, camera: false, screen: false, speaking: [] });
   await refreshDevices();
   let info: { url: string; token: string; can_speak: boolean; can_video: boolean };
+  vset({ step: "Asking your server to join" });
   try {
-    info = await api(`/api/channels/${channelId}/voice`, { method: "POST" });
+    // a request on a connection that died in the background can hang for ~40s: give up after
+    // 8s and try once more (that one gets a fresh connection)
+    const ask = () =>
+      Promise.race([
+        api(`/api/channels/${channelId}/voice`, { method: "POST" }),
+        new Promise<never>((_, no) => setTimeout(() => no(Object.assign(new Error("timed out"), { slow: true })), 8000)),
+      ]);
+    info = await ask().catch((e) => (e?.slow ? (checkGateway(), ask()) : Promise.reject(e)));
   } catch (e: any) {
     // server unreachable (restarting, network blip): keep trying; a real refusal stops
     if (rejoining && (e?.status === undefined || e.status >= 500)) return scheduleRejoin(channelId);
@@ -516,6 +527,7 @@ async function connect(channelId: string, rejoining: boolean) {
     // browsers can refuse to play sound until the page is clicked
     .on(RoomEvent.AudioPlaybackStatusChanged, () => vset({ audioBlocked: !r.canPlaybackAudio }));
 
+  vset({ step: "Connecting to the voice server" });
   try {
     await r.connect(info.url, info.token, { autoSubscribe: true });
   } catch (e: any) {

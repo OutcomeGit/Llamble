@@ -67,6 +67,8 @@ export const Composer = forwardRef<ComposerHandle, { channel: Channel; placehold
     if (!el) return;
     el.style.height = "0px";
     el.style.height = Math.min(el.scrollHeight, 320) + "px";
+    // a scrollbar only once it's really too long to fit
+    el.style.overflowY = el.scrollHeight > 320 ? "auto" : "hidden";
   }, [text]);
 
   const people: User[] = useMemo(() => {

@@ -328,7 +328,7 @@ h1.md-h { font-size: 24px; } h2.md-h { font-size: 20px; } h3.md-h { font-size: 1
 .reply-bar { display: flex; align-items: center; background: var(--bg-1); padding: 6px 12px; border-radius: 8px 8px 0 0; font-size: 13px; color: var(--muted); }
 .reply-bar b { color: var(--text); margin-left: 4px; }
 .composer-row { display: flex; align-items: flex-start; padding: 0 8px 0 4px; }
-.composer-row textarea { background: transparent; resize: none; padding: 11px 8px; line-height: 1.375; max-height: 320px; border: 0; }
+.composer-row textarea { background: transparent; resize: none; padding: 11px 8px; line-height: 1.375; max-height: 320px; min-height: 44px; border: 0; overflow-y: hidden; }
 .composer-row .icon-btn { margin-top: 6px; }
 .composer-plus { background: #b5bac1 !important; color: var(--bg-input) !important; width: 24px !important; height: 24px !important; border-radius: 50% !important; margin: 10px 8px 0 8px !important; }
 .composer-plus:hover { background: #dbdee1 !important; }
@@ -1185,6 +1185,12 @@ body.pop-body > .pop { height: 100vh; }
   .member-trow { flex-wrap: wrap; row-gap: 6px; column-gap: 10px; }
   .member-trow > code.grow, .member-trow > .grow:first-child { flex-basis: 100%; }
   .member-list { position: fixed; right: 0; top: var(--titlebar); bottom: 0; width: min(300px, 82vw); z-index: 60; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.5); }
+  /* the pickers fill the width above the message box */
+  .composer-picker { left: 8px; right: 8px; bottom: 64px; }
+  .composer-picker .picker { width: 100%; height: min(440px, 55vh); }
+  /* call buttons: round and in one row (or two), never squashed */
+  .call-controls { flex-wrap: wrap; gap: 8px; padding: 10px 8px calc(10px + env(safe-area-inset-bottom)); }
+  .call-btn { width: 46px; height: 46px; flex: 0 0 46px; }
   .member-backdrop { position: fixed; inset: var(--titlebar) 0 0 0; background: rgba(0, 0, 0, 0.45); z-index: 59; }
   .shell.m-nav .member-list, .shell.m-nav .member-backdrop { display: none; }
 }

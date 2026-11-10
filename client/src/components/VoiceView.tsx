@@ -2,9 +2,36 @@ import { useEffect, useRef, useState } from "react";
 import { Track, type Participant } from "livekit-client";
 import { memberName, useStore } from "../store";
 import type { Channel } from "../types";
-import { closePopout, openPopout, popoutSupported, setOverlayPrefs, useOverlayPrefs, usePopout } from "../overlay";
+import {
+  closePopout,
+  openPopout,
+  popoutSupported,
+  setOverlayPrefs,
+  useOverlayPrefs,
+  usePopout,
+} from "../overlay";
 import { openModal, toast } from "../ui";
-import { SHARE_LABELS, defaultShareQuality, SHARE_ORDER, setWatching, shareAllowed, useWatch, watching, enableAudio, getRoom, joinVoice, leaveVoice, participants, startScreenShare, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice, type ShareQuality } from "../voice";
+import {
+  SHARE_LABELS,
+  defaultShareQuality,
+  SHARE_ORDER,
+  setWatching,
+  shareAllowed,
+  useWatch,
+  watching,
+  enableAudio,
+  getRoom,
+  joinVoice,
+  leaveVoice,
+  participants,
+  startScreenShare,
+  stopScreenShare,
+  toggleCamera,
+  toggleDeafen,
+  toggleMute,
+  useVoice,
+  type ShareQuality,
+} from "../voice";
 import { Avatar, Icon } from "./common";
 import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
@@ -26,7 +53,11 @@ interface TileSpec {
 export function VoiceView({ channel }: { channel: Channel }) {
   const v = useVoice();
   const inThis = v.channelId === channel.id;
-  const others = useStore((s) => Object.values(s.voiceStates).filter((x) => x.channel_id === channel.id).length);
+  const others = useStore(
+    (s) =>
+      Object.values(s.voiceStates).filter((x) => x.channel_id === channel.id)
+        .length,
+  );
   const [focus, setFocus] = useState<string | null>(null);
   const [board, setBoard] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
@@ -39,9 +70,19 @@ export function VoiceView({ channel }: { channel: Channel }) {
       <div className="voice-view idle">
         <Icon name="speaker" size={48} />
         <h2>{channel.name}</h2>
-        <p className="muted">{others ? `${others} connected` : "No one is here yet."}</p>
-        <button className="btn green" onClick={() => joinVoice(channel.id)} disabled={v.status === "connecting"}>
-          {v.status === "connecting" ? "Connecting…" : "Join Voice"}
+        <p className="muted">
+          {others ? `${others} connected` : "No one is here yet."}
+        </p>
+        <button
+          className="btn green"
+          onClick={() => joinVoice(channel.id)}
+          disabled={v.status === "connecting"}
+        >
+          {v.status === "connecting"
+            ? v.step
+              ? v.step + "…"
+              : "Connecting…"
+            : "Join Voice"}
         </button>
         {v.error && <p className="form-error">{v.error}</p>}
       </div>
@@ -52,10 +93,31 @@ export function VoiceView({ channel }: { channel: Channel }) {
   for (const p of participants()) {
     const screen = p.getTrackPublication(Track.Source.ScreenShare);
     // shown even when you're not watching it (with a "Watch" button)
-    if (screen && !screen.isMuted && (screen.track || p.identity !== getRoom()?.localParticipant.identity)) tiles.push({ key: p.identity + ":screen", participant: p, source: Track.Source.ScreenShare });
-    tiles.push({ key: p.identity + ":cam", participant: p, source: Track.Source.Camera });
+    if (
+      screen &&
+      !screen.isMuted &&
+      (screen.track || p.identity !== getRoom()?.localParticipant.identity)
+    )
+      tiles.push({
+        key: p.identity + ":screen",
+        participant: p,
+        source: Track.Source.ScreenShare,
+      });
+    tiles.push({
+      key: p.identity + ":cam",
+      participant: p,
+      source: Track.Source.Camera,
+    });
   }
-  const focused = tiles.find((t) => t.key === focus) || tiles.find((t) => t.source === Track.Source.ScreenShare && focus === null && tiles.length > 2 && false);
+  const focused =
+    tiles.find((t) => t.key === focus) ||
+    tiles.find(
+      (t) =>
+        t.source === Track.Source.ScreenShare &&
+        focus === null &&
+        tiles.length > 2 &&
+        false,
+    );
   const rest = focused ? tiles.filter((t) => t !== focused) : tiles;
 
   return (
@@ -63,7 +125,15 @@ export function VoiceView({ channel }: { channel: Channel }) {
       <header className="chat-header">
         <Icon name="speaker" size={22} className="muted" />
         <span className="chat-title">{channel.name}</span>
-        <span className={"voice-label " + v.status}>{v.status === "connected" ? "Connected" : v.status === "reconnecting" ? "Reconnecting…" : "Connecting…"}</span>
+        <span className={"voice-label " + v.status}>
+          {v.status === "connected"
+            ? "Connected"
+            : v.status === "reconnecting"
+              ? "Reconnecting…"
+              : v.step
+                ? v.step + "…"
+                : "Connecting…"}
+        </span>
       </header>
       {v.screen && (
         <div className="voice-alert sharing">
@@ -82,7 +152,10 @@ export function VoiceView({ channel }: { channel: Channel }) {
       {v.error && (
         <div className="voice-alert error">
           {v.error}
-          <button className="btn small link" onClick={() => useVoice.setState({ error: null })}>
+          <button
+            className="btn small link"
+            onClick={() => useVoice.setState({ error: null })}
+          >
             Dismiss
           </button>
         </div>
@@ -90,27 +163,54 @@ export function VoiceView({ channel }: { channel: Channel }) {
       {focused ? (
         <div className="stage">
           <div className="stage-main">
-            <Tile spec={focused} guildId={channel.guild_id} big onClick={() => setFocus(null)} />
+            <Tile
+              spec={focused}
+              guildId={channel.guild_id}
+              big
+              onClick={() => setFocus(null)}
+            />
           </div>
           <div className="stage-strip">
             {rest.map((t) => (
-              <Tile key={t.key} spec={t} guildId={channel.guild_id} onClick={() => setFocus(t.key)} />
+              <Tile
+                key={t.key}
+                spec={t}
+                guildId={channel.guild_id}
+                onClick={() => setFocus(t.key)}
+              />
             ))}
           </div>
         </div>
       ) : (
         <div className={"tile-grid n" + Math.min(tiles.length, 9)}>
           {tiles.map((t) => (
-            <Tile key={t.key} spec={t} guildId={channel.guild_id} onClick={() => setFocus(t.key)} />
+            <Tile
+              key={t.key}
+              spec={t}
+              guildId={channel.guild_id}
+              onClick={() => setFocus(t.key)}
+            />
           ))}
         </div>
       )}
       <ShowBanner onDirect={() => setShowPanel("director")} />
       <SoundboardTicker guildId={channel.guild_id} />
       <div className="call-controls">
-        {showPanel === "start" && !liveShow && <StartShow channelId={channel.id} onClose={() => setShowPanel(null)} />}
-        {showPanel === "director" && liveShow && <DirectorPanel onClose={() => setShowPanel(null)} />}
-        {board && <SoundboardPanel guildId={channel.guild_id} onClose={() => setBoard(false)} />}
+        {showPanel === "start" && !liveShow && (
+          <StartShow
+            channelId={channel.id}
+            onClose={() => setShowPanel(null)}
+          />
+        )}
+        {showPanel === "director" && liveShow && (
+          <DirectorPanel onClose={() => setShowPanel(null)} />
+        )}
+        {board && (
+          <SoundboardPanel
+            guildId={channel.guild_id}
+            onClose={() => setBoard(false)}
+          />
+        )}
         {fxOpen && (
           <div className="camfx-pop">
             <div className="sb-head">
@@ -122,53 +222,114 @@ export function VoiceView({ channel }: { channel: Channel }) {
             <CameraFxPicker />
           </div>
         )}
-        <button className={"call-btn" + (v.camera ? " on" : "")} onClick={toggleCamera} disabled={!v.canVideo} title="Camera">
+        <button
+          className={"call-btn" + (v.camera ? " on" : "")}
+          onClick={toggleCamera}
+          disabled={!v.canVideo}
+          title="Camera"
+        >
           <Icon name={v.camera ? "video" : "videoOff"} size={22} />
         </button>
         {v.canVideo && (
-          <button className={"call-btn" + (fxOpen ? " on" : "")} onClick={() => (setFxOpen((o) => !o), setBoard(false))} title="Camera effects and face filters">
+          <button
+            className={"call-btn" + (fxOpen ? " on" : "")}
+            onClick={() => (setFxOpen((o) => !o), setBoard(false))}
+            title="Camera effects and face filters"
+          >
             <span style={{ fontSize: 20 }}>✨</span>
           </button>
         )}
-        <button
-          className={"call-btn" + (v.screen ? " on" : "")}
-          disabled={!v.canVideo || (!v.screen && !canShareScreen())}
-          onClick={() => (v.screen ? stopScreenShare() : window.llambleNative ? openModal({ kind: "screenPicker" }) : startScreenShare("", true, defaultShareQuality()))}
-          title={v.screen ? "Stop sharing your screen" : canShareScreen() ? "Share screen" : "This device can't share its screen"}
-        >
-          <Icon name={v.screen ? "x" : "screen"} size={22} />
-        </button>
+        {/* phones and tablets that can't share their screen don't get a dead button */}
+        {(v.screen || canShareScreen()) && (
+          <button
+            className={"call-btn" + (v.screen ? " on" : "")}
+            disabled={!v.canVideo || (!v.screen && !canShareScreen())}
+            onClick={() =>
+              v.screen
+                ? stopScreenShare()
+                : window.llambleNative
+                  ? openModal({ kind: "screenPicker" })
+                  : startScreenShare("", true, defaultShareQuality())
+            }
+            title={
+              v.screen
+                ? "Stop sharing your screen"
+                : canShareScreen()
+                  ? "Share screen"
+                  : "This device can't share its screen"
+            }
+          >
+            <Icon name={v.screen ? "x" : "screen"} size={22} />
+          </button>
+        )}
         {v.ptt && !v.muted && !v.deafened && (
-          <span className={"ptt-pill" + (v.pttOpen ? " open" : "")} title="Push to talk (Settings → Voice & Video)">
-            {v.pttOpen ? "Talking" : `Hold ${keyLabel(pushToTalk().key)} to talk`}
+          <span
+            className={"ptt-pill" + (v.pttOpen ? " open" : "")}
+            title="Push to talk (Settings → Voice & Video)"
+          >
+            {v.pttOpen
+              ? "Talking"
+              : `Hold ${keyLabel(pushToTalk().key)} to talk`}
           </span>
         )}
         <StreamGameButton />
         <OverlayButton />
         <button
-          className={"call-btn" + (liveShow?.status === "recording" ? " rec" : showPanel ? " on" : "")}
+          className={
+            "call-btn" +
+            (liveShow?.status === "recording" ? " rec" : showPanel ? " on" : "")
+          }
           onClick={() => {
             setBoard(false);
             setFxOpen(false);
-            if (liveShow) setShowPanel(liveShow.director_id === me ? (showPanel ? null : "director") : null);
+            if (liveShow)
+              setShowPanel(
+                liveShow.director_id === me
+                  ? showPanel
+                    ? null
+                    : "director"
+                  : null,
+              );
             else setShowPanel(showPanel ? null : "start");
           }}
-          title={liveShow ? (liveShow.director_id === me ? "Director controls" : "A show is on") : "Record a show"}
+          title={
+            liveShow
+              ? liveShow.director_id === me
+                ? "Director controls"
+                : "A show is on"
+              : "Record a show"
+          }
         >
           <span style={{ fontSize: 20 }}>🎬</span>
         </button>
         {v.canSpeak && (
-          <button className={"call-btn" + (board ? " on" : "")} onClick={() => setBoard((b) => !b)} title="Soundboard">
+          <button
+            className={"call-btn" + (board ? " on" : "")}
+            onClick={() => setBoard((b) => !b)}
+            title="Soundboard"
+          >
             <span style={{ fontSize: 20 }}>🎶</span>
           </button>
         )}
-        <button className={"call-btn" + (v.muted ? " off" : "")} onClick={toggleMute} title="Mute">
+        <button
+          className={"call-btn" + (v.muted ? " off" : "")}
+          onClick={toggleMute}
+          title="Mute"
+        >
           <Icon name={v.muted ? "micOff" : "mic"} size={22} />
         </button>
-        <button className={"call-btn" + (v.deafened ? " off" : "")} onClick={toggleDeafen} title="Deafen">
+        <button
+          className={"call-btn" + (v.deafened ? " off" : "")}
+          onClick={toggleDeafen}
+          title="Deafen"
+        >
           <Icon name={v.deafened ? "deaf" : "headphones"} size={22} />
         </button>
-        <button className="call-btn hang" onClick={() => leaveVoice()} title="Disconnect">
+        <button
+          className="call-btn hang"
+          onClick={() => leaveVoice()}
+          title="Disconnect"
+        >
           <Icon name="phoneOff" size={22} />
         </button>
       </div>
@@ -176,9 +337,21 @@ export function VoiceView({ channel }: { channel: Channel }) {
   );
 }
 
-function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string | null; big?: boolean; onClick: () => void }) {
+function Tile({
+  spec,
+  guildId,
+  big,
+  onClick,
+}: {
+  spec: TileSpec;
+  guildId: string | null;
+  big?: boolean;
+  onClick: () => void;
+}) {
   useVoice((s) => s.version);
-  const speaking = useVoice((s) => s.speaking.includes(spec.participant.identity));
+  const speaking = useVoice((s) =>
+    s.speaking.includes(spec.participant.identity),
+  );
   const user = useStore((s) => s.users[spec.participant.identity]);
   const vs = useStore((s) => s.voiceStates[spec.participant.identity]);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -206,9 +379,23 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
     videoRef.current?.requestFullscreen?.();
   };
   return (
-    <div className={"tile" + (speaking && !isScreen ? " speaking" : "") + (big ? " big" : "")} onClick={onClick} onContextMenu={(e) => userMenu(e, spec.participant.identity, guildId)}>
+    <div
+      className={
+        "tile" +
+        (speaking && !isScreen ? " speaking" : "") +
+        (big ? " big" : "")
+      }
+      onClick={onClick}
+      onContextMenu={(e) => userMenu(e, spec.participant.identity, guildId)}
+    >
       {track && !hidden ? (
-        <video ref={videoRef} autoPlay playsInline muted className={isScreen ? "contain" : local ? "mirror" : ""} />
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={isScreen ? "contain" : local ? "mirror" : ""}
+        />
       ) : hidden && isScreen ? (
         <div className="tile-avatar tile-watch">
           <Avatar user={user} size={big ? 96 : 64} />
@@ -229,7 +416,9 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
       )}
       <div className="tile-name">
         {isScreen && <span className="live-tag">LIVE</span>}
-        {vs?.muted && !isScreen && <Icon name="micOff" size={14} className="red" />}
+        {vs?.muted && !isScreen && (
+          <Icon name="micOff" size={14} className="red" />
+        )}
         {memberName(guildId, user)}
         {isScreen ? "'s screen" : ""}
       </div>
@@ -281,7 +470,9 @@ function Tile({ spec, guildId, big, onClick }: { spec: TileSpec; guildId: string
 }
 
 export function ScreenPicker({ onClose }: { onClose: () => void }) {
-  const [sources, setSources] = useState<Awaited<ReturnType<NonNullable<typeof window.llambleNative>["getScreenSources"]>> | null>(null);
+  const [sources, setSources] = useState<Awaited<
+    ReturnType<NonNullable<typeof window.llambleNative>["getScreenSources"]>
+  > | null>(null);
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [picked, setPicked] = useState<string | null>(null);
   const [audio, setAudio] = useState(true);
@@ -290,13 +481,20 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   useStore((s) => s.config.media); // re-check the server's limits when they change
 
   const games = useGames((g) => g.list);
-  const gameIds = new Set(games.map((g) => g.sourceId).filter(Boolean) as string[]);
+  const gameIds = new Set(
+    games.map((g) => g.sourceId).filter(Boolean) as string[],
+  );
 
   useEffect(() => {
-    Promise.all([window.llambleNative!.getScreenSources(), refreshGames()]).then(([s, gs]) => {
+    Promise.all([
+      window.llambleNative!.getScreenSources(),
+      refreshGames(),
+    ]).then(([s, gs]) => {
       setSources(s);
       // a game is open: start on its window
-      const game = gs.find((g) => g.sourceId && s.some((x) => x.id === g.sourceId));
+      const game = gs.find(
+        (g) => g.sourceId && s.some((x) => x.id === g.sourceId),
+      );
       if (game) {
         setTab("window");
         setPicked(game.sourceId);
@@ -315,10 +513,16 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   return (
     <div className="screen-picker">
       <div className="tabs">
-        <button className={tab === "screen" ? "on" : ""} onClick={() => setTab("screen")}>
+        <button
+          className={tab === "screen" ? "on" : ""}
+          onClick={() => setTab("screen")}
+        >
           Screens
         </button>
-        <button className={tab === "window" ? "on" : ""} onClick={() => setTab("window")}>
+        <button
+          className={tab === "window" ? "on" : ""}
+          onClick={() => setTab("window")}
+        >
           Applications
         </button>
       </div>
@@ -328,9 +532,20 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           ?.filter((s) => s.kind === tab)
           .sort((a, b) => Number(gameIds.has(b.id)) - Number(gameIds.has(a.id)))
           .map((s) => (
-            <div key={s.id} className={"source" + (picked === s.id ? " picked" : "")} onClick={() => setPicked(s.id)} onDoubleClick={go}>
-              {gameIds.has(s.id) && <span className="source-game">🎮 Game</span>}
-              {s.thumbnail ? <img src={s.thumbnail} alt="" /> : <div className="source-blank" />}
+            <div
+              key={s.id}
+              className={"source" + (picked === s.id ? " picked" : "")}
+              onClick={() => setPicked(s.id)}
+              onDoubleClick={go}
+            >
+              {gameIds.has(s.id) && (
+                <span className="source-game">🎮 Game</span>
+              )}
+              {s.thumbnail ? (
+                <img src={s.thumbnail} alt="" />
+              ) : (
+                <div className="source-blank" />
+              )}
               <div className="source-name ellipsis">
                 {s.icon && <img src={s.icon} alt="" width={16} />} {s.name}
               </div>
@@ -340,7 +555,10 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
       <div className="share-opts">
         <label>
           Quality (this share)
-          <select value={quality} onChange={(e) => setQuality(e.target.value as ShareQuality)}>
+          <select
+            value={quality}
+            onChange={(e) => setQuality(e.target.value as ShareQuality)}
+          >
             {SHARE_ORDER.map((q) => (
               <option key={q} value={q} disabled={!shareAllowed(q)}>
                 {SHARE_LABELS[q]}
@@ -350,7 +568,12 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           </select>
         </label>
         <label className="check">
-          <input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} /> Share system audio
+          <input
+            type="checkbox"
+            checked={audio}
+            onChange={(e) => setAudio(e.target.checked)}
+          />{" "}
+          Share system audio
         </label>
         <div className="grow" />
         <button className="btn" onClick={onClose}>
@@ -374,7 +597,9 @@ function StreamGameButton() {
     <button
       className="call-btn stream-game"
       title={`Stream ${game.name} (its window and sound, ${SHARE_LABELS[defaultShareQuality()]})`}
-      onClick={() => startScreenShare(game.sourceId!, true, defaultShareQuality())}
+      onClick={() =>
+        startScreenShare(game.sourceId!, true, defaultShareQuality())
+      }
     >
       <Icon name="gamepad" size={20} />
       <span className="ellipsis">Stream {game.name}</span>
@@ -392,7 +617,15 @@ function OverlayButton() {
   return (
     <button
       className={"call-btn" + (on ? " on" : "")}
-      title={native ? (on ? "Turn off overlay (Ctrl+Shift+O moves it)" : "Show overlay on top of games") : on ? "Close the pop-out overlay" : "Pop out an always-on-top overlay"}
+      title={
+        native
+          ? on
+            ? "Turn off overlay (Ctrl+Shift+O moves it)"
+            : "Show overlay on top of games"
+          : on
+            ? "Close the pop-out overlay"
+            : "Pop out an always-on-top overlay"
+      }
       onClick={async () => {
         if (native) {
           setOverlayPrefs({ enabled: !on });
@@ -416,7 +649,9 @@ function OverlayButton() {
 function LlambleVoice({ channel }: { channel: Channel }) {
   useStore((s) => s.config);
   const bot = useStore((s) => s.config.bot?.name || "Llamble");
-  const notice = useStore((s) => (s.config as any).voice_ai?.notice as string | undefined);
+  const notice = useStore(
+    (s) => (s.config as any).voice_ai?.notice as string | undefined,
+  );
   const { thinking, caption, convo } = useBotVoice();
   const users = useStore((s) => s.users);
   const myId = useStore((s) => s.me?.id);
@@ -436,23 +671,44 @@ function LlambleVoice({ channel }: { channel: Channel }) {
           <div>
             <b>👂 {bot} is listening in this server's calls.</b> {notice}
           </div>
-          <button className="btn small" onClick={() => (localStorage.setItem(key, "1"), force((n) => n + 1))}>
+          <button
+            className="btn small"
+            onClick={() => (
+              localStorage.setItem(key, "1"),
+              force((n) => n + 1)
+            )}
+          >
             Got it
           </button>
         </div>
       )}
       <div className="listen-row">
-        <span className="listen-badge" title={`Say "Hey ${bot}" and ask anything out loud`}>
+        <span
+          className="listen-badge"
+          title={`Say "Hey ${bot}" and ask anything out loud`}
+        >
           👂 {bot} is listening · say “Hey {bot}”
         </span>
-        {thinking && !caption && <span className="listen-thinking">{bot} is thinking…</span>}
+        {thinking && !caption && (
+          <span className="listen-thinking">{bot} is thinking…</span>
+        )}
         {convo && convo.until > Date.now() && !thinking && (
           <span className="listen-convo">
-            💬 {convo.user === myId ? "Talking with you — just keep talking (say “thanks” to stop)" : `Talking with ${users[convo.user]?.display_name ?? "someone"}`} · {Math.max(0, Math.round((convo.until - Date.now()) / 1000))}s
+            💬{" "}
+            {convo.user === myId
+              ? "Talking with you — just keep talking (say “thanks” to stop)"
+              : `Talking with ${users[convo.user]?.display_name ?? "someone"}`}{" "}
+            · {Math.max(0, Math.round((convo.until - Date.now()) / 1000))}s
           </span>
         )}
-        {listen.suspended && <span className="listen-warn">Click anywhere so {bot} can hear you</span>}
-        {!listen.capturing && !listen.suspended && <span className="listen-warn">Not hearing you (muted?)</span>}
+        {listen.suspended && (
+          <span className="listen-warn">
+            Click anywhere so {bot} can hear you
+          </span>
+        )}
+        {!listen.capturing && !listen.suspended && (
+          <span className="listen-warn">Not hearing you (muted?)</span>
+        )}
       </div>
       {listen.heard && Date.now() - listen.heard.at < 8000 && (
         <div className="listen-heard">

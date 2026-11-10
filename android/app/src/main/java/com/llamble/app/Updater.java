@@ -41,6 +41,7 @@ final class Updater {
                     if (manual) a.runOnUiThread(() -> Toast.makeText(a, "Llamble is up to date (" + mine + ")", Toast.LENGTH_SHORT).show());
                     return;
                 }
+                a.bridge.send("update-available", "version", latest);
                 if (!manual && latest.equals(declined)) return;
                 final String apk = url;
                 a.runOnUiThread(() -> {

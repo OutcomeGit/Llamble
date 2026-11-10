@@ -1,4 +1,5 @@
 import React from "react";
+import { checkGateway } from "./gateway";
 // first: inside the Android app this sets up notifications before anything uses them
 import { androidSend, installBack, isAndroidApp, onAndroid } from "./android";
 import { createRoot } from "react-dom/client";
@@ -69,6 +70,7 @@ if (isAndroidApp && !isOverlay) {
   useVoice.subscribe(sync);
   onAndroid((m) => {
     if (m.event === "leave-voice") leaveVoice();
+    if (m.event === "resume") checkGateway();
   });
   // the phone's back button closes menus and windows first
   installBack(() => {
