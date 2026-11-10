@@ -5,6 +5,9 @@ set -euo pipefail
 APK=${1:?apk}
 SDK=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
 IMG="system-images;android-35;google_apis;x86_64"
+# the tools disagree on where the virtual phone lives unless told
+export ANDROID_USER_HOME="$HOME/.android" ANDROID_AVD_HOME="$HOME/.android/avd"
+mkdir -p "$ANDROID_AVD_HOME"
 yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
 "$SDK/cmdline-tools/latest/bin/sdkmanager" "emulator" "platform-tools" "$IMG" >/dev/null
 echo no | "$SDK/cmdline-tools/latest/bin/avdmanager" create avd -n llamble -k "$IMG" -d pixel_6 --force >/dev/null

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
-import { can, currentChannelId, isUnread, onEvent, openGuildView, openHome, selectChannel, useStore } from "../store";
+import { can, currentChannelId, isUnread, onEvent, openGuildView, openHome, selectChannel, showMobileNav, useStore } from "../store";
+import { useIsPhone } from "../phone";
 import { Board, useUnreadNotes } from "./Home";
 import { P } from "../types";
 import { copy, openMenu, openModal, toast, useUI } from "../ui";
@@ -16,6 +17,7 @@ import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
 import { VoiceView } from "./VoiceView";
 import { Library } from "./Library";
+import { androidSend, isAndroidApp } from "../android";
 
 export function Shell() {
   const ready = useStore((s) => s.ready);
@@ -25,6 +27,12 @@ export function Shell() {
   const memberListOpen = useStore((s) => s.memberListOpen);
   const selectedGuild = useStore((s) => s.selectedGuild);
   const homePage = useStore((s) => s.homePage);
+  const mobileMain = useStore((s) => s.mobileMain);
+  const mobile = useIsPhone();
+  // phones: the member list slides over the chat when asked for, so it starts closed
+  useEffect(() => {
+    if (mobile) useStore.setState({ memberListOpen: false });
+  }, [mobile]);
   const guildView = useStore((s) => s.guildView[s.selectedGuild]);
   const ringing = useStore((s) => s.ringing);
   const [update, setUpdate] = useState<string | null>(null);
@@ -64,8 +72,13 @@ export function Shell() {
   }
 
   return (
-    <div className="shell">
+    <div className={"shell" + (mobile ? (mobileMain ? " m-main" : " m-nav") : "")}>
       <div className="titlebar">
+        {mobile && mobileMain && (
+          <button className="m-menu" aria-label="Servers and channels" onClick={() => showMobileNav(true)}>
+            ☰
+          </button>
+        )}
         <span className="titlebar-name">Llamble</span>
         {conn !== "open" && <span className="conn-warn">Reconnecting…</span>}
         {update !== null ? (
@@ -77,8 +90,17 @@ export function Shell() {
         )}
       </div>
       <div className="layout">
-        <GuildBar />
-        <Sidebar />
+        {/* phones: picking something in the list opens it full screen */}
+        <div
+          className="nav-pane"
+          onClickCapture={(e) => {
+            const row = (e.target as Element).closest(".channel, .dm-row");
+            if (mobile && row && !row.querySelector(".soon-tag")) setTimeout(() => showMobileNav(false), 0);
+          }}
+        >
+          <GuildBar />
+          <Sidebar />
+        </div>
         <main className="main">
           {selectedGuild === "@home" ? (
             homePage === "library" ? (
@@ -98,6 +120,7 @@ export function Shell() {
             <EmptyMain home={selectedGuild === "@me"} />
           )}
         </main>
+        {mobile && channel && channel.kind === "text" && memberListOpen && <div className="member-backdrop" onClick={() => useStore.setState({ memberListOpen: false })} />}
         {channel && channel.guild_id && channel.kind === "text" && memberListOpen && <MemberList guildId={channel.guild_id} />}
       </div>
       {ringing && <RingBanner />}
@@ -311,6 +334,13 @@ function VersionNotice() {
   const server = config.version;
   if (!mine || !server || server === "0.0.0" || mine === "0.0.0" || hidden === server) return null;
   if (newer(server, mine)) {
+    if (isAndroidApp) {
+      return (
+        <button className="update-pill" onClick={() => androidSend("check-update")}>
+          Llamble {server} is out — update
+        </button>
+      );
+    }
     if (!window.llambleNative) {
       // web: the server already has the new page, the browser just has an old copy
       return (

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { media } from "../api";
 import { Markdown } from "../markdown";
 import { ago, removeHighlight } from "../notes";
@@ -50,11 +51,33 @@ export function HighlightCard({ h, showServer, polaroid }: { h: Highlight; showS
   const me = useStore((s) => s.me?.id);
   const canRemove = h.added_by.id === me || can(h.guild_id, P.MANAGE_MESSAGES);
   const title = h.recording ? h.recording.title || "Show recording" : null;
+  // a video straightens up while it plays (the board's tilt is only for looking at the board)
+  const ref = useRef<HTMLDivElement>(null);
+  const [watching, setWatching] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const on = (e: Event) => e.target instanceof HTMLVideoElement && setWatching(true);
+    const off = (e: Event) => e.target instanceof HTMLVideoElement && setWatching(false);
+    el.addEventListener("play", on, true);
+    el.addEventListener("pause", off, true);
+    el.addEventListener("ended", off, true);
+    return () => {
+      el.removeEventListener("play", on, true);
+      el.removeEventListener("pause", off, true);
+      el.removeEventListener("ended", off, true);
+    };
+  }, []);
   return (
     <div
-      className={"hl-card" + (h.message ? " clickable" : "") + (polaroid ? " hb-polaroid" : "")}
-      style={polaroid ? { transform: `rotate(${((parseInt(h.id.slice(-4), 36) || 0) % 7) * 0.5 - 1.5}deg)` } : undefined}
-      onClick={() => openHighlight(h)}
+      ref={ref}
+      className={"hl-card" + (h.message ? " clickable" : "") + (polaroid ? " hb-polaroid" : "") + (watching ? " hl-watching" : "")}
+      style={polaroid && !watching ? { transform: `rotate(${((parseInt(h.id.slice(-4), 36) || 0) % 7) * 0.5 - 1.5}deg)` } : undefined}
+      onClick={(e) => {
+        // tapping the video plays it; anywhere else on the card goes to the message
+        if ((e.target as Element).closest("video, .player")) return;
+        openHighlight(h);
+      }}
       title={h.message ? "Go to the message" : undefined}
     >
       {polaroid && <span className="hb-tape" />}

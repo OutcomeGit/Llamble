@@ -164,7 +164,11 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - name: Build the web app
         working-directory: client
-        run: npm ci && npm run build
+        run: |
+          npm ci
+          # the same version as the APK, so the app doesn't think it's out of date
+          npm version 0.1.${{ github.run_number }} --no-git-tag-version
+          npm run build
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

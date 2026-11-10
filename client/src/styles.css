@@ -1158,3 +1158,34 @@ body.pop-body > .pop { height: 100vh; }
 .al-kind-l3 { background: #3a5a7a; color: #fff; }
 .al-kind-l4 { background: #b8682a; color: #fff; }
 .al-kind-l5 { background: #a33; color: #fff; }
+
+/* ---- phones: one panel at a time (the list, or the open page) ---- */
+.nav-pane { display: contents; }
+.m-menu { display: none; }
+@media (max-width: 760px) {
+  :root { --titlebar: 40px; }
+  .titlebar { padding-left: 4px; gap: 6px; }
+  .m-menu { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 36px; font-size: 22px; color: var(--text); border-radius: 6px; }
+  .m-menu:active { background: var(--bg-hover); }
+  .shell.m-main .nav-pane { display: none; }
+  .shell.m-nav .main { display: none; }
+  .shell.m-nav .nav-pane { display: flex; flex: 1; min-width: 0; }
+  .shell.m-nav .sidebar { flex: 1; width: auto; }
+  .chat-header { padding: 0 8px; }
+  .composer { padding: 0 8px 10px; }
+  /* touch-sized rows */
+  .channel { min-height: 40px; }
+  /* settings: the section list on top, the page under it */
+  .settings { flex-direction: column; }
+  .settings-nav { width: auto; max-height: 30vh; padding: 8px; flex-shrink: 0; }
+  .settings-body { padding: 16px 14px 60px; max-width: none; }
+  .settings-close { right: 12px; top: calc(var(--titlebar) + 8px); }
+  .modal { padding: 16px; max-width: 96vw; }
+  .member-list { position: fixed; right: 0; top: var(--titlebar); bottom: 0; width: min(300px, 82vw); z-index: 60; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.5); }
+  .member-backdrop { position: fixed; inset: var(--titlebar) 0 0 0; background: rgba(0, 0, 0, 0.45); z-index: 59; }
+  .shell.m-nav .member-list, .shell.m-nav .member-backdrop { display: none; }
+}
+
+/* a highlighted video that's playing: straight, on top, its tape off */
+.hl-card.hl-watching { transform: none !important; z-index: 5; position: relative; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+.hl-card.hl-watching .hb-tape { display: none; }

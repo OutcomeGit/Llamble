@@ -6,7 +6,8 @@ import App from "./App";
 import "./styles.css";
 import { getRoom, joinVoice, leaveVoice, micSound, setMicSound, setWatching, toggleCamera, useVoice } from "./voice";
 import { PRESETS } from "./micsound";
-import { openGuildView, openHome, openLibrary, useStore } from "./store";
+import { openGuildView, openHome, openLibrary, showMobileNav, useStore } from "./store";
+import { isPhone } from "./phone";
 import { useRecorder } from "./show";
 import * as localrec from "./localrec";
 import { api } from "./api";
@@ -72,6 +73,8 @@ if (isAndroidApp && !isOverlay) {
     const ui = useUI.getState();
     if (ui.menu) return closeMenu(), true;
     if (ui.modals.length) return closeModal(), true;
+    // on a phone: from a page back to the server/channel list
+    if (isPhone() && useStore.getState().mobileMain) return showMobileNav(true), true;
     return false;
   });
 }

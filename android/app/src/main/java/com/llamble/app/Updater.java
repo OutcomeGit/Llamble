@@ -1,25 +1,19 @@
 package com.llamble.app;
 
 import android.app.AlertDialog;
-import android.app.PendingIntent;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageInstaller;
-import android.net.Uri;
-import android.provider.Settings;
 import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
  * Updates, like the Windows app: looks at Llamble's latest GitHub release and, if it has a
- * newer Llamble.apk, offers to install it. Android asks you to confirm the install.
+ * newer Llamble.apk, offers it (downloaded in the browser; Android asks you to confirm the install).
  */
 final class Updater {
     static final String LATEST = "https://api.github.com/repos/OutcomeGit/Llamble/releases/latest";
@@ -94,35 +88,12 @@ final class Updater {
         }
     }
 
+    /**
+     * The new APK downloads in the browser and Android asks to install it. (The app doesn't
+     * install anything itself: apps that can install other apps get flagged by Play Protect.)
+     */
     private static void install(MainActivity a, String url) {
-        // Android needs "install unknown apps" allowed for Llamble once
-        if (!a.getPackageManager().canRequestPackageInstalls()) {
-            Toast.makeText(a, "Allow Llamble to install updates, then come back", Toast.LENGTH_LONG).show();
-            a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + a.getPackageName())));
-            lastCheck = 0;
-            return;
-        }
-        Toast.makeText(a, "Downloading the update…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            try {
-                PackageInstaller pi = a.getPackageManager().getPackageInstaller();
-                PackageInstaller.SessionParams p = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-                p.setAppPackageName(a.getPackageName());
-                int id = pi.createSession(p);
-                try (PackageInstaller.Session s = pi.openSession(id)) {
-                    HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-                    c.setInstanceFollowRedirects(true);
-                    try (InputStream in = c.getInputStream(); OutputStream out = s.openWrite("llamble.apk", 0, c.getContentLengthLong())) {
-                        in.transferTo(out);
-                        s.fsync(out);
-                    }
-                    Intent done = new Intent(a, InstallResult.class);
-                    PendingIntent pi2 = PendingIntent.getBroadcast(a, id, done, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-                    s.commit(pi2.getIntentSender());
-                }
-            } catch (Exception e) {
-                a.runOnUiThread(() -> Toast.makeText(a, "Update failed: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        }).start();
+        Toast.makeText(a, "Downloading the update: tap it when it finishes to install", Toast.LENGTH_LONG).show();
+        a.openOutside(url);
     }
 }

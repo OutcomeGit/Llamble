@@ -14,8 +14,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- message, mention and alarm notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- installing updates of this app from Llamble's releases -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -46,8 +44,5 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <receiver
-            android:name=".InstallResult"
-            android:exported="false" />
     </application>
 </manifest>

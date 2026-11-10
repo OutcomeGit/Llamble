@@ -45,6 +45,8 @@ interface State {
   boardFilter: Record<string, BoardFilter>;
   /** what Home's main area shows: the board, or the Library */
   homePage: "board" | "library";
+  /** phones: showing the open page (true) or the server/channel list (false) */
+  mobileMain: boolean;
   /** notes I can see (Home's "For you" and boards I've opened) */
   notes: Record<string, Note>;
   highlights: Record<string, Highlight>;
@@ -83,6 +85,7 @@ export const useStore = create<State>(() => ({
   boardSection: null,
   boardFilter: {},
   homePage: "board",
+  mobileMain: true,
   notes: {},
   highlights: {},
   news: {},
@@ -538,4 +541,9 @@ export function setMessages(channelId: string, older: Message[], hasMore: boolea
   const ids = new Set(existing.map((m) => m.id));
   const merged = [...older.filter((m) => !ids.has(m.id)), ...existing].sort((a, b) => (a.pending ? 1 : b.pending ? -1 : a.id < b.id ? -1 : 1));
   set({ messages: { ...s.messages, [channelId]: merged }, hasMore: { ...s.hasMore, [channelId]: hasMore } });
+}
+
+/** Phones show one panel at a time: the open page, or the server/channel list. */
+export function showMobileNav(on: boolean) {
+  set({ mobileMain: !on });
 }
