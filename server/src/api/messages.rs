@@ -158,6 +158,7 @@ pub async fn create_message(State(state): State<Shared>, auth: AuthUser, Path(ci
     }
     payload["guild_id"] = json!(ch.guild_id);
     state.emit_channel(&ch, "MESSAGE_CREATE", &payload).await;
+    crate::pushes::message_created(&state, &ch, &payload, &auth.id).await;
 
     if p & perms::EMBED_LINKS != 0 && state.s().unfurl_links {
         crate::api::embeds::spawn_unfurl(state.clone(), ch.clone(), id.clone(), content.clone());

@@ -10,6 +10,7 @@ mod images;
 mod kids;
 mod models;
 mod perms;
+mod pushes;
 mod relay;
 mod remote;
 mod settings;

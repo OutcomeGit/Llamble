@@ -7,7 +7,7 @@ import { CODEC_LABELS, clearBad, codecChoice, describe, hardwareEncoders, setCod
 import { closePopout, openPopout, popoutSupported, setOverlayPrefs, setWidget, useOverlayPrefs, usePopout, type WidgetId } from "../overlay";
 import { useShallow } from "zustand/react/shallow";
 import React, { useEffect, useRef, useState } from "react";
-import { api, formatBytes, upload } from "../api";
+import { api, formatBytes, session, upload } from "../api";
 import { chosenGpu, preparePictures, refreshGpus, saveAiConfig, setLending, startLocalModel, stopLocalModel, useAi, type AiConfig } from "../aiWorker";
 import { can, guildPerms, memberName, useStore } from "../store";
 import { GUEST_DENY, P, PERM_LABELS, type Role, type User } from "../types";
@@ -23,7 +23,7 @@ import { CameraFxPicker } from "./CameraFx";
 import { PicturesAdmin } from "./PicturesAdmin";
 import { BotToolsAdmin, GuildVoiceListen, MicTest, VoiceAiAdmin } from "./VoiceAi";
 import { Recordings } from "./Library";
-import { androidSend, isAndroidApp } from "../android";
+import { androidListener, androidSend, isAndroidApp } from "../android";
 
 /** Shows the problem instead of a blank window when a settings page crashes. */
 class PageGuard extends React.Component<{ children: React.ReactNode; page: string }, { err: Error | null }> {
@@ -1053,38 +1053,23 @@ function AiSettings() {
   );
 }
 
-/** Android app: keep running in the background so messages and notifications keep arriving. */
-function StayConnected() {
-  const [on, setOn] = useState(localStorage.getItem("llamble.stayConnected") === "on");
+/** Android app: how notifications arrive while it's closed. */
+function PhoneNotifications() {
   return (
-    <>
-      <div className="perm-row">
-        <div>
-          <div className="bold">Stay connected in the background</div>
-          <div className="muted small">
-            Without this, Android pauses Llamble a little while after you switch away, so messages and notifications stop until you open it again (a call keeps it going either way). With it, a quiet
-            "Llamble is connected" notification stays in your notification shade. Uses a little more battery. Closing Llamble from the recent-apps list still stops it.
-          </div>
-        </div>
-        <Toggle
-          on={on}
-          onChange={(v) => {
-            localStorage.setItem("llamble.stayConnected", v ? "on" : "off");
-            setOn(v);
-            androidSend("stay-connected", { on: v });
-          }}
-        />
-      </div>
-      {on && (
-        <p className="muted small">
-          If messages still stop after a while with the screen off, Android's battery saver is pausing it anyway:{" "}
-          <a href="#" onClick={(e) => (e.preventDefault(), androidSend("battery-settings"))}>
-            let Llamble run unrestricted
-          </a>
-          .
-        </p>
-      )}
-    </>
+    <div className="muted small" style={{ margin: "4px 0 12px" }}>
+      <p>
+        While Llamble is closed, it listens for your direct messages and @mentions over one small connection to your own server (no Google, a few kilobytes an hour). Android shows a "Listening for
+        messages" notification for that: long-press it and turn that category off to hide it, and listening carries on. Turning Notifications off above stops the listening completely. Calls work
+        the same either way.
+      </p>
+      <p>
+        If notifications stop coming after a while with the screen off, Android's battery saver is pausing Llamble:{" "}
+        <a href="#" onClick={(e) => (e.preventDefault(), androidSend("battery-settings"))}>
+          let Llamble run unrestricted
+        </a>
+        .
+      </p>
+    </div>
   );
 }
 
@@ -1100,6 +1085,7 @@ function NotifSettings() {
         on={localStorage.getItem("llamble." + k) !== "off"}
         onChange={(v) => {
           localStorage.setItem("llamble." + k, v ? "on" : "off");
+          if (k === "notifications") androidListener(session.server, session.token);
           force((x) => x + 1);
         }}
       />
@@ -1113,7 +1099,7 @@ function NotifSettings() {
       {flag("effects", "Screen effects", "Confetti, fireworks and the like when someone sends /confetti, /fireworks...")}
       {flag("autoEffects", "Effects from words", "\"Happy birthday\" and \"congrats\" set off confetti by themselves")}
       <p className="muted small">Set your status to Do Not Disturb (click your avatar) to silence everything.</p>
-      {isAndroidApp && <StayConnected />}
+      {isAndroidApp && <PhoneNotifications />}
       {window.llambleNative && (
         <div className="perm-row">
           <div>

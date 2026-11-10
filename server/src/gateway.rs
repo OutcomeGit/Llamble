@@ -92,7 +92,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
     }))
 }
 
-static STATUSES: once_cell::sync::Lazy<dashmap::DashMap<String, String>> = once_cell::sync::Lazy::new(Default::default);
+pub static STATUSES: once_cell::sync::Lazy<dashmap::DashMap<String, String>> = once_cell::sync::Lazy::new(Default::default);
 
 /// What each person is playing right now (Windows app game detection), shown as "Playing X".
 static GAMES: once_cell::sync::Lazy<dashmap::DashMap<String, String>> = once_cell::sync::Lazy::new(Default::default);

@@ -107,3 +107,13 @@ export function useAndroidUpdate(): string | null {
     () => update,
   );
 }
+
+/**
+ * Notifications while the app is closed: the app's own listener (one small connection to
+ * your server, no Google). On when signed in with Notifications on, off otherwise.
+ */
+export function androidListener(server: string, token: string) {
+  if (!isAndroidApp) return;
+  const on = !!token && !!server && localStorage.getItem("llamble.notifications") !== "off";
+  androidSend("listener", token ? { on, server, token } : { on: false });
+}

@@ -1,6 +1,8 @@
 import type { FileObj } from "./types";
 
 const LS_SERVER = "llamble.server";
+import { androidListener } from "./android";
+
 const LS_TOKEN = "llamble.token";
 
 /** your time zone, so the bot can tell you the time */
@@ -24,6 +26,8 @@ export function setSession(server: string, token: string) {
   localStorage.setItem(LS_SERVER, session.server);
   if (token) localStorage.setItem(LS_TOKEN, token);
   else localStorage.removeItem(LS_TOKEN);
+  // the Android app's notification listener follows who's signed in
+  androidListener(session.server, token);
 }
 
 export function normalizeServer(input: string): string {

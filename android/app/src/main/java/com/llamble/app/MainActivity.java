@@ -147,6 +147,8 @@ public class MainActivity extends Activity {
         String tag = intent.getStringExtra("notification");
         if (tag != null) bridge.send("notification-click", "tag", tag);
         if (intent.getBooleanExtra("leave_voice", false)) bridge.send("leave-voice");
+        String ch = intent.getStringExtra("open_channel");
+        if (ch != null) bridge.send("open-channel", "channel_id", ch, "guild_id", intent.getStringExtra("open_guild"));
     }
 
     @Override
@@ -166,19 +168,28 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        ListenerService.setAppVisible(true);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        ListenerService.setAppVisible(false);
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         // in a call the page must keep running (it's what sends and plays the audio)
-        if (!VoiceService.running && !ConnectionService.running) web.onPause();
+        if (!VoiceService.running) web.onPause();
     }
 
     @Override
     protected void onDestroy() {
         if (current == this) current = null;
-        if (isFinishing()) {
-            VoiceService.stop(this);
-            ConnectionService.stop(this);
-        }
+        if (isFinishing()) VoiceService.stop(this);
         web.destroy();
         super.onDestroy();
     }

@@ -1,13 +1,14 @@
 import React from "react";
 import { checkGateway } from "./gateway";
+import { session } from "./api";
 // first: inside the Android app this sets up notifications before anything uses them
-import { androidSend, installBack, isAndroidApp, onAndroid } from "./android";
+import { androidListener, androidSend, installBack, isAndroidApp, onAndroid } from "./android";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 import { getRoom, joinVoice, leaveVoice, micSound, setMicSound, setWatching, toggleCamera, useVoice } from "./voice";
 import { PRESETS } from "./micsound";
-import { openGuildView, openHome, openLibrary, showMobileNav, useStore } from "./store";
+import { openGuildView, openHome, openLibrary, selectChannel, showMobileNav, useStore } from "./store";
 import { isPhone } from "./phone";
 import { useRecorder } from "./show";
 import * as localrec from "./localrec";
@@ -71,9 +72,11 @@ if (isAndroidApp && !isOverlay) {
   onAndroid((m) => {
     if (m.event === "leave-voice") leaveVoice();
     if (m.event === "resume") checkGateway();
+    // a tapped notification from the listener: open that chat
+    if (m.event === "open-channel" && m.channel_id) selectChannel((m.guild_id as string) || "@me", String(m.channel_id));
   });
-  // "Stay connected in the background" (Settings → Notifications), applied each time the app opens
-  if (localStorage.getItem("llamble.stayConnected") === "on") androidSend("stay-connected", { on: true });
+  // notifications while closed: tell the app's listener who's signed in (each time it opens)
+  androidListener(session.server, session.token);
   // the phone's back button closes menus and windows first
   installBack(() => {
     const ui = useUI.getState();

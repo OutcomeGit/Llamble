@@ -126,7 +126,7 @@ export default function App() {
         if (localStorage.getItem("llamble.notifications") !== "off" && "Notification" in window) {
           const where = ch.kind === "dm" ? "" : ` (#${ch.name}, ${s.guilds[ch.guild_id!]?.name ?? ""})`;
           const body = msg.content || (msg.attachments.length ? `📎 ${msg.attachments[0].filename}` : "");
-          const notif = new Notification(memberName(ch.guild_id, msg.author) + where, { body: body.slice(0, 180), silent: true });
+          const notif = new Notification(memberName(ch.guild_id, msg.author) + where, { body: body.slice(0, 180), silent: true, tag: "m:" + msg.id });
           notif.onclick = () => {
             window.llambleNative?.focus();
             selectChannel(ch.guild_id || "@me", ch.id);

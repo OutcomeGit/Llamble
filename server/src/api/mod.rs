@@ -154,6 +154,7 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/shows/{id}/start", post(crate::shows::start))
         .route("/api/shows/{id}/state", post(crate::shows::set_state))
         .route("/api/shows/{id}/chunk", post(crate::shows::upload_chunk).layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
+        .route("/api/notify/stream", get(crate::pushes::stream))
         .route("/api/shows/{id}/stop", post(crate::shows::stop))
         .route("/api/shows/{id}/upload/begin", post(crate::shows::upload_begin))
         .route("/api/shows/{id}/upload/done", post(crate::shows::upload_done))
