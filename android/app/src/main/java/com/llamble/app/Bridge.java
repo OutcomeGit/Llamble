@@ -70,6 +70,13 @@ final class Bridge {
                     if (m.optBoolean("on")) VoiceService.start(app, m.optString("title", "In a voice call"));
                     else VoiceService.stop(app);
                     break;
+                case "stay-connected":
+                    if (m.optBoolean("on")) ConnectionService.start(app);
+                    else ConnectionService.stop(app);
+                    break;
+                case "battery-settings":
+                    app.startActivity(new android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    break;
                 case "notify":
                     Notify.message(app, m.optString("tag"), m.optString("title"), m.optString("body"));
                     break;

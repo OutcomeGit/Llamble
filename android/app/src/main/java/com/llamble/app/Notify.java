@@ -9,7 +9,7 @@ import android.content.Intent;
 
 /** Android notifications: messages and mentions (what the page would show in a browser), and the call. */
 final class Notify {
-    static final String MESSAGES = "messages", CALL = "call", UPDATES = "updates";
+    static final String MESSAGES = "messages", CALL = "call", UPDATES = "updates", CONNECTED = "connected";
 
     static void channels(Context c) {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
@@ -20,6 +20,10 @@ final class Notify {
         call.setDescription("Shown while you're in a voice channel, so the call keeps going with the screen off");
         nm.createNotificationChannel(call);
         nm.createNotificationChannel(new NotificationChannel(UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT));
+        NotificationChannel conn = new NotificationChannel(CONNECTED, "Staying connected", NotificationManager.IMPORTANCE_MIN);
+        conn.setDescription("Shown while \"Stay connected in the background\" is on");
+        conn.setShowBadge(false);
+        nm.createNotificationChannel(conn);
     }
 
     static PendingIntent open(Context c, String tag, boolean leaveVoice) {

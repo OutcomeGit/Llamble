@@ -169,13 +169,16 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         // in a call the page must keep running (it's what sends and plays the audio)
-        if (!VoiceService.running) web.onPause();
+        if (!VoiceService.running && !ConnectionService.running) web.onPause();
     }
 
     @Override
     protected void onDestroy() {
         if (current == this) current = null;
-        if (isFinishing()) VoiceService.stop(this);
+        if (isFinishing()) {
+            VoiceService.stop(this);
+            ConnectionService.stop(this);
+        }
         web.destroy();
         super.onDestroy();
     }

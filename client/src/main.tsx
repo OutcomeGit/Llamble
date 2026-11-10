@@ -72,6 +72,8 @@ if (isAndroidApp && !isOverlay) {
     if (m.event === "leave-voice") leaveVoice();
     if (m.event === "resume") checkGateway();
   });
+  // "Stay connected in the background" (Settings → Notifications), applied each time the app opens
+  if (localStorage.getItem("llamble.stayConnected") === "on") androidSend("stay-connected", { on: true });
   // the phone's back button closes menus and windows first
   installBack(() => {
     const ui = useUI.getState();
