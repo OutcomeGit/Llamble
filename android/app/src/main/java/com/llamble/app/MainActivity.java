@@ -67,6 +67,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        Crashes.install(getApplicationContext());
         current = this;
         Notify.channels(this);
 
@@ -103,6 +104,7 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
 
         Updater.check(this, false);
+        Crashes.showLast(this);
         handleIntent(getIntent());
     }
 
@@ -238,7 +240,8 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
-            // the page's process crashed or was killed for memory: start fresh
+            // the page's process crashed or was killed for memory: start fresh, and say so once
+            Crashes.note(MainActivity.this, detail.didCrash() ? "The page's process crashed (WebView)." : "Android stopped the page's process to free memory (WebView).");
             recreate();
             return true;
         }

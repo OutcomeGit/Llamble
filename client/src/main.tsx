@@ -58,7 +58,9 @@ if (isAndroidApp && !isOverlay) {
   // in a call: the app keeps running with the screen off (its "in a call" notification)
   let inCall: string | null = null;
   const sync = (v: ReturnType<typeof useVoice.getState>) => {
-    const on = v.channelId && v.status !== "idle" ? v.channelId : null;
+    // only once connected: by then the microphone has been allowed (Android won't start a
+    // microphone call before that), and it stays on while reconnecting
+    const on = v.channelId && (v.status === "connected" || (v.status === "reconnecting" && inCall)) ? v.channelId : null;
     if (on === inCall) return;
     inCall = on;
     const ch = on ? useStore.getState().channels[on] : null;

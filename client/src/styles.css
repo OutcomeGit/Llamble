@@ -1181,6 +1181,9 @@ body.pop-body > .pop { height: 100vh; }
   .settings-body { padding: 16px 14px 60px; max-width: none; }
   .settings-close { right: 12px; top: calc(var(--titlebar) + 8px); }
   .modal { padding: 16px; max-width: 96vw; }
+  /* table rows (invites, members, bans) wrap instead of drawing over each other */
+  .member-trow { flex-wrap: wrap; row-gap: 6px; column-gap: 10px; }
+  .member-trow > code.grow, .member-trow > .grow:first-child { flex-basis: 100%; }
   .member-list { position: fixed; right: 0; top: var(--titlebar); bottom: 0; width: min(300px, 82vw); z-index: 60; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.5); }
   .member-backdrop { position: fixed; inset: var(--titlebar) 0 0 0; background: rgba(0, 0, 0, 0.45); z-index: 59; }
   .shell.m-nav .member-list, .shell.m-nav .member-backdrop { display: none; }
@@ -1189,3 +1192,6 @@ body.pop-body > .pop { height: 100vh; }
 /* a highlighted video that's playing: straight, on top, its tape off */
 .hl-card.hl-watching { transform: none !important; z-index: 5; position: relative; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
 .hl-card.hl-watching .hb-tape { display: none; }
+
+/* menus, lists and buttons aren't text to select (a long-press would select them on touch screens) */
+.sidebar, .guildbar, .settings-nav, .titlebar, .user-panel, .btn, button, .channel, .chat-header { -webkit-user-select: none; user-select: none; }
