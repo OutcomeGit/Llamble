@@ -1,6 +1,6 @@
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
-  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, type LocalAudioTrack, type LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
+  Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, LocalAudioTrack, LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
 } from "livekit-client";
 import { create } from "zustand";
 import { checkGateway } from "./gateway";
@@ -10,6 +10,8 @@ import { helpers, needsChain, virtualKey, type MicSound, type PushToTalk } from 
 import { MicProcessor, micContext } from "./micfx";
 import { needsBackup, pickCodec, useEncoder, verifyEncoder, type VideoKind } from "./encoder";
 import { onEvent, useStore } from "./store";
+import { isAndroidApp } from "./android";
+import { canPhoneShare, startPhoneCapture, type PhoneCapture } from "./phonescreen";
 
 export interface VoiceUI {
   channelId: string | null;
@@ -557,6 +559,11 @@ async function connect(channelId: string, rejoining: boolean) {
 
 export async function leaveVoice(notify = true) {
   wanted = null;
+  // the phone stops capturing its screen too
+  if (phoneCap) {
+    phoneCap.stop();
+    phoneCap = null;
+  }
   clearTimeout(rejoinTimer);
   rejoinStarted = 0;
   const r = room;
@@ -694,6 +701,7 @@ function sharePreset(q: ShareQuality): { width: number; height: number; fps: num
 export async function startScreenShare(sourceId: string, audio: boolean, quality: ShareQuality) {
   if (!room) return;
   while (!shareAllowed(quality) && SHARE_ORDER.indexOf(quality) > 0) quality = SHARE_ORDER[SHARE_ORDER.indexOf(quality) - 1];
+  if (isAndroidApp) return startPhoneShare(quality);
   await window.llambleNative?.setScreenSource({ id: sourceId, audio });
   const p = sharePreset(quality);
   // People with smaller screens or slower connections get a lighter copy: VP9 sends
@@ -810,8 +818,64 @@ function watchForBlack(track: MediaStreamTrack) {
   setTimeout(() => clearInterval(t), 20000);
 }
 
+// ---- Android app: the phone's screen (see phonescreen.ts)
+let phoneCap: PhoneCapture | null = null;
+
+async function startPhoneShare(quality: ShareQuality) {
+  const r = room;
+  if (!r || phoneCap) return;
+  // phones send at most 1080p, 30 frames a second
+  const p = sharePreset(quality === "native" || SHARE_ORDER.indexOf(quality) > SHARE_ORDER.indexOf("1080p30") ? "1080p30" : quality);
+  const fps = Math.min(p.fps, 30);
+  vset({ error: null });
+  let cap: PhoneCapture;
+  try {
+    cap = await startPhoneCapture({ width: p.width, height: p.height, fps, bitrate: Math.min(p.bitrate * 2, 8_000_000), audio: true });
+  } catch (e: any) {
+    if (!/wasn't started|cancel/i.test(e.message)) vset({ error: "Screen share failed: " + e.message });
+    return;
+  }
+  if (room !== r) return cap.stop();
+  phoneCap = cap;
+  cap.video.contentHint = "motion";
+  const codec = await pickCodec("screen");
+  screenOpts = { screenShareEncoding: { maxBitrate: p.bitrate, maxFramerate: fps }, screenShareSimulcastLayers: [new VideoPreset(1280, 720, 1_200_000, 15)] };
+  try {
+    await r.localParticipant.publishTrack(new LocalVideoTrack(cap.video, undefined, false), { source: Track.Source.ScreenShare, ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec) });
+    if (cap.audio)
+      await r.localParticipant.publishTrack(new LocalAudioTrack(cap.audio, undefined, false), {
+        source: Track.Source.ScreenShareAudio,
+        forceStereo: true,
+        dtx: false,
+        red: false,
+        audioPreset: { maxBitrate: shareAudioBitrate() },
+      });
+    watchEncoder("screen", codec);
+    vset({ screen: true, pickerOpen: false });
+  } catch (e: any) {
+    vset({ error: "Screen share failed: " + e.message });
+    await stopScreenShare();
+    return;
+  }
+  syncServerState();
+  bump();
+}
+// ended from Android's side (its own "stop sharing" control)
+window.addEventListener("llamble-phone-share-ended", () => {
+  if (phoneCap) stopScreenShare();
+});
+
 export async function stopScreenShare() {
   if (!room) return;
+  if (phoneCap) {
+    const cap = phoneCap;
+    phoneCap = null;
+    for (const src of [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]) {
+      const t = room.localParticipant.getTrackPublication(src)?.track;
+      if (t) await room.localParticipant.unpublishTrack(t, true).catch(() => {});
+    }
+    cap.stop();
+  }
   await room.localParticipant.setScreenShareEnabled(false).catch(() => {});
   vset({ screen: false });
   useEncoder.setState({ screen: undefined });
@@ -834,7 +898,7 @@ export async function applyDevicePrefs() {
 
 /** Phones and tablets (Android Chrome, iOS) can't share their screen from a browser. */
 export function canShareScreen(): boolean {
-  return !!window.llambleNative || typeof navigator.mediaDevices?.getDisplayMedia === "function";
+  return !!window.llambleNative || canPhoneShare() || typeof navigator.mediaDevices?.getDisplayMedia === "function";
 }
 
 export function participants(): Participant[] {

@@ -51,7 +51,8 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String HOST = "appassets.androidplatform.net";
     static final String ORIGIN = "https://" + HOST;
-    private static final int REQ_FILE = 1, REQ_PERM = 2, REQ_NOTIF = 3;
+    private static final int REQ_FILE = 1, REQ_PERM = 2, REQ_NOTIF = 3, REQ_SCREEN = 4;
+    private String screenWant;
 
     /** the activity that's showing (for the voice notification's buttons and notification taps) */
     static MainActivity current;
@@ -336,9 +337,25 @@ public class MainActivity extends Activity {
         else req.grant(grant.toArray(new String[0]));
     }
 
+    /** Android's own "share your screen?" prompt (whole screen or one app). */
+    void startScreenCapture(String want) {
+        screenWant = want;
+        android.media.projection.MediaProjectionManager mpm = (android.media.projection.MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+        try {
+            startActivityForResult(mpm.createScreenCaptureIntent(), REQ_SCREEN);
+        } catch (ActivityNotFoundException e) {
+            bridge.send("screen-denied", "reason", "This phone can't share its screen");
+        }
+    }
+
     @Override
     protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
+        if (code == REQ_SCREEN) {
+            if (result == RESULT_OK && data != null) ScreenService.start(this, result, data, screenWant);
+            else bridge.send("screen-denied", "reason", "cancelled");
+            return;
+        }
         if (code != REQ_FILE || fileCallback == null) return;
         Uri[] picked = null;
         if (result == RESULT_OK && data != null) {

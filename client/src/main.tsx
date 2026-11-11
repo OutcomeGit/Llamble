@@ -12,11 +12,12 @@ import { openGuildView, openHome, openLibrary, selectChannel, showMobileNav, use
 import { isPhone } from "./phone";
 import { useRecorder } from "./show";
 import * as localrec from "./localrec";
+import { startPhoneCapture } from "./phonescreen";
 import { api } from "./api";
 import { closeMenu, closeModal, openModal, useUI } from "./ui";
 
 // handle for automated tests and troubleshooting from the dev console
-(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), localrec, openLibrary, micSound, setMicSound, PRESETS, openHome, openGuildView,
+(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), localrec, startPhoneCapture, openLibrary, micSound, setMicSound, PRESETS, openHome, openGuildView,
   // tests: open "Share to…" for a message
   openShare: async (cid: string, mid: string) => {
     const msgs = await api<any[]>(`/api/channels/${cid}/messages?limit=20`);

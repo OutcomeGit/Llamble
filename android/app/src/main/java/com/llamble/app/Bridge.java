@@ -74,6 +74,15 @@ final class Bridge {
                     // notifications while closed: on/off, and the server + login to listen with
                     ListenerService.configure(app, m.optBoolean("on"), m.optString("server", null), m.has("token") ? m.optString("token") : null);
                     break;
+                case "screen-start":
+                    app.startScreenCapture(m.toString());
+                    break;
+                case "screen-stop":
+                    ScreenService.stop(app);
+                    break;
+                case "screen-keyframe":
+                    ScreenService.keyframe();
+                    break;
                 case "battery-settings":
                     app.startActivity(new android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
                     break;
