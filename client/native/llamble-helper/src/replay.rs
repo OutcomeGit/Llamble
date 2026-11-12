@@ -22,9 +22,10 @@ struct Inner {
     pos: u64,
     /// ftyp + moov (and anything before the first fragment)
     init: Vec<u8>,
-    /// (when it was finished, moof + mdat)
-    frags: VecDeque<(Instant, Vec<u8>)>,
+    /// (when it was finished, where it sat in the stream, moof + mdat)
+    frags: VecDeque<(Instant, u64, Vec<u8>)>,
     cur: Vec<u8>,
+    cur_at: u64,
     keep: Duration,
     last_written: u32,
 }
@@ -41,6 +42,7 @@ impl Buffer {
             init: Vec::new(),
             frags: VecDeque::new(),
             cur: Vec::new(),
+            cur_at: 0,
             keep: Duration::from_secs(keep_secs.clamp(5, 600)),
             last_written: 0,
         })))
@@ -54,8 +56,8 @@ impl Buffer {
     /// How much is held: (seconds, bytes).
     pub fn held(&self) -> (u64, usize) {
         let g = self.0.lock().unwrap();
-        let secs = g.frags.front().map(|(t, _)| t.elapsed().as_secs()).unwrap_or(0);
-        (secs, g.init.len() + g.frags.iter().map(|(_, f)| f.len()).sum::<usize>())
+        let secs = g.frags.front().map(|(t, _, _)| t.elapsed().as_secs()).unwrap_or(0);
+        (secs, g.init.len() + g.frags.iter().map(|(_, _, f)| f.len()).sum::<usize>())
     }
 
     /// Write the last `secs` seconds to `path` as a normal MP4. Returns the seconds saved.
@@ -63,8 +65,8 @@ impl Buffer {
         let (init, frags) = {
             let g = self.0.lock().unwrap();
             let since = Instant::now().checked_sub(Duration::from_secs(secs)).unwrap_or_else(Instant::now);
-            let take: Vec<Vec<u8>> = g.frags.iter().filter(|(t, _)| *t >= since).map(|(_, f)| f.clone()).collect();
-            let first = g.frags.iter().find(|(t, _)| *t >= since).map(|(t, _)| t.elapsed().as_secs()).unwrap_or(0);
+            let take: Vec<(u64, Vec<u8>)> = g.frags.iter().filter(|(t, _, _)| *t >= since).map(|(_, at, f)| (*at, f.clone())).collect();
+            let first = g.frags.iter().find(|(t, _, _)| *t >= since).map(|(t, _, _)| t.elapsed().as_secs()).unwrap_or(0);
             if g.init.is_empty() || take.is_empty() {
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, "nothing recorded yet"));
             }
@@ -73,12 +75,12 @@ impl Buffer {
         let (mut take, got) = frags;
         // start the clip's clock at zero: shift every track's decode times by its first value
         let mut base: Vec<(u32, u64)> = Vec::new();
-        for f in &mut take {
-            rebase(f, &mut base);
-        }
         let mut out = init;
-        for f in take {
-            out.extend_from_slice(&f);
+        for (old_at, f) in &mut take {
+            // where this fragment lands in the clip (absolute data offsets must follow it)
+            let shift = out.len() as i64 - *old_at as i64;
+            rebase(f, &mut base, shift);
+            out.extend_from_slice(f);
         }
         std::fs::write(path, out)?;
         Ok(got)
@@ -121,9 +123,10 @@ impl Inner {
                 b"moof" => {
                     if !self.cur.is_empty() {
                         let done = std::mem::take(&mut self.cur);
-                        self.frags.push_back((Instant::now(), done));
+                        self.frags.push_back((Instant::now(), self.cur_at, done));
                     }
                     self.cur = bx;
+                    self.cur_at = self.pend_at + used as u64;
                 }
                 b"mdat" if !self.cur.is_empty() => self.cur.extend_from_slice(&bx),
                 _ if self.frags.is_empty() && self.cur.is_empty() => self.init.extend_from_slice(&bx),
@@ -136,7 +139,7 @@ impl Inner {
             self.pend_at += used as u64;
         }
         // forget what's older than we keep
-        while let Some((t, _)) = self.frags.front() {
+        while let Some((t, _, _)) = self.frags.front() {
             if t.elapsed() > self.keep {
                 self.frags.pop_front();
             } else {
@@ -146,8 +149,9 @@ impl Inner {
     }
 }
 
-/// Shift the decode time (tfdt) of each track in this fragment so the first fragment starts at 0.
-fn rebase(frag: &mut [u8], base: &mut Vec<(u32, u64)>) {
+/// Shift the decode time (tfdt) of each track in this fragment so the first fragment starts at
+/// 0, and move absolute data offsets (tfhd base-data-offset) by `shift` bytes.
+fn rebase(frag: &mut [u8], base: &mut Vec<(u32, u64)>, shift: i64) {
     // moof is first; walk its trafs
     let moof_len = u32::from_be_bytes(frag[0..4].try_into().unwrap()) as usize;
     let mut i = 8;
@@ -164,7 +168,15 @@ fn rebase(frag: &mut [u8], base: &mut Vec<(u32, u64)>) {
                     break;
                 }
                 match &frag[j + 4..j + 8] {
-                    b"tfhd" if l >= 16 => track = u32::from_be_bytes(frag[j + 12..j + 16].try_into().unwrap()),
+                    b"tfhd" if l >= 16 => {
+                        track = u32::from_be_bytes(frag[j + 12..j + 16].try_into().unwrap());
+                        let flags = u32::from_be_bytes(frag[j + 8..j + 12].try_into().unwrap()) & 0xFF_FFFF;
+                        if flags & 1 != 0 && l >= 24 {
+                            let at = j + 16;
+                            let v = u64::from_be_bytes(frag[at..at + 8].try_into().unwrap()) as i64 + shift;
+                            frag[at..at + 8].copy_from_slice(&(v.max(0) as u64).to_be_bytes());
+                        }
+                    }
                     b"tfdt" => {
                         let v1 = frag[j + 8] == 1;
                         let at = j + 12;

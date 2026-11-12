@@ -29,16 +29,33 @@ assert tracks, "no tracks"
 if frag:
     moofs = [b for b in top if b[0] == "moof"]
     assert len(moofs) >= 2, f"only {len(moofs)} fragments"
-    _, fi, fs = moofs[0]
-    times = []
-    for k, ti, ts in boxes(data, fi + 8, fi + fs):
-        if k == "traf":
+    times, bad = [], 0
+    for n, (_, fi, fs) in enumerate(moofs):
+        mdat = next(((i, sz) for k, i, sz in top if k == "mdat" and i >= fi + fs), None)
+        assert mdat, "a fragment without its data"
+        for k, ti, ts in boxes(data, fi + 8, fi + fs):
+            if k != "traf":
+                continue
+            base, off = fi, 0
             for k2, di, ds in boxes(data, ti + 8, ti + ts):
-                if k2 == "tfdt":
+                if k2 == "tfhd":
+                    flags = struct.unpack(">I", data[di + 8:di + 12])[0] & 0xFFFFFF
+                    if flags & 1:
+                        base = struct.unpack(">Q", data[di + 16:di + 24])[0]
+                elif k2 == "tfdt" and n == 0:
                     v = data[di + 8]
                     times.append(struct.unpack(">Q", data[di + 12:di + 20])[0] if v == 1 else struct.unpack(">I", data[di + 12:di + 16])[0])
-    print("fragments:", len(moofs), "| first fragment starts at:", times)
-    assert times and min(times) == 0, "clip doesn't start at zero"
+                elif k2 == "trun":
+                    flags = struct.unpack(">I", data[di + 8:di + 12])[0] & 0xFFFFFF
+                    if flags & 1:
+                        off = struct.unpack(">i", data[di + 16:di + 20])[0]
+            pos = base + off
+            if not (mdat[0] + 8 <= pos < mdat[0] + mdat[1]):
+                bad += 1
+            break  # the first track of each fragment is enough to tell
+    print("fragments:", len(moofs), "| first fragment's start times:", times or "none written (plays from zero)", "| fragments pointing outside their data:", bad)
+    assert not times or min(times) == 0, "clip doesn't start at zero"
+    assert bad == 0, "fragment data offsets are wrong"
 else:
     assert "mdat" in kinds, "no media data"
 print("MP4 OK")
