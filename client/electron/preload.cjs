@@ -7,11 +7,6 @@ contextBridge.exposeInMainWorld("llambleNative", {
   appAudio: {
     start: (key, sourceId, mode) => ipcRenderer.invoke("app-audio-start", key, sourceId, mode),
     stop: (key) => ipcRenderer.invoke("app-audio-stop", key),
-    on: (cb) => {
-      const h = (_e, key, buf) => cb(key, buf);
-      ipcRenderer.on("app-audio", h);
-      return () => ipcRenderer.removeListener("app-audio", h);
-    },
   },
   flash: () => ipcRenderer.send("flash"),
   setUnread: (n) => ipcRenderer.send("unread", n),
@@ -138,3 +133,6 @@ contextBridge.exposeInMainWorld("llambleNative", {
     return () => ipcRenderer.removeListener("invite", h);
   },
 });
+
+// the shared-sound line (see main.cjs appAudioStart): hand its port to the page, which passes it on to its sound thread
+ipcRenderer.on("app-audio-port", (e, key) => window.postMessage({ llambleAppAudioPort: key }, "*", e.ports));

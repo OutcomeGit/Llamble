@@ -12,7 +12,12 @@ class PcmPlayer extends AudioWorkletProcessor {
     this.write = 0;
     this.filled = 0;
     this.started = false;
-    this.port.onmessage = (e) => {
+    const take = (e) => {
+      if (e.data && e.data.feed) {
+        // a direct line from the Windows app: samples arrive here without touching the page
+        e.data.feed.onmessage = take;
+        return;
+      }
       const f = e.data instanceof Float32Array ? e.data : null;
       const pcm = f || new Int16Array(e.data);
       const k = f ? 1 : 1 / 32768;
@@ -22,11 +27,18 @@ class PcmPlayer extends AudioWorkletProcessor {
         if (this.filled < this.buf.length) this.filled++;
         else this.read = (this.read + 1) % this.buf.length; // too far behind: drop the oldest
       }
+      // delay creeping up (the two clocks drift, or a burst arrived): skip back to the cushion
+      if (this.started && this.filled > this.cushion * 4) {
+        const skip = (this.filled - this.cushion) & ~1;
+        this.read = (this.read + skip) % this.buf.length;
+        this.filled -= skip;
+      }
     };
+    this.port.onmessage = take;
   }
   process(_inputs, outputs) {
     const [l, r] = outputs[0];
-    // wait for ~60 ms of sound before starting, so small hiccups don't click
+    // wait for the cushion to fill before starting, so small hiccups don't click
     if (!this.started && this.filled < this.cushion) return true;
     this.started = true;
     for (let i = 0; i < l.length; i++) {

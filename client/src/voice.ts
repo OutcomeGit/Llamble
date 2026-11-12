@@ -730,7 +730,9 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
     await room.localParticipant.setScreenShareEnabled(
       true,
       {
-        // game/app sound: stereo, untouched (voice processing would mangle music and effects).
+        // game/app sound: stereo and untouched. Voice processing (echo cancelling, noise
+        // suppression, auto volume) is for microphones only: on game sound it pushes the game
+        // down whenever someone talks.
         // restrictOwnAudio leaves Llamble's own playback (the call's voices) out of the capture,
         // so sharing can never echo people back at themselves.
         audio: audio && !app
@@ -757,7 +759,6 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
       appSound = app;
     } else app?.stop();
     watchEncoder("screen", codec);
-    guardShareEcho();
     vset({ screen: true, pickerOpen: false, shareSound: app?.what ?? (audio ? "pc" : null) });
     const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
     if (t) watchForBlack(t);
@@ -779,15 +780,6 @@ async function startAppAudio(sourceId: string, mode: "app" | "all"): Promise<Nat
 
 let screenOpts: Record<string, unknown> = {};
 
-/** If this engine can't leave our own playback out of shared sound, cancel it out instead (costs a little game-sound quality). */
-function guardShareEcho() {
-  const t = room?.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack;
-  if (!t) return;
-  const st = t.getSettings() as MediaTrackSettings & { restrictOwnAudio?: boolean };
-  if (st.restrictOwnAudio === true) return;
-  console.info("[llamble] shared sound can't exclude the call's own audio here; using echo cancellation on it");
-  t.applyConstraints({ echoCancellation: true }).catch(() => {});
-}
 
 /**
  * A few seconds after publishing, look at what's really encoding the video. If an

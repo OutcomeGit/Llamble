@@ -187,15 +187,19 @@ function appAudioStart(key, sourceId, mode) {
   }
   const p = require("child_process").spawn(exe, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   appAudio.set(key, p);
+  // a direct line to the page's sound thread: the samples skip the page's busy main thread
+  const { MessageChannelMain } = require("electron");
+  const { port1, port2 } = new MessageChannelMain();
+  if (win && !win.isDestroyed()) win.webContents.postMessage("app-audio-port", key, [port2]);
   let rest = Buffer.alloc(0);
   p.stdout.on("data", (d) => {
-    // whole stereo float frames only (8 bytes each)
+    // whole stereo float frames only (8 bytes each), copied so the page gets aligned samples
     const all = rest.length ? Buffer.concat([rest, d]) : d;
     const n = all.length - (all.length % 8);
     rest = Buffer.from(all.subarray(n));
-    if (n && win && !win.isDestroyed()) win.webContents.send("app-audio", key, all.subarray(0, n));
+    if (n) port1.postMessage(new Float32Array(new Uint8Array(all.subarray(0, n)).buffer));
   });
-  p.on("exit", () => { if (appAudio.get(key) === p) appAudio.delete(key); });
+  p.on("exit", () => { try { port1.close(); } catch {} if (appAudio.get(key) === p) appAudio.delete(key); });
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
