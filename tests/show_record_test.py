@@ -89,7 +89,17 @@ if dec.stderr.strip():
     small = [l for l in pk if int(l.split(",")[1] or 0) < 3]
     lastpk = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time,size,pos", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()[-4:]
     print("file size", len(open("/tmp/show-rec.webm", "rb").read()), "| last packets (stream,pts,size,pos):", lastpk)
-    print("tail:", open("/tmp/show-rec.webm", "rb").read()[-48:].hex())
+    raw = open("/tmp/show-rec.webm", "rb").read()
+    apk = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts_time,size,pos", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()
+    for l in apk[:2] + apk[-4:]:
+        t, sz, pos = l.split(","); sz, pos = int(sz), int(pos)
+        print(f"  audio {t}: {sz} bytes, block head {raw[pos-7:pos].hex()} data starts {raw[pos:pos+6].hex()} ends {raw[pos+sz-4:pos+sz].hex()}")
+    # which packet does the decoder reject? decode the sound one packet at a time
+    import re
+    bad = subprocess.run(["ffmpeg", "-v", "error", "-err_detect", "explode", "-i", "/tmp/show-rec.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr
+    print("strict decode:", bad[:300])
+    vers = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout.splitlines()[0]
+    print("ffmpeg:", vers)
     print("audio packets:", len(pk), "| first:", pk[:3], "| last:", pk[-3:], "| tiny:", small[:5])
     dbg = subprocess.run(["ffmpeg", "-v", "debug", "-debug_ts", "-i", "/tmp/show-rec.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr.splitlines()
     for i, l in enumerate(dbg):
