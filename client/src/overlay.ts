@@ -9,8 +9,11 @@ import { avatarUrl } from "./api";
 import { currentChannelId, memberName, useStore } from "./store";
 import { useVoice } from "./voice";
 import { useRecorder } from "./show";
+import { useNativeRec } from "./nativerec";
 
 function recLine(): string | undefined {
+  const n = useNativeRec.getState();
+  if (n.active) return `${n.active.codec} · ${n.active.gpu ? "graphics card" : "processor"} · ${n.fps} fps${n.dropped ? ` (${n.dropped} skipped)` : ""}`;
   const r = useRecorder.getState();
   if (!r.showId) return undefined;
   return [r.encoder, r.fps ? `${r.fpsNow ?? "…"}/${r.fps} fps` : ""].filter(Boolean).join(" · ") || "starting…";
@@ -251,6 +254,7 @@ export function startOverlayFeed() {
   useStore.subscribe(bumpSnapshot);
   useVoice.subscribe(bumpSnapshot);
   useRecorder.subscribe(bumpSnapshot);
+  useNativeRec.subscribe(bumpSnapshot);
   useOverlayPrefs.subscribe(bumpSnapshot);
   // fades are time based: refresh now and then even when nothing changes
   setInterval(() => listeners.size && bumpSnapshot(), 2000);

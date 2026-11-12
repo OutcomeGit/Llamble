@@ -4,6 +4,21 @@ contextBridge.exposeInMainWorld("llambleNative", {
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke("screen-sources"),
   setScreenSource: (choice) => ipcRenderer.invoke("set-screen-source", choice),
+  // native recording (Windows): the helper records a window/screen on the graphics card to MP4
+  nativeRec: {
+    start: (o) => ipcRenderer.invoke("native-rec-start", o),
+    stop: () => ipcRenderer.invoke("native-rec-stop"),
+    on: (cb) => {
+      const s = (_e, v) => cb("stat", v);
+      const d = (_e, v) => cb("done", v);
+      ipcRenderer.on("native-rec-stat", s);
+      ipcRenderer.on("native-rec-done", d);
+      return () => {
+        ipcRenderer.removeListener("native-rec-stat", s);
+        ipcRenderer.removeListener("native-rec-done", d);
+      };
+    },
+  },
   appAudio: {
     start: (key, sourceId, mode) => ipcRenderer.invoke("app-audio-start", key, sourceId, mode),
     stop: (key) => ipcRenderer.invoke("app-audio-stop", key),

@@ -1,3 +1,4 @@
+import { RecordingBar } from "./RecordingBar";
 import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
 import { can, currentChannelId, homeOf, isUnread, onEvent, openFriend, openGuildView, openHome, selectChannel, showMobileNav, useStore } from "../store";
@@ -143,6 +144,7 @@ export function Shell() {
       <PopoutOverlay />
       <Popouts />
       <ShowPrompts />
+      <RecordingBar />
       <Lightbox />
     </div>
   );

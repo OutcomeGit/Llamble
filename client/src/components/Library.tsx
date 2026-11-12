@@ -2,6 +2,7 @@
 //
 // A show recorded on your app lives on your device. It only goes to the server when you do
 // something with it here: Add to Highlights, Publish as a Show, or Post the video.
+import { canRecordNatively, pickRecording } from "../nativerec";
 import { useEffect, useMemo, useState } from "react";
 import { api, media } from "../api";
 import * as localrec from "../localrec";
@@ -48,9 +49,16 @@ export function Recordings() {
   if (!server || !local) return <p className="muted">Loading…</p>;
   return (
     <div>
-      <h2>Recordings</h2>
+      <div className="row gap" style={{ alignItems: "center" }}>
+        <h2 className="grow">Recordings</h2>
+        {canRecordNatively() && (
+          <button className="btn primary" onClick={pickRecording} title="Record a game, a window or a whole screen on your graphics card">
+            ⏺ Record my screen
+          </button>
+        )}
+      </div>
       <p className="muted small">
-        Shows you were in, crewed, or that your kids were in. A show recorded on your app stays on your device ({where}) and only goes to the server when you share it: add it to
+        Your screen recordings, and shows you were in, crewed, or that your kids were in. A show recorded on your app stays on your device ({where}) and only goes to the server when you share it: add it to
         Highlights, publish it as a Show, or post the video.
       </p>
       {!rows.length && <p className="muted">No recordings yet. Start one with the 🎬 button in a voice call.</p>}
@@ -68,7 +76,8 @@ function RecordingRow({ r, reload }: { r: Row; reload: () => void }) {
   const s = r.server;
   const meta = r.local?.meta;
   const onServer = !!s?.on_server;
-  const title = s?.title || meta?.title || "Show";
+  const clip = meta?.kind === "clip";
+  const title = s?.title || meta?.title || (clip ? "Screen recording" : "Show");
   const started = s?.started_at || meta?.started_at || 0;
   const ended = s?.ended_at || meta?.ended_at || 0;
   const size = r.local?.size ?? s?.size ?? 0;
@@ -151,6 +160,7 @@ function RecordingRow({ r, reload }: { r: Row; reload: () => void }) {
             {size ? ` · ${(size / 1e6).toFixed(0)} MB` : ""}
           </span>
           <div className="muted small">
+            {clip ? "🎮 Just you · " : ""}
             {r.local ? "💾 On this device" : ""}
             {r.local && onServer ? " · " : ""}
             {onServer ? "☁️ On the server" : ""}

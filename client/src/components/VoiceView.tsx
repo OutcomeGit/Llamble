@@ -38,6 +38,7 @@ import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
 import { DirectorPanel, ShowBanner, StartShow } from "./Show";
 import { showQuality, useShows } from "../show";
+import { canRecordNatively, pickRecording, startRecording, stopRecording, useNativeRec, type RecQuality } from "../nativerec";
 import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
@@ -274,6 +275,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
           </span>
         )}
         <StreamGameButton />
+        <RecordButton />
         <OverlayButton />
         <button
           className={
@@ -470,7 +472,10 @@ function Tile({
   );
 }
 
-export function ScreenPicker({ onClose }: { onClose: () => void }) {
+export function ScreenPicker({ onClose, mode = "share" }: { onClose: () => void; mode?: "share" | "record" }) {
+  const recording = mode === "record";
+  const [recFps, setRecFps] = useState<30 | 60>(60);
+  const [recQ, setRecQ] = useState<RecQuality>("great");
   const [sources, setSources] = useState<Awaited<
     ReturnType<NonNullable<typeof window.llambleNative>["getScreenSources"]>
   > | null>(null);
@@ -519,7 +524,8 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const go = async () => {
     if (!picked) return;
     onClose();
-    await startScreenShare(picked, audio, quality);
+    if (recording) await startRecording(picked, recFps, recQ, audio);
+    else await startScreenShare(picked, audio, quality);
   };
 
   return (
@@ -565,6 +571,25 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           ))}
       </div>
       <div className="share-opts">
+        {recording ? (
+          <>
+            <label title="Records at the real size of what you pick (a 1440p game records at 1440p)">
+              Smoothness
+              <select value={recFps} onChange={(e) => setRecFps(Number(e.target.value) as 30 | 60)}>
+                <option value={60}>60 fps</option>
+                <option value={30}>30 fps</option>
+              </select>
+            </label>
+            <label title="How much detail the video keeps. Higher makes bigger files.">
+              Quality
+              <select value={recQ} onChange={(e) => setRecQ(e.target.value as RecQuality)}>
+                <option value="good">Good (smaller files)</option>
+                <option value="great">Great</option>
+                <option value="max">Max (big files)</option>
+              </select>
+            </label>
+          </>
+        ) : (
         <label>
           Quality (this share)
           <select
@@ -579,6 +604,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </label>
+        )}
         <label>
           Sound
           <select value={audio} onChange={(e) => setAudio(e.target.value as ShareSound)}>
@@ -601,10 +627,21 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           Cancel
         </button>
         <button className="btn primary" disabled={!picked} onClick={go}>
-          Go Live
+          {recording ? "⏺ Start recording" : "Go Live"}
         </button>
       </div>
     </div>
+  );
+}
+
+/** Record your screen or a game on this PC (Windows app), separate from shows. */
+function RecordButton() {
+  const active = useNativeRec((r) => !!r.active);
+  if (!canRecordNatively()) return null;
+  return (
+    <button className={"call-btn" + (active ? " rec" : "")} title={active ? "Stop recording your screen" : "Record your screen or a game (just you, on this PC)"} onClick={() => (active ? stopRecording() : pickRecording())}>
+      ⏺
+    </button>
   );
 }
 

@@ -36,7 +36,11 @@ function serveAssets() {
 const fsp = require("fs").promises;
 const REC_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const recDir = () => path.join(app.getPath("videos"), "Llamble");
-const recFile = (id) => path.join(recDir(), id + ".webm");
+// shows record to .webm; recordings made by the native recorder are .mp4
+const recFile = (id) => {
+  const mp4 = path.join(recDir(), id + ".mp4");
+  return require("fs").existsSync(mp4) ? mp4 : path.join(recDir(), id + ".webm");
+};
 const recMeta = (id) => path.join(recDir(), id + ".json");
 function checkId(id) {
   if (typeof id !== "string" || !REC_ID.test(id)) throw new Error("bad recording id");
@@ -66,10 +70,10 @@ ipcMain.handle("rec-list", async () => {
   try { names = await fsp.readdir(recDir()); } catch { return []; }
   const out = [];
   for (const n of names) {
-    if (!n.endsWith(".webm")) continue;
-    const id = n.slice(0, -5);
+    if (!n.endsWith(".webm") && !n.endsWith(".mp4")) continue;
+    const id = n.replace(/\.(webm|mp4)$/, "");
     if (!REC_ID.test(id)) continue;
-    let meta = { id, title: "", started_at: 0 };
+    let meta = { id, title: "", started_at: 0, mime: n.endsWith(".mp4") ? "video/mp4" : "video/webm" };
     try { meta = { ...meta, ...JSON.parse(await fsp.readFile(recMeta(id), "utf8")) }; } catch {}
     try { out.push({ id, size: (await fsp.stat(recFile(id))).size, meta }); } catch {}
   }
@@ -98,9 +102,108 @@ ipcMain.handle("rec-reveal", async (_e, id) => {
   return true;
 });
 ipcMain.handle("rec-folder", () => recDir());
+// ---- native recording: llamble-helper.exe records a window or screen on the graphics card ----
+// (Windows Graphics Capture → the card's own encoder → MP4, like dedicated recording apps).
+// It writes into Videos\Llamble next to the show recordings; the Library lists both.
+let nativeRec = null; // { p, id, file, done }
+function nativeRecStart(o) {
+  if (nativeRec) return Promise.resolve({ error: "already recording" });
+  if (process.platform !== "win32") return Promise.resolve({ error: "only in the Windows app" });
+  const exe = require("./helper.cjs").exePath();
+  if (!exe) return Promise.resolve({ error: "the recorder helper is missing" });
+  const id = checkId(String(o.id));
+  const file = path.join(recDir(), id + ".mp4");
+  const fps = o.fps === 30 ? 30 : 60;
+  const bpp = Math.max(0.03, Math.min(1, Number(o.bpp) || 0.2)); // bits per pixel per frame
+  return (async () => {
+    await fsp.mkdir(recDir(), { recursive: true });
+    const args = ["record", file, "--fps", String(fps), "--bpp", String(bpp), "--codec", o.codec === "h264" ? "h264" : "auto"];
+    const win32 = /^window:(\d+):/.exec(String(o.sourceId || ""));
+    if (win32) {
+      args.push("--window", win32[1]);
+    } else {
+      // a whole screen: find it by a point in its middle, in real pixels
+      const { screen } = require("electron"); // only usable once the app is ready
+      const srcs = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
+      const src = findSource(srcs, o.sourceId) || srcs[0];
+      const disp = screen.getAllDisplays().find((d) => String(d.id) === String(src && src.display_id)) || screen.getPrimaryDisplay();
+      const pt = screen.dipToScreenPoint({ x: Math.round(disp.bounds.x + disp.bounds.width / 2), y: Math.round(disp.bounds.y + disp.bounds.height / 2) });
+      args.push("--point", `${Math.round(pt.x)},${Math.round(pt.y)}`);
+    }
+    let what = "none";
+    if (o.sound === "all") {
+      args.push("--audio", "except", String(process.pid));
+      what = "all-but-llamble";
+    } else if (o.sound !== "off") {
+      if (win32) {
+        args.push("--audio", "window", win32[1]);
+        what = "app";
+      } else {
+        const game = (require("./games.cjs").current() || []).find((g) => g.pid);
+        args.push("--audio", game ? "app" : "except", String(game ? game.pid : process.pid));
+        what = game ? "game:" + game.name : "all-but-llamble";
+      }
+    }
+    const started_at = Date.now();
+    await fsp.writeFile(recMeta(id), JSON.stringify({ id, title: o.title || "", channel_id: "", started_at, kind: "clip", mime: "video/mp4", sound: what }));
+    const p = require("child_process").spawn(exe, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    let resolveDone;
+    nativeRec = { p, id, file, done: new Promise((r) => (resolveDone = r)) };
+    const send = (ch, v) => win && !win.isDestroyed() && win.webContents.send(ch, v);
+    return await new Promise((resolve) => {
+      let buf = "";
+      let started = false;
+      p.stdout.setEncoding("utf8");
+      p.stdout.on("data", (d) => {
+        buf += d;
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim();
+          buf = buf.slice(i + 1);
+          const [kind, ...rest] = line.split(" ");
+          if (kind === "started") {
+            started = true;
+            const [codec, where, w, h, rate] = rest;
+            resolve({ id, codec, gpu: where === "gpu", width: Number(w), height: Number(h), bitrate: Number(rate) || 0, sound: what });
+          } else if (kind === "stat") send("native-rec-stat", { id, fps: Number(rest[0]), dropped: Number(rest[1]), bytes: Number(rest[2]) });
+          else if (kind === "error") {
+            const why = rest.join(" ");
+            console.warn("[llamble] recorder:", why);
+            if (!started) resolve({ error: why });
+            else send("native-rec-stat", { id, error: why });
+          }
+        }
+      });
+      p.stderr.on("data", (d) => console.warn("[llamble] recorder:", String(d).trim()));
+      p.on("exit", async (code) => {
+        if (nativeRec && nativeRec.p === p) nativeRec = null;
+        try {
+          const cur = JSON.parse(await fsp.readFile(recMeta(id), "utf8"));
+          await fsp.writeFile(recMeta(id), JSON.stringify({ ...cur, ended_at: Date.now() }));
+        } catch {}
+        if (!started) resolve({ error: "the recorder stopped (code " + code + ")" });
+        send("native-rec-done", { id, ok: code === 0 });
+        resolveDone();
+      });
+      setTimeout(() => !started && resolve({ error: "the recorder didn't start" }), 15000);
+    });
+  })();
+}
+async function nativeRecStop() {
+  const r = nativeRec;
+  if (!r) return false;
+  try { r.p.stdin.write("stop\n"); } catch {}
+  // finishing the file can take a moment; don't wait forever
+  await Promise.race([r.done, new Promise((res) => setTimeout(res, 20000))]);
+  try { r.p.kill(); } catch {}
+  return true;
+}
+ipcMain.handle("native-rec-start", (_e, o) => nativeRecStart(o || {}));
+ipcMain.handle("native-rec-stop", () => nativeRecStop());
+
 // play a recording in the app (with seeking: Range requests)
 async function serveRecording(req, u) {
-  const id = decodeURIComponent(u.pathname.replace(/^\//, "").replace(/\.webm$/, ""));
+  const id = decodeURIComponent(u.pathname.replace(/^\//, "").replace(/\.(webm|mp4)$/, ""));
   if (!REC_ID.test(id)) return new Response("not found", { status: 404 });
   let size;
   try { size = (await fsp.stat(recFile(id))).size; } catch { return new Response("not found", { status: 404 }); }
@@ -114,7 +217,7 @@ async function serveRecording(req, u) {
   if (size === 0 || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
   const { Readable } = require("stream");
   const body = Readable.toWeb(require("fs").createReadStream(recFile(id), { start, end }));
-  const headers = { "content-type": "video/webm", "accept-ranges": "bytes", "content-length": String(end - start + 1) };
+  const headers = { "content-type": recFile(id).endsWith(".mp4") ? "video/mp4" : "video/webm", "accept-ranges": "bytes", "content-length": String(end - start + 1) };
   if (status === 206) headers["content-range"] = `bytes ${start}-${end}/${size}`;
   return new Response(body, { status, headers });
 }
@@ -456,7 +559,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStopAll(); require("./helper.cjs").stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStopAll(); nativeRecStop(); require("./helper.cjs").stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 

@@ -2,7 +2,7 @@
 name = "llamble-helper"
 version = "0.1.0"
 edition = "2021"
-description = "Small Windows helper for the Llamble app: lists open windows (for game detection) and graphics cards, and captures one program's sound for screen sharing. Reads one command per line on stdin, answers one JSON line on stdout."
+description = "Small Windows helper for the Llamble app: lists open windows (for game detection) and graphics cards, captures one program's sound for screen sharing, and records the screen or a window to MP4 on the graphics card. Reads one command per line on stdin, answers one JSON line on stdout."
 publish = false
 
 # The only outside code is Microsoft's official Windows bindings.
@@ -20,6 +20,20 @@ windows = { version = "0.58", features = [
   "Win32_Graphics_Dxgi",
   "Win32_System_ProcessStatus",
   "Win32_UI_Input_KeyboardAndMouse",
+  # native recording: screen/window capture, the graphics card, its video encoder, MP4 writing
+  "Foundation",
+  "Graphics",
+  "Graphics_Capture",
+  "Graphics_DirectX",
+  "Graphics_DirectX_Direct3D11",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Graphics_Gdi",
+  "Win32_Media_MediaFoundation",
+  "Win32_System_WinRT",
+  "Win32_System_WinRT_Direct3D11",
+  "Win32_System_WinRT_Graphics_Capture",
 ] }
 
 # the COM helper macro (#[implement]) needs the core crate by name; same Microsoft crate family

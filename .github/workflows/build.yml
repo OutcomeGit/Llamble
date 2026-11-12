@@ -120,6 +120,36 @@ jobs:
           Write-Host "helper answered:" ($out -join " ").Substring(0, [Math]::Min(300, ($out -join " ").Length))
           if ($out.Count -ne 2) { throw "expected 2 answers, got $($out.Count)" }
           (Get-Item .\target\release\llamble-helper.exe).Length / 1KB | ForEach-Object { Write-Host ("size: {0:N0} KB" -f $_) }
+      # native recording (Windows Graphics Capture → Media Foundation encoder → MP4) on the runner's
+      # screen: no graphics card here, so Windows encodes on the processor, but capture, the encoder
+      # hookup and MP4 writing all run for real. Not required yet (runners may not allow capture).
+      - name: Native recorder makes a real MP4
+        continue-on-error: true
+        working-directory: client/native/llamble-helper
+        shell: pwsh
+        run: |
+          $mp4 = Join-Path $env:RUNNER_TEMP "rec-test.mp4"
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = (Resolve-Path .\target\release\llamble-helper.exe).Path
+          $psi.Arguments = "record `"$mp4`" --point 20,20 --fps 30 --bpp 0.1 --audio except 4"
+          $psi.RedirectStandardInput = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.UseShellExecute = $false
+          $p = [System.Diagnostics.Process]::Start($psi)
+          # something moving on screen while it records
+          $note = Start-Process notepad -PassThru
+          Start-Sleep -Seconds 6
+          $p.StandardInput.WriteLine("stop")
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "the recorder didn't finish" }
+          Stop-Process -Id $note.Id -ErrorAction SilentlyContinue
+          $out = $p.StandardOutput.ReadToEnd()
+          Write-Host $out
+          if ($out -notmatch "started") { throw "it didn't start" }
+          if ($out -notmatch "(?m)^done") { throw "it didn't finish the file" }
+          $bytes = [System.IO.File]::ReadAllBytes($mp4)
+          $box = [System.Text.Encoding]::ASCII.GetString($bytes, 4, 4)
+          Write-Host ("MP4: {0:N0} KB, first box '{1}'" -f ($bytes.Length / 1KB), $box)
+          if ($box -ne "ftyp" -or $bytes.Length -lt 10000) { throw "not a proper MP4" }
       # every push gets its own version so installed apps auto-update to it
       - run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
       # create the release up front (as a draft) so parallel uploads don't race to create it

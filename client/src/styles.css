@@ -1271,3 +1271,7 @@ body.pop-body > .pop { height: 100vh; }
   .music-row { flex-wrap: wrap; }
 }
 .ov-rec { color: #ff6b6b; font-size: 12px; font-weight: 700; margin: 2px 0 4px; }
+.rec-bar { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 900; display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; background: rgba(24, 25, 28, 0.96); border: 1px solid #f23f43; border-radius: 999px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); max-width: calc(100vw - 24px); }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #f23f43; animation: rec-blink 1.2s infinite; flex-shrink: 0; }
+@keyframes rec-blink { 50% { opacity: 0.35; } }
+.rec-err { color: #f23f43; }

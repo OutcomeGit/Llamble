@@ -40,17 +40,8 @@ struct BlobVariant {
 }
 
 pub fn run(args: &[String]) -> i32 {
-    let (mode, target) = (args.first().map(String::as_str).unwrap_or(""), args.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0));
-    let (pid, include) = match mode {
-        "window" => {
-            let mut pid = 0u32;
-            unsafe { GetWindowThreadProcessId(HWND(target as usize as *mut _), Some(&mut pid)) };
-            (pid, true)
-        }
-        "app" => (target as u32, true),
-        "except" => (target as u32, false),
-        _ => (0, true),
-    };
+    let (mode, target_id) = (args.first().map(String::as_str).unwrap_or(""), args.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0));
+    let (pid, include) = target(mode, target_id).unwrap_or((0, true));
     if pid == 0 {
         eprintln!("usage: llamble-helper audio window <hwnd> | app <pid> | except <pid>");
         return 2;
@@ -63,7 +54,11 @@ pub fn run(args: &[String]) -> i32 {
         }
         std::process::exit(0);
     });
-    match unsafe { capture(pid, include) } {
+    let mut out = std::io::stdout().lock();
+    let res = unsafe {
+        capture(pid, include, &mut |pcm: &[u8], _qpc: u64| out.write_all(pcm).and_then(|_| out.flush()).is_ok())
+    };
+    match res {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("error {e}");
@@ -72,7 +67,23 @@ pub fn run(args: &[String]) -> i32 {
     }
 }
 
-unsafe fn capture(pid: u32, include: bool) -> Result<()> {
+/// Which process to hear: from a window handle, a process id, or "everything but" a process.
+pub fn target(mode: &str, id: u64) -> Option<(u32, bool)> {
+    match mode {
+        "window" => {
+            let mut pid = 0u32;
+            unsafe { GetWindowThreadProcessId(HWND(id as usize as *mut _), Some(&mut pid)) };
+            (pid != 0).then_some((pid, true))
+        }
+        "app" => Some((id as u32, true)),
+        "except" => Some((id as u32, false)),
+        _ => None,
+    }
+}
+
+/// Capture that sound until `sink` returns false. `sink` gets 48 kHz stereo float samples
+/// (as bytes) and the moment they were captured (performance-counter time, 100 ns units).
+pub unsafe fn capture(pid: u32, include: bool, sink: &mut dyn FnMut(&[u8], u64) -> bool) -> Result<()> {
     CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
     let mut params = AUDIOCLIENT_ACTIVATION_PARAMS {
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
@@ -126,11 +137,11 @@ unsafe fn capture(pid: u32, include: bool) -> Result<()> {
     client.Start()?;
     eprintln!("ok");
 
-    let mut out = std::io::stdout().lock();
     let mut bytes: Vec<u8> = Vec::with_capacity(48_000);
     loop {
         WaitForSingleObject(wake, 200);
         bytes.clear();
+        let mut first_qpc = 0u64;
         loop {
             let n = cap.GetNextPacketSize()?;
             if n == 0 {
@@ -139,7 +150,11 @@ unsafe fn capture(pid: u32, include: bool) -> Result<()> {
             let mut data = std::ptr::null_mut();
             let mut frames = 0u32;
             let mut flags = 0u32;
-            cap.GetBuffer(&mut data, &mut frames, &mut flags, None, None)?;
+            let mut qpc = 0u64;
+            cap.GetBuffer(&mut data, &mut frames, &mut flags, None, Some(&mut qpc))?;
+            if bytes.is_empty() {
+                first_qpc = qpc;
+            }
             let len = frames as usize * 8;
             if flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) != 0 || data.is_null() {
                 bytes.resize(bytes.len() + len, 0);
@@ -148,7 +163,7 @@ unsafe fn capture(pid: u32, include: bool) -> Result<()> {
             }
             cap.ReleaseBuffer(frames)?;
         }
-        if !bytes.is_empty() && out.write_all(&bytes).and_then(|_| out.flush()).is_err() {
+        if !bytes.is_empty() && !sink(&bytes, first_qpc) {
             let _ = client.Stop();
             let _ = CloseHandle(wake);
             return Ok(());

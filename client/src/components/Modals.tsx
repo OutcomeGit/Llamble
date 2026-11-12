@@ -52,8 +52,9 @@ function ModalBody({ m }: { m: ModalSpec }) {
     case "screenPicker":
       return (
         <div className="modal wide">
-          <h2>Share your screen</h2>
-          <ScreenPicker onClose={closeModal} />
+          <h2>{m.mode === "record" ? "Record your screen or a game" : "Share your screen"}</h2>
+          {m.mode === "record" && <p className="muted small">Recorded on your graphics card to an MP4 on this PC (Videos\Llamble). Nothing is sent anywhere; it shows up in Library → Recordings.</p>}
+          <ScreenPicker onClose={closeModal} mode={m.mode} />
         </div>
       );
     case "saveGif":

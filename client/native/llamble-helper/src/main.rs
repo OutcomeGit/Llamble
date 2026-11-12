@@ -21,6 +21,8 @@ use std::io::{BufRead, Write};
 
 #[cfg(windows)]
 mod audio;
+#[cfg(windows)]
+mod record;
 
 fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
@@ -39,6 +41,12 @@ fn esc(s: &str) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("record") {
+        #[cfg(windows)]
+        std::process::exit(record::run(&args[2..]));
+        #[cfg(not(windows))]
+        std::process::exit(2);
+    }
     if args.get(1).map(String::as_str) == Some("audio") {
         #[cfg(windows)]
         std::process::exit(audio::run(&args[2..]));

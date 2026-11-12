@@ -12,7 +12,7 @@ export type ModalSpec =
   | { kind: "userSettings"; tab?: string }
   | { kind: "confirm"; title: string; body: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void | Promise<void> }
   | { kind: "profile"; userId: string; guildId: string | null }
-  | { kind: "screenPicker" }
+  | { kind: "screenPicker"; mode?: "share" | "record" }
   | { kind: "saveGif"; fileId?: string; url?: string; preview?: string }
   | { kind: "prompt"; title: string; label: string; placeholder?: string; initial?: string; password?: boolean; confirmLabel?: string; onSubmit: (v: string) => void | Promise<void> }
   | { kind: "kidChats"; kidId: string; name: string }

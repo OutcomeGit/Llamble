@@ -16,6 +16,9 @@ export interface RecMeta {
   started_at: number;
   ended_at?: number | null;
   mime?: string;
+  /** "clip": recorded on this PC by the native recorder (just you, not a show) */
+  kind?: string;
+  sound?: string;
 }
 export interface LocalRec {
   id: string;
