@@ -29,11 +29,19 @@ timeout 180 "$ADB" install -r -g "$APK"
 timeout 60 "$ADB" shell am start -W -n com.llamble.app/.MainActivity
 # the web app loads and shows its login screen (the WebView's text is visible to uiautomator)
 ok=""
-for i in $(seq 1 40); do
-  sleep 3
-  timeout 30 "$ADB" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue
-  timeout 10 "$ADB" shell cat /sdcard/ui.xml > /tmp/android-ui.xml 2>/dev/null || continue
-  if grep -q "Welcome back" /tmp/android-ui.xml; then ok=1; break; fi
+# the emulator's screen reader sometimes sees a WebView as blank; if so, restart the app once and look again
+for attempt in 1 2; do
+  for i in $(seq 1 25); do
+    sleep 3
+    timeout 30 "$ADB" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue
+    timeout 10 "$ADB" shell cat /sdcard/ui.xml > /tmp/android-ui.xml 2>/dev/null || continue
+    if grep -q "Welcome back" /tmp/android-ui.xml; then ok=1; break; fi
+  done
+  [ -n "$ok" ] && break
+  grep -q "FATAL EXCEPTION" <("$ADB" logcat -d) && break
+  echo "login screen not seen yet; restarting the app once"
+  "$ADB" shell am force-stop com.llamble.app
+  timeout 60 "$ADB" shell am start -W -n com.llamble.app/.MainActivity
 done
 "$ADB" exec-out screencap -p > /tmp/android.png || true
 "$ADB" logcat -d > /tmp/android-logcat.txt || true

@@ -194,7 +194,12 @@ class WebmWriter {
     this.out.push(this.header);
   }
 
+  private lastMs: Record<number, number> = { 1: -1, 2: -1 };
+
   add(b: Block) {
+    // times are whole milliseconds: two frames drawn within the same one must still move forward
+    if (b.ms <= this.lastMs[b.track]) b.ms = this.lastMs[b.track] + 1;
+    this.lastMs[b.track] = b.ms;
     this.pending.push(b);
     if (b.track === 1) this.lastVideo = b.ms;
     else this.lastAudio = b.ms;
