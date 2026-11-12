@@ -59,7 +59,7 @@ with sync_playwright() as p:
     # the director's panel, for a look (saved with the CI screenshots)
     try:
         pages[0].set_viewport_size({"width": 1280, "height": 900})
-        gid = [g["id"] for g in ready["guilds"] if any(c["id"] == vc for c in g["channels"])][0]
+        gid = [c.get("guild_id") for g in ready["guilds"] for c in g["channels"] if c["id"] == vc][0]
         pages[0].evaluate("([g, c]) => window.llambleDebug.selectChannel(g, c)", [gid, vc])
         pages[0].wait_for_timeout(1000)
         pages[0].locator("button", has_text="Director").first.click(timeout=5000)
@@ -87,6 +87,9 @@ dec = subprocess.run(["ffmpeg", "-v", "error", "-i", "/tmp/show-rec.webm", "-f",
 if dec.stderr.strip():
     pk = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts_time,size", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()
     small = [l for l in pk if int(l.split(",")[1] or 0) < 3]
+    lastpk = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time,size,pos", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()[-4:]
+    print("file size", len(open("/tmp/show-rec.webm", "rb").read()), "| last packets (stream,pts,size,pos):", lastpk)
+    print("tail:", open("/tmp/show-rec.webm", "rb").read()[-48:].hex())
     print("audio packets:", len(pk), "| first:", pk[:3], "| last:", pk[-3:], "| tiny:", small[:5])
     dbg = subprocess.run(["ffmpeg", "-v", "debug", "-debug_ts", "-i", "/tmp/show-rec.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr.splitlines()
     for i, l in enumerate(dbg):
