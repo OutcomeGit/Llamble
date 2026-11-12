@@ -88,6 +88,18 @@ if dec.stderr.strip():
     pk = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts_time,size", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()
     small = [l for l in pk if int(l.split(",")[1] or 0) < 3]
     print("audio packets:", len(pk), "| first:", pk[:3], "| last:", pk[-3:], "| tiny:", small[:5])
+    dbg = subprocess.run(["ffmpeg", "-v", "debug", "-debug_ts", "-i", "/tmp/show-rec.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr.splitlines()
+    for i, l in enumerate(dbg):
+        if "Error parsing" in l:
+            print("\n".join(x[:200] for x in dbg[max(0, i - 6):i + 2] if "demuxer" in x or "Error" in x or "pkt_pts" in x or "decoder" in x))
+            pts = None
+            for x in reversed(dbg[:i]):
+                if "pkt_pts_time:" in x:
+                    pts = x.split("pkt_pts_time:")[1].split()[0]; break
+            if pts:
+                d = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_packets", "-show_data", "-read_intervals", f"{float(pts)-0.03}%+0.06", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout
+                print(d[:1500])
+            break
     raise SystemExit("decode errors: " + dec.stderr[:400])
 vol = subprocess.run(["ffmpeg", "-i", "/tmp/show-rec.webm", "-vn", "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True).stderr
 mean = float([l for l in vol.splitlines() if "mean_volume" in l][0].split(":")[1].split()[0])
