@@ -125,6 +125,8 @@ unsafe fn video_type(subtype: GUID, w: u32, h: u32, fps: u32, bitrate: u32) -> R
     t.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
     if subtype != MFVideoFormat_ARGB32 {
         t.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
+    } else {
+        t.SetUINT32(&MF_MT_DEFAULT_STRIDE, w * 4)?; // rows top to bottom, as Windows captures them
     }
     if subtype == MFVideoFormat_H264 {
         t.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High.0 as u32)?;
@@ -165,6 +167,8 @@ struct Gpu {
     ctx: ID3D11DeviceContext,
     alloc: IMFVideoSampleAllocatorEx,
     rt_device: IDirect3DDevice,
+    /// no encoder on the graphics card: frames are read back into memory for the processor's encoder
+    staging: Option<ID3D11Texture2D>,
 }
 unsafe impl Send for Gpu {}
 unsafe impl Sync for Gpu {}
@@ -186,8 +190,11 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
         let mut attrs = None;
         MFCreateAttributes(&mut attrs, 4)?;
         let attrs = attrs.unwrap();
-        attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
-        attrs.SetUnknown(&MF_SINK_WRITER_D3D_MANAGER, mgr)?;
+        if gpu {
+            // frames stay on the graphics card all the way into its encoder
+            attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
+            attrs.SetUnknown(&MF_SINK_WRITER_D3D_MANAGER, mgr)?;
+        }
         let path: Vec<u16> = o.out.encode_utf16().chain([0]).collect();
         let attempt = (|| -> Result<Writer> {
             let sink = MFCreateSinkWriterFromURL(PCWSTR(path.as_ptr()), None, &attrs)?;
@@ -254,7 +261,7 @@ unsafe fn record(o: Opts) -> Result<()> {
     let mgr = mgr.unwrap();
     mgr.ResetDevice(&device, token)?;
     let audio_target = o.audio.as_ref().and_then(|(m, id)| audio::target(m, *id));
-    let (wr, gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some())?;
+    let (wr, on_gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some())?;
 
     // frames the encoder owns (it hands one back when it's done with it); same pixel format as
     // what Windows captures (BGRA), so they can be copied on the graphics card
@@ -290,7 +297,26 @@ unsafe fn record(o: Opts) -> Result<()> {
     {
         let (writer, t0, frames, dropped, stop, frames_total) = (writer.clone(), t0.clone(), frames.clone(), dropped.clone(), stop.clone(), frames_total.clone());
         let (arrived, last_error, total_arrived) = (arrived.clone(), last_error.clone(), total_arrived.clone());
-        let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone() };
+        let staging = if on_gpu {
+            None
+        } else {
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: w,
+                Height: h,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_STAGING,
+                BindFlags: 0,
+                CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+                MiscFlags: 0,
+            };
+            let mut t = None;
+            device.CreateTexture2D(&desc, None, Some(&mut t))?;
+            t
+        };
+        let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone(), staging };
         let pool_size = pool_size.clone();
         let mut last = i64::MIN;
         pool.FrameArrived(&TypedEventHandler::<Direct3D11CaptureFramePool, windows::core::IInspectable>::new(move |p, _| {
@@ -317,6 +343,36 @@ unsafe fn record(o: Opts) -> Result<()> {
             if last != i64::MIN && t - last < frame_len - frame_len / 8 {
                 return Ok(());
             }
+            let src: ID3D11Texture2D = step("frame texture", frame.Surface().and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>()).and_then(|a| a.GetInterface()))?;
+            let cw = (content.Width.max(0) as u32).min(w);
+            let ch = (content.Height.max(0) as u32).min(h);
+            let region = D3D11_BOX { left: 0, top: 0, front: 0, right: cw, bottom: ch, back: 1 };
+            if let Some(staging) = &gpu.staging {
+                // the processor encodes: read the picture back into memory
+                last = t;
+                let wr = writer.lock().unwrap();
+                gpu.ctx.CopySubresourceRegion(staging, 0, 0, 0, 0, &src, 0, Some(&region));
+                let mut map = D3D11_MAPPED_SUBRESOURCE::default();
+                step("read frame", gpu.ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut map)))?;
+                let row = (w * 4) as usize;
+                let buf = MFCreateMemoryBuffer(row as u32 * h)?;
+                let mut p = std::ptr::null_mut();
+                buf.Lock(&mut p, None, None)?;
+                for y in 0..h as usize {
+                    std::ptr::copy_nonoverlapping((map.pData as *const u8).add(y * map.RowPitch as usize), p.add(y * row), row);
+                }
+                buf.Unlock()?;
+                gpu.ctx.Unmap(staging, 0);
+                buf.SetCurrentLength(row as u32 * h)?;
+                let sample = MFCreateSample()?;
+                sample.AddBuffer(&buf)?;
+                let _ = t0.compare_exchange(-1, t, Ordering::SeqCst, Ordering::SeqCst);
+                step("frame time", sample.SetSampleTime(t - t0.load(Ordering::SeqCst)).and_then(|_| sample.SetSampleDuration(frame_len)))?;
+                step("encode", wr.sink.WriteSample(wr.video, &sample))?;
+                frames.fetch_add(1, Ordering::Relaxed);
+                frames_total.fetch_add(1, Ordering::SeqCst);
+                return Ok(());
+            }
             let sample = match gpu.alloc.AllocateSample() {
                 Ok(s) => s,
                 Err(_) => {
@@ -325,14 +381,11 @@ unsafe fn record(o: Opts) -> Result<()> {
                 }
             };
             last = t;
-            let src: ID3D11Texture2D = step("frame texture", frame.Surface().and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>()).and_then(|a| a.GetInterface()))?;
             let mut dst: *mut core::ffi::c_void = std::ptr::null_mut();
             step("encoder frame", sample.GetBufferByIndex(0).and_then(|b| b.cast::<IMFDXGIBuffer>()).and_then(|b| b.GetResource(&ID3D11Texture2D::IID, &mut dst)))?;
             let dst = ID3D11Texture2D::from_raw(dst);
-            let cw = (content.Width.max(0) as u32).min(w);
-            let ch = (content.Height.max(0) as u32).min(h);
             let wr = writer.lock().unwrap();
-            gpu.ctx.CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, 0, Some(&D3D11_BOX { left: 0, top: 0, front: 0, right: cw, bottom: ch, back: 1 }));
+            gpu.ctx.CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, 0, Some(&region));
             let _ = t0.compare_exchange(-1, t, Ordering::SeqCst, Ordering::SeqCst);
             step("frame time", sample.SetSampleTime(t - t0.load(Ordering::SeqCst)).and_then(|_| sample.SetSampleDuration(frame_len)))?;
             step("encode", wr.sink.WriteSample(wr.video, &sample))?;
@@ -383,7 +436,7 @@ unsafe fn record(o: Opts) -> Result<()> {
     });
 
     session.StartCapture()?;
-    say(&format!("started {} {} {w} {h} {}", wr_name(&writer), if gpu { "gpu" } else { "cpu" }, o.bitrate));
+    say(&format!("started {} {} {w} {h} {}", wr_name(&writer), if on_gpu { "gpu" } else { "cpu" }, o.bitrate));
 
     // progress every second, until "stop" (or the app goes away)
     {
