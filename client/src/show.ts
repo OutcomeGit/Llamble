@@ -5,7 +5,9 @@
 //    so a crash keeps everything; nothing reaches the server until they share it
 //  - or, if the show was set to save to the server (an instance option, off by default),
 //    streamed up to the server a few seconds at a time instead.
-import { CanvasRecorder } from "./webmrec";
+import { pickVideoEncoder } from "./webmrec";
+import { drawScene, STAGE_H, STAGE_W, type Frame, type Scene, type SceneItem } from "./showscene";
+import RecWorker from "./recworker?worker&inline";
 import { startNativeSound, type NativeSound } from "./appsound";
 import { builtinUrl } from "./soundboard";
 import { media } from "./api";
@@ -33,6 +35,8 @@ export interface ShowState {
   title?: string | null;
   lower_third?: { text: string; sub?: string } | null;
   card?: string | null;
+  /** the recording's size and frame rate, chosen once when the show is set up */
+  quality?: { res: RecRes; fps: 30 | 60 };
   /** the director's sound mix for the recording: source key → on/off and volume (0–2) */
   mix?: Record<string, MixEntry>;
 }
@@ -134,62 +138,59 @@ export const isRecording = (channelId: string) => useShows.getState().status[cha
 // ---------------------------------------------------------------- compositor
 
 export type RecRes = "1080p" | "1440p" | "2160p";
+// size and video bitrate at 60 fps (30 fps uses 70% of it)
 const RES: Record<RecRes, [number, number, number]> = {
-  "1080p": [1920, 1080, 8_000_000],
-  "1440p": [2560, 1440, 14_000_000],
-  "2160p": [3840, 2160, 28_000_000],
+  "1080p": [1920, 1080, 12_000_000],
+  "1440p": [2560, 1440, 20_000_000],
+  "2160p": [3840, 2160, 40_000_000],
 };
+
+/** The show's recording quality (older shows: the recorder's own last pick). */
+export function showQuality(s: Show | undefined): { res: RecRes; fps: 30 | 60 } {
+  const q = s?.state?.quality;
+  if (q && RES[q.res] && (q.fps === 30 || q.fps === 60)) return q;
+  return { res: (localStorage.getItem("llamble.showRes") as RecRes) || "1080p", fps: 60 };
+}
 
 interface Source {
   key: string; // "<uid>" camera / "screen:<uid>"
   uid: string;
   kind: "camera" | "screen";
-  el: HTMLVideoElement;
   track: Track;
   missingSince?: number;
 }
 
 /**
- * Draws the show. The director's preview and the recorder use the same code, so what
- * the director sees is what gets recorded.
+ * Decides what the show looks like right now (who's on, the layout, titles) as a Scene.
+ * The recorder and the director's preview both use it, so they always agree.
  */
-export class Compositor {
-  canvas = document.createElement("canvas");
-  private ctx = this.canvas.getContext("2d")!;
-  private sources = new Map<string, Source>();
+export class SceneMaker {
+  sources = new Map<string, Source>();
   /** people whose video we asked the call to send us even if this person isn't watching it */
   private needs = new Set<string>();
-  private box: HTMLDivElement;
   /** who's on the main shot in auto mode, and since when */
   private auto: { uid: string; since: number } | null = null;
   private candidate: { uid: string; since: number } | null = null;
 
-  constructor(
-    private show: () => Show | undefined,
-    w = 1920,
-    h = 1080,
-  ) {
-    this.canvas.width = w;
-    this.canvas.height = h;
-    // the videos must stay "visible" so the call keeps sending full quality to us
-    this.box = document.createElement("div");
-    this.box.className = "show-sources";
-    // sized like the recording so the call sends us full detail (up to 4K)
-    this.box.style.width = w + "px";
-    this.box.style.height = h + "px";
-    document.body.appendChild(this.box);
-  }
+  constructor(private show: () => Show | undefined) {}
 
   destroy() {
-    for (const s of this.sources.values()) s.track.detach(s.el);
     for (const k of this.needs) needVideo(k.split("|")[0], k.split("|")[1] as "camera" | "screen", false);
     this.needs.clear();
-    this.box.remove();
+    this.sources.clear();
   }
 
-  /** Keep a <video> for every consented camera/screen. */
+  /** The scene now (null when the show's gone), keeping `sources` up to date. */
+  update(): Scene | null {
+    const s = this.show();
+    if (!s) return null;
+    this.refreshSources(s);
+    return this.build(s);
+  }
+
+  /** Every consented camera/screen that's in the call. */
   private refreshSources(s: Show) {
-    const want = new Map<string, { uid: string; kind: "camera" | "screen"; track: Track }>();
+    const want = new Map<string, Source>();
     const ps = participants();
     const needNow = new Set<string>();
     for (const person of s.people) {
@@ -209,86 +210,68 @@ export class Compositor {
       // a shared window that briefly sends no picture (game lost focus, changed mode, skipped
       // frames) reads as "muted" for a moment: keep showing it rather than flipping away
       const scr = c.screen && lkTrack(p, Track.Source.ScreenShare, true);
-      if (cam) want.set(person.user_id, { uid: person.user_id, kind: "camera", track: cam });
-      if (scr) want.set("screen:" + person.user_id, { uid: person.user_id, kind: "screen", track: scr });
+      if (cam) want.set(person.user_id, { key: person.user_id, uid: person.user_id, kind: "camera", track: cam });
+      if (scr) want.set("screen:" + person.user_id, { key: "screen:" + person.user_id, uid: person.user_id, kind: "screen", track: scr });
     }
     const now = Date.now();
     for (const [k, src] of this.sources) {
       const w = want.get(k);
+      if (w && w.track === src.track) {
+        src.missingSince = undefined;
+        continue;
+      }
       // gone for a moment: hold the last picture for a few seconds before switching shots
       if (!w && src.track.mediaStreamTrack?.readyState !== "ended") {
         src.missingSince ??= now;
         if (now - src.missingSince < 4000) continue;
       }
-      if (w && src.track === w.track) {
-        src.missingSince = undefined;
-        continue;
-      }
-      if (!w || src.track !== w.track) {
-        src.track.detach(src.el);
-        src.el.remove();
-        this.sources.delete(k);
-      }
+      this.sources.delete(k);
     }
-    for (const [k, w] of want) {
-      if (this.sources.has(k)) continue;
-      const el = document.createElement("video");
-      el.muted = true;
-      el.playsInline = true;
-      // attached through LiveKit so it keeps sending us full quality
-      w.track.attach(el);
-      el.play().catch(() => {});
-      el.style.width = this.canvas.width + "px";
-      el.style.height = this.canvas.height + "px";
-      this.box.appendChild(el);
-      this.sources.set(k, { key: k, uid: w.uid, kind: w.kind, el, track: w.track });
-    }
+    for (const [k, w] of want) if (!this.sources.has(k)) this.sources.set(k, w);
   }
 
-  draw() {
-    const s = this.show();
-    if (!s) return;
-    this.refreshSources(s);
-    const ctx = this.ctx;
-    const W = this.canvas.width;
-    const H = this.canvas.height;
+  private build(s: Show): Scene {
     const st = s.state || {};
-    ctx.fillStyle = "#101114";
-    ctx.fillRect(0, 0, W, H);
-
-    if (st.card) {
-      this.card(st.card, W, H);
-      return;
-    }
-
+    const extras: Pick<Scene, "lower" | "title"> = {};
+    if (st.lower_third?.text) extras.lower = { text: st.lower_third.text, sub: st.lower_third.sub };
+    if (st.title) extras.title = st.title;
+    if (st.card) return { card: st.card, items: [] };
     const srcs = [...this.sources.values()];
     const cams = srcs.filter((x) => x.kind === "camera");
     const screens = srcs.filter((x) => x.kind === "screen");
-    const voiceOnly = s.people.filter((p) => p.consent?.voice && !cams.some((c) => c.uid === p.user_id)).map((p) => p.user_id);
     const main = this.mainShot(s, srcs);
     const layout = st.layout && st.layout !== "auto" ? st.layout : screens.length ? "screen" : "speaker";
-
+    const items: SceneItem[] = [];
     if (layout === "grid" || (!main && srcs.length)) {
-      this.grid(srcs, W, H);
-    } else if (main) {
-      this.fit(main.el, 0, 0, W, H, main.kind === "screen");
-      if (main.kind === "camera") this.nameTag(main.uid, 24, H - 70);
+      const n = Math.max(1, srcs.length);
+      const cols = Math.ceil(Math.sqrt(n));
+      const rows = Math.ceil(n / cols);
+      const gw = STAGE_W / cols;
+      const gh = STAGE_H / rows;
+      srcs.forEach((x, i) => {
+        const gx = (i % cols) * gw;
+        const gy = Math.floor(i / cols) * gh;
+        items.push({ key: x.key, x: gx + 4, y: gy + 4, w: gw - 8, h: gh - 8, contain: x.kind === "screen", radius: 12, tag: { text: name(x.uid), x: gx + 16, y: gy + gh - 56, scale: 0.75 } });
+      });
+      return { items, ...extras };
+    }
+    if (main) {
+      items.push({ key: main.key, x: 0, y: 0, w: STAGE_W, h: STAGE_H, contain: main.kind === "screen", radius: 0, tag: main.kind === "camera" ? { text: name(main.uid), x: 24, y: STAGE_H - 70, scale: 1 } : undefined });
       // everyone else in a strip
-      const others = (layout === "screen" ? cams : srcs.filter((x) => x !== main)).filter((x) => x !== main).slice(0, 5);
-      const tw = Math.round(W * 0.16);
+      const others = (layout === "screen" ? cams : srcs).filter((x) => x !== main).slice(0, 5);
+      const tw = Math.round(STAGE_W * 0.16);
       const th = Math.round((tw * 9) / 16);
       others.forEach((o, i) => {
-        const x = W - tw - 24;
+        const x = STAGE_W - tw - 24;
         const y = 24 + i * (th + 12);
-        this.fit(o.el, x, y, tw, th, false, 10);
-        this.nameTag(o.uid, x + 8, y + th - 34, 0.6);
+        items.push({ key: o.key, x, y, w: tw, h: th, contain: false, radius: 10, tag: { text: name(o.uid), x: x + 8, y: y + th - 34, scale: 0.6 } });
       });
-    } else {
-      this.voiceBoard(voiceOnly.length ? voiceOnly : s.people.map((p) => p.user_id), W, H);
+      return { items, ...extras };
     }
-
-    if (st.lower_third?.text) this.lowerThird(st.lower_third.text, st.lower_third.sub, W, H);
-    if (st.title) this.titleBar(st.title, W);
+    const speaking = useVoice.getState().speaking;
+    const voiceOnly = s.people.filter((p) => p.consent?.voice && !cams.some((c) => c.uid === p.user_id)).map((p) => p.user_id);
+    const who = voiceOnly.length ? voiceOnly : s.people.map((p) => p.user_id);
+    return { items, board: who.map((u) => ({ name: name(u), speaking: speaking.includes(u) })), ...extras };
   }
 
   /** Main shot: the director's pick when held, else whoever's talking (with a little patience). */
@@ -300,7 +283,7 @@ export class Compositor {
       if (f) return f;
     }
     const screens = srcs.filter((x) => x.kind === "screen");
-    if ((st.layout === "screen" || (!st.layout || st.layout === "auto")) && screens.length) {
+    if ((st.layout === "screen" || !st.layout || st.layout === "auto") && screens.length) {
       if (st.focus?.startsWith("screen:")) return byKey(st.focus) ?? screens[0];
       return screens[0];
     }
@@ -314,139 +297,74 @@ export class Compositor {
     const cur = this.auto && srcs.find((x) => x.uid === this.auto!.uid && x.kind === "camera");
     return cur || srcs.find((x) => x.kind === "camera");
   }
+}
 
-  private fit(el: HTMLVideoElement, x: number, y: number, w: number, h: number, contain: boolean, radius = 0) {
-    const vw = el.videoWidth;
-    const vh = el.videoHeight;
-    const ctx = this.ctx;
-    ctx.save();
-    if (radius) {
-      ctx.beginPath();
-      ctx.roundRect(x, y, w, h, radius);
-      ctx.clip();
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x, y, w, h);
+/**
+ * Hidden <video>s for a show's sources, so the call keeps sending them at full detail
+ * (the call lowers quality for video nobody's looking at). Also what the main-thread
+ * preview paints from.
+ */
+class SourceVideos {
+  els = new Map<string, { el: HTMLVideoElement; track: Track }>();
+  private box = document.createElement("div");
+  constructor(w: number, h: number) {
+    this.box.className = "show-sources";
+    this.box.style.width = w + "px";
+    this.box.style.height = h + "px";
+    document.body.appendChild(this.box);
+  }
+  sync(sources: Map<string, Source>) {
+    for (const [k, v] of this.els) {
+      if (sources.get(k)?.track === v.track) continue;
+      v.track.detach(v.el);
+      v.el.remove();
+      this.els.delete(k);
     }
-    if (vw && vh) {
-      const s = contain ? Math.min(w / vw, h / vh) : Math.max(w / vw, h / vh);
-      const dw = vw * s;
-      const dh = vh * s;
-      ctx.beginPath();
-      ctx.rect(x, y, w, h);
-      ctx.clip();
-      ctx.drawImage(el, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
-    }
-    ctx.restore();
-  }
-
-  private grid(srcs: Source[], W: number, H: number) {
-    const n = Math.max(1, srcs.length);
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const gw = W / cols;
-    const gh = H / rows;
-    srcs.forEach((s, i) => {
-      const x = (i % cols) * gw;
-      const y = Math.floor(i / cols) * gh;
-      this.fit(s.el, x + 4, y + 4, gw - 8, gh - 8, s.kind === "screen", 12);
-      this.nameTag(s.uid, x + 16, y + gh - 56, 0.75);
-    });
-  }
-
-  private voiceBoard(uids: string[], W: number, H: number) {
-    const ctx = this.ctx;
-    const speaking = useVoice.getState().speaking;
-    const n = Math.max(1, uids.length);
-    const r = Math.min(110, W / (n * 3));
-    uids.forEach((uid, i) => {
-      const cx = (W / (n + 1)) * (i + 1);
-      const cy = H / 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = "#5865f2";
-      ctx.fill();
-      if (speaking.includes(uid)) {
-        ctx.lineWidth = 8;
-        ctx.strokeStyle = "#23a55a";
-        ctx.stroke();
-      }
-      ctx.fillStyle = "#fff";
-      ctx.font = `700 ${r * 0.7}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(name(uid).slice(0, 2).toUpperCase(), cx, cy);
-      ctx.font = `600 ${Math.max(20, r * 0.28)}px sans-serif`;
-      ctx.fillText(name(uid), cx, cy + r + 36);
-    });
-  }
-
-  private nameTag(uid: string, x: number, y: number, scale = 1) {
-    const ctx = this.ctx;
-    const t = name(uid);
-    ctx.font = `600 ${Math.round(26 * scale * (this.canvas.width / 1920))}px sans-serif`;
-    const w = ctx.measureText(t).width + 24 * scale;
-    const h = 40 * scale * (this.canvas.width / 1920);
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 8);
-    ctx.fill();
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText(t, x + 12 * scale, y + h / 2);
-  }
-
-  private lowerThird(text: string, sub: string | undefined, W: number, H: number) {
-    const ctx = this.ctx;
-    const k = W / 1920;
-    const x = 80 * k;
-    const y = H - 210 * k;
-    ctx.font = `700 ${46 * k}px sans-serif`;
-    const w = Math.max(ctx.measureText(text).width, sub ? (ctx.font = `500 ${30 * k}px sans-serif`, ctx.measureText(sub).width) : 0) + 60 * k;
-    ctx.fillStyle = "#5865f2";
-    ctx.fillRect(x, y, 10 * k, sub ? 120 * k : 76 * k);
-    ctx.fillStyle = "rgba(16,17,20,0.85)";
-    ctx.fillRect(x + 10 * k, y, w, sub ? 120 * k : 76 * k);
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.font = `700 ${46 * k}px sans-serif`;
-    ctx.fillText(text, x + 34 * k, y + 14 * k);
-    if (sub) {
-      ctx.fillStyle = "#c9cdfb";
-      ctx.font = `500 ${30 * k}px sans-serif`;
-      ctx.fillText(sub, x + 34 * k, y + 72 * k);
+    for (const [k, src] of sources) {
+      if (this.els.has(k)) continue;
+      const el = document.createElement("video");
+      el.muted = true;
+      el.playsInline = true;
+      src.track.attach(el);
+      el.play().catch(() => {});
+      el.style.width = this.box.style.width;
+      el.style.height = this.box.style.height;
+      this.box.appendChild(el);
+      this.els.set(k, { el, track: src.track });
     }
   }
-
-  private titleBar(text: string, W: number) {
-    const ctx = this.ctx;
-    const k = W / 1920;
-    ctx.font = `800 ${40 * k}px sans-serif`;
-    const w = ctx.measureText(text).width + 60 * k;
-    ctx.fillStyle = "rgba(16,17,20,0.8)";
-    ctx.beginPath();
-    ctx.roundRect((W - w) / 2, 28 * k, w, 70 * k, 14 * k);
-    ctx.fill();
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, W / 2, 63 * k);
+  frame = (key: string): Frame | null => {
+    const v = this.els.get(key)?.el;
+    return v && v.videoWidth ? { img: v, w: v.videoWidth, h: v.videoHeight } : null;
+  };
+  destroy() {
+    for (const v of this.els.values()) v.track.detach(v.el);
+    this.els.clear();
+    this.box.remove();
   }
+}
 
-  private card(text: string, W: number, H: number) {
-    const ctx = this.ctx;
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, "#2b2f8f");
-    g.addColorStop(1, "#7a2b8f");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `800 ${Math.round(W / 22)}px sans-serif`;
-    const lines = text.split("\n").slice(0, 4);
-    lines.forEach((l, i) => ctx.fillText(l, W / 2, H / 2 + (i - (lines.length - 1) / 2) * (W / 17)));
+/** The director's preview when someone else's app is recording: painted here, a few times a second. */
+export class Compositor {
+  canvas = document.createElement("canvas");
+  private ctx = this.canvas.getContext("2d")!;
+  private maker: SceneMaker;
+  private vids: SourceVideos;
+  constructor(show: () => Show | undefined, w = 960, h = 540) {
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.maker = new SceneMaker(show);
+    this.vids = new SourceVideos(w, h);
+  }
+  draw() {
+    const sc = this.maker.update();
+    if (!sc) return;
+    this.vids.sync(this.maker.sources);
+    drawScene(this.ctx, this.canvas.width, this.canvas.height, sc, this.vids.frame);
+  }
+  destroy() {
+    this.maker.destroy();
+    this.vids.destroy();
   }
 }
 
@@ -478,10 +396,16 @@ export const useRecorder = create<{ showId: string | null; uploaded: number; pen
 }));
 
 class Recorder {
-  comp: Compositor;
+  private maker: SceneMaker;
+  private vids: SourceVideos;
+  private worker: Worker | null = null;
+  /** sources handed to the background thread, by key */
+  private feeding = new Map<string, MediaStreamTrack>();
+  private lastScene = "";
+  private stoppedBlob: Promise<Blob | null> | null = null;
   private rec: MediaRecorder | null = null;
+  private fallback: Compositor | null = null;
   private audio = new AudioContext({ sampleRate: 48000 });
-  private cr: CanvasRecorder | null = null;
   private dest = this.audio.createMediaStreamDestination();
   private mixed = new Map<string, { node: MediaStreamAudioSourceNode; gain: GainNode; track: MediaStreamTrack }>();
   private bus = this.audio.createGain();
@@ -500,7 +424,11 @@ class Recorder {
   private local: Promise<void> = Promise.resolve();
   private localSize = 0;
 
-  constructor(public showId: string, res: RecRes) {
+  constructor(
+    public showId: string,
+    res: RecRes,
+    private fps: 30 | 60,
+  ) {
     const show = Object.values(useShows.getState().live).find((s) => s.id === showId);
     this.toServer = show?.record_on === "server";
     if (!this.toServer) {
@@ -544,50 +472,105 @@ class Recorder {
         .catch(() => this.sbCache.delete(url));
     });
     const [w, h] = RES[res];
-    this.comp = new Compositor(() => Object.values(useShows.getState().live).find((s) => s.id === this.showId), w, h);
+    this.maker = new SceneMaker(() => this.show());
+    this.vids = new SourceVideos(w, h);
     this.start(res, w, h);
   }
 
-  /** Pick the encoder, then start recording (the graphics card when it can, at 60 fps). */
+  /** Pick the encoder, then start recording in the background thread (or the old way, if this engine can't). */
   private async start(res: RecRes, w: number, h: number) {
-    const [, , baseRate] = RES[res];
+    const [, , rate60] = RES[res];
+    const bitrate = Math.round(rate60 * (this.fps === 60 ? 1 : 0.7));
     const audioTrack = this.dest.stream.getAudioTracks()[0];
     this.unblockSound();
-    const cr = await CanvasRecorder.start(this.comp.canvas, audioTrack, 60, Math.round(baseRate * 1.5), (b) => this.piece(b), (e) => useRecorder.setState({ error: "Recording trouble: " + e })).catch((e) => {
-      console.warn("[llamble] recorder unavailable", e);
-      return null;
-    });
-    if (this.stopped) {
-      cr?.stop();
-      return;
-    }
-    let fps = 30;
-    if (cr) {
-      this.cr = cr;
-      fps = cr.info!.fps;
-      console.info(`[llamble] recording ${w}x${h} at ${fps} fps with ${cr.info!.codec} on the ${cr.info!.hardware ? "graphics card" : "processor"}`);
-      useRecorder.setState({ encoder: `${cr.info!.codec} · ${cr.info!.hardware ? "graphics card" : "processor"}`, fps });
+    const canWorker = typeof Worker !== "undefined" && typeof VideoEncoder !== "undefined" && typeof (globalThis as any).MediaStreamTrackProcessor !== "undefined";
+    const pick = canWorker ? await pickVideoEncoder(w, h, this.fps, bitrate).catch(() => null) : null;
+    if (this.stopped) return;
+    if (pick) {
+      const fps = pick.hardware ? this.fps : Math.min(30, this.fps);
+      const worker = new RecWorker();
+      this.worker = worker;
+      let gotStopped: (b: Blob | null) => void = () => {};
+      this.stoppedBlob = new Promise((r) => (gotStopped = r));
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === "piece") this.piece(m.blob);
+        else if (m.type === "fps") {
+          if (useRecorder.getState().fpsNow !== m.now) useRecorder.setState({ fpsNow: m.now });
+        } else if (m.type === "error") useRecorder.setState({ error: "Recording trouble: " + m.message });
+        else if (m.type === "stopped") gotStopped(m.blob);
+      };
+      const audio = new (globalThis as any).MediaStreamTrackProcessor({ track: audioTrack }).readable as ReadableStream<AudioData>;
+      worker.postMessage({ type: "start", w, h, fps, config: { ...pick.config, framerate: fps }, webm: pick.webm, audio }, [audio]);
+      console.info(`[llamble] recording ${w}x${h} at ${fps} fps with ${pick.name} on the ${pick.hardware ? "graphics card" : "processor"}, in the background`);
+      useRecorder.setState({ encoder: `${pick.name} · ${pick.hardware ? "graphics card" : "processor"}`, fps, fpsNow: undefined });
     } else {
-      // older engines: the browser's own recorder (VP9/VP8 on the processor)
-      const stream = (this.comp.canvas as any).captureStream(30) as MediaStream;
+      // older engines: paint here and use the browser's own recorder (VP9/VP8 on the processor)
+      this.fallback = new Compositor(() => this.show(), w, h);
+      const stream = (this.fallback.canvas as any).captureStream(30) as MediaStream;
       stream.addTrack(audioTrack);
       const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
-      this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: baseRate, audioBitsPerSecond: 160_000 });
+      this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate, audioBitsPerSecond: 160_000 });
       this.rec.ondataavailable = (e) => e.data.size && this.piece(e.data);
       this.rec.start(4000);
-      useRecorder.setState({ encoder: "VP9 · processor", fps });
+      useRecorder.setState({ encoder: "VP9 · processor (old way)", fps: 30 });
     }
-    // draw on a timer, not animation frames, so it keeps going while the app is in the background
+    // the main thread only decides the scene and mixes the sound; the background thread paints and encodes
     this.timer = window.setInterval(
       () => {
-        this.comp.draw();
-        this.cr?.frame();
         this.mixAudio();
-        if (this.cr && useRecorder.getState().fpsNow !== this.cr.fpsNow) useRecorder.setState({ fpsNow: this.cr.fpsNow });
+        if (this.fallback) return this.fallback.draw();
+        const sc = this.maker.update();
+        if (!sc) return;
+        this.vids.sync(this.maker.sources);
+        this.feed();
+        const j = JSON.stringify(sc);
+        if (j !== this.lastScene) {
+          this.lastScene = j;
+          this.worker?.postMessage({ type: "scene", scene: sc });
+        }
       },
-      Math.floor(1000 / fps),
+      this.fallback ? 33 : 100,
     );
     useRecorder.setState({ showId: this.showId, uploaded: 0, pending: 0, error: null, where: this.toServer ? "server" : "device" });
+  }
+
+  /** Hand each source's frames to the background thread (straight from the capture). */
+  private feed() {
+    const w = this.worker;
+    if (!w) return;
+    for (const [k, t] of this.feeding) {
+      if (this.maker.sources.get(k)?.track.mediaStreamTrack === t) continue;
+      w.postMessage({ type: "drop", key: k });
+      this.feeding.delete(k);
+    }
+    for (const [k, src] of this.maker.sources) {
+      const t = src.track.mediaStreamTrack;
+      if (!t || t.readyState === "ended" || this.feeding.has(k)) continue;
+      try {
+        const frames = new (globalThis as any).MediaStreamTrackProcessor({ track: t, maxBufferSize: 2 }).readable as ReadableStream<VideoFrame>;
+        w.postMessage({ type: "add", key: k, frames }, [frames]);
+        this.feeding.set(k, t);
+      } catch (e) {
+        console.warn("[llamble] can't record source", k, e);
+      }
+    }
+  }
+
+  get running() {
+    return !!this.worker;
+  }
+
+  /** The director's preview, drawn by the recorder (only when this app is recording). */
+  setPreview(canvas: HTMLCanvasElement | null): boolean {
+    if (!this.worker) return false;
+    if (!canvas) {
+      this.worker.postMessage({ type: "preview", canvas: null });
+      return true;
+    }
+    const off = canvas.transferControlToOffscreen();
+    this.worker.postMessage({ type: "preview", canvas: off }, [off]);
+    return true;
   }
 
   /** A finished piece of the video file: onto this device in order, or up to the server. */
@@ -727,10 +710,12 @@ class Recorder {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.timer);
-    if (this.cr) {
-      const last = await this.cr.stop();
+    if (this.worker) {
+      this.worker.postMessage({ type: "stop" });
+      const last = await Promise.race([this.stoppedBlob!, new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
       if (last) this.piece(last);
-      this.cr = null;
+      this.worker.terminate();
+      this.worker = null;
     }
     if (this.rec && this.rec.state !== "inactive") {
       await new Promise<void>((res) => {
@@ -738,7 +723,9 @@ class Recorder {
         this.rec!.stop();
       });
     }
-    this.comp.destroy();
+    this.fallback?.destroy();
+    this.maker.destroy();
+    this.vids.destroy();
     this.offSoundboard();
     this.pc?.stop();
     this.audio.close().catch(() => {});
@@ -762,6 +749,16 @@ class Recorder {
 
 let recorder: Recorder | null = null;
 
+/** This app is recording a show right now (in the background thread). */
+export function myRecording(): boolean {
+  return !!recorder?.running;
+}
+
+/** Let the recorder (if this app is recording) draw the director's preview. False: draw it yourself. */
+export function recorderPreview(canvas: HTMLCanvasElement | null): boolean {
+  return recorder?.setPreview(canvas) ?? false;
+}
+
 /** Start/stop recording on this app when the show says so. */
 export function syncRecorder() {
   const me = useStore.getState().me?.id;
@@ -769,8 +766,8 @@ export function syncRecorder() {
   const mine = shows.find((s) => s.recorder_id === me && s.status === "recording");
   if (mine && (!recorder || recorder.showId !== mine.id)) {
     recorder?.stop();
-    const res = (localStorage.getItem("llamble.showRes") as RecRes) || "1080p";
-    recorder = new Recorder(mine.id, res);
+    const q = showQuality(mine);
+    recorder = new Recorder(mine.id, q.res, q.fps);
   } else if (!mine && recorder) {
     const r = recorder;
     recorder = null;

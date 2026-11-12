@@ -457,6 +457,18 @@ pub async fn set_state(State(state): State<Shared>, auth: AuthUser, Path(id): Pa
                 c.insert(k.to_string(), v.clone());
             }
         }
+        // the recording's size and frame rate: set once before it starts
+        if let Some(q) = r.get("quality") {
+            if s.status != "setup" {
+                return Err(AppError::bad("the quality is set before recording starts"));
+            }
+            let res_ok = ["1080p", "1440p", "2160p"].contains(&q.get("res").and_then(Value::as_str).unwrap_or(""));
+            let fps_ok = [30, 60].contains(&q.get("fps").and_then(Value::as_i64).unwrap_or(0));
+            if !res_ok || !fps_ok {
+                return Err(AppError::bad("quality is 1080p, 1440p or 2160p at 30 or 60 fps"));
+            }
+            c.insert("quality".to_string(), json!({ "res": q["res"], "fps": q["fps"] }));
+        }
     }
     let txt = serde_json::to_string(&cur).unwrap();
     if txt.len() > 8000 {

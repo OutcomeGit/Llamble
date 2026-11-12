@@ -40,8 +40,16 @@ with sync_playwright() as p:
 
     sh = ok(requests.post(B + f"/api/channels/{vc}/shows", headers=TA, json={
         "title": "Mixer test", "recorder_id": aid, "director_id": aid, "record_on": "member",
-        "people": [{"user_id": aid, "voice": True}, {"user_id": bid, "voice": True}]}))
+        "people": [{"user_id": aid, "voice": True, "camera": True}, {"user_id": bid, "voice": True}]}))
     sid = sh["id"]
+    # one place for quality: saved with the show (only before it starts)
+    q = ok(requests.post(B + f"/api/shows/{sid}/state", headers=TA, json={"quality": {"res": "1080p", "fps": 30}}))
+    assert q["state"]["quality"] == {"res": "1080p", "fps": 30}, q["state"]
+    r = requests.post(B + f"/api/shows/{sid}/state", headers=TA, json={"quality": {"res": "720p", "fps": 30}})
+    assert r.status_code == 400, r.text
+    # the host's camera is the main shot: frames drive the recording
+    pages[0].evaluate("() => window.llambleDebug.getRoom().localParticipant.setCameraEnabled(true)")
+    ok(requests.post(B + f"/api/shows/{sid}/consent", headers=TA, json={"voice": True, "camera": True, "screen": False}))
     ok(requests.post(B + f"/api/shows/{sid}/consent", headers=TB, json={"voice": True, "camera": False, "screen": False}))
     ok(requests.post(B + f"/api/shows/{sid}/start", headers=TA))
     pages[0].wait_for_function("() => window.llambleDebug.recorder().showId && window.llambleDebug.recorder().encoder", timeout=30000)
@@ -70,6 +78,8 @@ with sync_playwright() as p:
     time.sleep(3)
     fps = pages[0].evaluate("() => window.llambleDebug.recorder().fpsNow")
     print("frames per second right now:", fps)
+    rq = requests.post(B + f"/api/shows/{sid}/state", headers=TA, json={"quality": {"res": "2160p", "fps": 60}})
+    assert rq.status_code == 400, "quality can't change while recording"
     ok(requests.post(B + f"/api/shows/{sid}/stop", headers=TA))
     pages[0].wait_for_function("() => !window.llambleDebug.recorder().showId", timeout=30000)
     data = base64.b64decode(pages[0].evaluate("id => window.llambleDebug.recordingB64(id)", sid))
@@ -134,6 +144,6 @@ if errs:
 vol = subprocess.run(["ffmpeg", "-i", "/tmp/show-rec.webm", "-vn", "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True).stderr
 mean = float([l for l in vol.splitlines() if "mean_volume" in l][0].split(":")[1].split()[0])
 print(f"{kinds['video']['codec_name']} {frames} frames, opus sound at {mean} dB mean")
-assert frames >= 150, f"only {frames} frames in ~10 s"
+assert frames >= 200, f"only {frames} frames in ~12 s (the camera sends ~30 a second)"
 assert mean > -45, f"recording is silent ({mean} dB)"
 print("SHOW RECORDING OK")

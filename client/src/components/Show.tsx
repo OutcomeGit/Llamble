@@ -17,7 +17,7 @@ async function pickScreen(replace = false) {
   if (window.llambleNative) openModal({ kind: "screenPicker" });
   else startScreenShare("", true, defaultShareQuality());
 }
-import { Compositor, showApi, useRecorder, useShows, type RecRes, type Show, type Streams } from "../show";
+import { Compositor, myRecording, recorderPreview, showApi, showQuality, useRecorder, useShows, type RecRes, type Show, type Streams } from "../show";
 
 const NONE: Streams = { voice: false, camera: false, screen: false };
 const ALL: Streams = { voice: true, camera: true, screen: true };
@@ -50,6 +50,7 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
   const serverOk = useStore((s) => !!s.config.media?.server_recording);
   const [saveTo, setSaveTo] = useState<"member" | "server">("member");
   const [res, setRes] = useState<RecRes>((localStorage.getItem("llamble.showRes") as RecRes) || "1080p");
+  const [fps, setFps] = useState<30 | 60>(localStorage.getItem("llamble.showFps") === "30" ? 30 : 60);
   const [busy, setBusy] = useState(false);
   const bot = useStore((s) => s.config.bot?.id);
   const people = inCall.filter((u) => u !== bot);
@@ -58,14 +59,17 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
   const go = async () => {
     setBusy(true);
     localStorage.setItem("llamble.showRes", res);
+    localStorage.setItem("llamble.showFps", String(fps));
     try {
-      await showApi.create(channelId, {
+      const made: Show = await showApi.create(channelId, {
         title,
         people: people.map((u) => ({ user_id: u, ...(picks[u] || ALL) })),
         recorder_id: recorder,
         director_id: director,
         record_on: serverOk ? saveTo : "member",
       });
+      // one place for the recording's quality: saved with the show, so the recorder and director see the same
+      await showApi.state(made.id, { quality: { res, fps } }).catch(() => {});
       onClose();
       if ((picks[me.id] || ALL).screen && people.includes(me.id) && !useVoice.getState().screen) pickScreen();
     } catch (e: any) {
@@ -94,7 +98,7 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
               {(["voice", "camera", "screen"] as const).map((k) => (
                 <td key={k}>
                   <label className="check">
-                    <input type="checkbox" checked={(picks[u] || ALL)[k]} onChange={() => toggle(u, k)} /> {k}
+                    <input type="checkbox" checked={(picks[u] || ALL)[k]} onChange={() => toggle(u, k)} /> {k === "screen" ? "screen + its sound" : k}
                   </label>
                 </td>
               ))}
@@ -132,17 +136,22 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
             ))}
           </select>
         </label>
-        {recorder === me.id && (
-          <label>
-            Quality
-            <select value={res} onChange={(e) => setRes(e.target.value as RecRes)}>
-              <option value="1080p">1080p</option>
-              <option value="1440p">1440p</option>
-              <option value="2160p">4K</option>
-            </select>
-          </label>
-        )}
+        <label title="The recording's size and smoothness. Whoever records uses exactly this.">
+          Recording quality
+          <select value={res} onChange={(e) => setRes(e.target.value as RecRes)}>
+            <option value="1080p">1080p</option>
+            <option value="1440p">1440p</option>
+            <option value="2160p">4K</option>
+          </select>
+          <select value={fps} onChange={(e) => setFps(Number(e.target.value) as 30 | 60)}>
+            <option value={60}>60 fps</option>
+            <option value={30}>30 fps</option>
+          </select>
+        </label>
       </div>
+      <p className="muted small">
+        Here you choose who's in it and what of theirs may be recorded. While it records, the director picks the shots and sets how loud each sound is (and can add music, or the recorder's whole-PC sound).
+      </p>
       <p className="muted small">
         Everyone picked gets asked first and can say yes to some, all, or none, and change their mind any time. Kids are covered by their parent. Everyone in the call sees REC while it records.{" "}
         {saveTo === "server" && serverOk ? "It's saved on the server as it records." : "It's kept on the recorder's device (their Library → Recordings) and only reaches the server if they share it."}
@@ -153,6 +162,11 @@ export function StartShow({ channelId, onClose }: { channelId: string; onClose: 
     </div>
   );
 }
+
+const qualityText = (s: Show) => {
+  const q = showQuality(s);
+  return `${q.res === "2160p" ? "4K" : q.res} · ${q.fps} fps`;
+};
 
 // ---------------------------------------------------------------- banner in the call
 
@@ -263,16 +277,7 @@ export function ShowPrompts() {
         <p className="muted small">
           {what.includes("record") ? "Your app will mix and save the video while you're in the call. Keep Llamble open until it's over." : "You'll pick who's on screen, titles, and when to cut."}
         </p>
-        {what.includes("record") && (
-          <label>
-            Quality
-            <select defaultValue={localStorage.getItem("llamble.showRes") || "1080p"} onChange={(e) => localStorage.setItem("llamble.showRes", e.target.value)}>
-              <option value="1080p">1080p</option>
-              <option value="1440p">1440p</option>
-              <option value="2160p">4K</option>
-            </select>
-          </label>
-        )}
+        {what.includes("record") && <p className="small">It records at {qualityText(role)}.</p>}
         <div className="row gap">
           <button className="btn primary" onClick={() => showApi.role(role.id, true).catch((e) => toast(e.message, "error"))}>
             Yes
@@ -367,19 +372,43 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
   const [handTo, setHandTo] = useState("");
   useVoice((s) => s.version);
 
-  // live preview: the same compositor the recorder uses
+  // live preview of exactly what's recorded. If this app is the recorder, the recorder draws
+  // it (no second copy of the work); otherwise it's painted here from the same scene.
   useEffect(() => {
-    const comp = new Compositor(() => {
-      const ch = useVoice.getState().channelId;
-      return ch ? useShows.getState().live[ch] : undefined;
-    }, 960, 540);
-    comp.canvas.className = "director-preview";
-    prev.current?.appendChild(comp.canvas);
-    const t = setInterval(() => comp.draw(), 66);
+    let comp: Compositor | null = null;
+    let canvas: HTMLCanvasElement | null = null;
+    let fromRecorder = false;
+    const mount = () => {
+      canvas?.remove();
+      comp?.destroy();
+      comp = null;
+      canvas = document.createElement("canvas");
+      canvas.width = 960;
+      canvas.height = 540;
+      canvas.className = "director-preview";
+      prev.current?.appendChild(canvas);
+      fromRecorder = recorderPreview(canvas);
+      if (!fromRecorder) {
+        comp = new Compositor(() => {
+          const ch = useVoice.getState().channelId;
+          return ch ? useShows.getState().live[ch] : undefined;
+        }, 960, 540);
+        canvas.replaceWith(comp.canvas);
+        canvas = comp.canvas;
+        canvas.className = "director-preview";
+      }
+    };
+    mount();
+    const t = setInterval(() => {
+      // recording started on this app while the panel was open: hand the preview over
+      if (!fromRecorder && myRecording()) mount();
+      comp?.draw();
+    }, 66);
     return () => {
       clearInterval(t);
-      comp.canvas.remove();
-      comp.destroy();
+      if (fromRecorder) recorderPreview(null);
+      canvas?.remove();
+      comp?.destroy();
     };
   }, []);
 
@@ -401,6 +430,9 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <div ref={prev} className="director-preview-box" />
+      <div className="muted small">
+        Recording {qualityText(show)} on {show.recorder_id === me ? "your app" : name(show.recorder_id) + "'s app"}, {show.record_on === "server" ? "saved to the server" : "kept on the recorder's device"}. Who's in it and what of theirs was set at the start; you pick shots and sound levels here.
+      </div>
       <div className="camfx-title">Shot {st.hold ? "(held)" : "(auto: follows whoever talks)"}</div>
       <div className="camfx-row">
         <button className={"camfx-chip" + (!st.hold ? " on" : "")} onClick={() => set({ hold: false, focus: null })}>

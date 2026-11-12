@@ -37,7 +37,7 @@ import { Avatar, Icon } from "./common";
 import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
 import { DirectorPanel, ShowBanner, StartShow } from "./Show";
-import { useShows } from "../show";
+import { showQuality, useShows } from "../show";
 import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
@@ -479,7 +479,16 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   // always starts on the shared app's (or game's) sound; change it here for this share only
   const [audio, setAudio] = useState<ShareSound>("app");
   // starts at your default (Settings → Voice & Video); changing it here is just for this share
-  const [quality, setQuality] = useState<ShareQuality>(defaultShareQuality());
+  // in a show: start on the show's recording quality, so what you share matches what's recorded
+  const [quality, setQuality] = useState<ShareQuality>(() => {
+    const ch = useVoice.getState().channelId;
+    const sh = ch ? useShows.getState().live[ch] : undefined;
+    if (sh && (sh.status === "setup" || sh.status === "recording")) {
+      const q = showQuality(sh);
+      return `${q.res}${q.fps}` as ShareQuality;
+    }
+    return defaultShareQuality();
+  });
   useStore((s) => s.config.media); // re-check the server's limits when they change
 
   const games = useGames((g) => g.list);
