@@ -41,7 +41,9 @@ export const testing: { only?: string } = {};
 export async function pickVideoEncoder(w: number, h: number, fps: number, bitrate: number): Promise<Pick | null> {
   if (typeof VideoEncoder === "undefined") return null;
   const cs = codecStrings(w, h);
-  const base = { width: w, height: h, framerate: fps, bitrate, latencyMode: "realtime" as const };
+  // "quality" (not the call-style "realtime"): the encoder may look ahead and spend bits
+  // where they matter; variable bitrate lets busy scenes take more
+  const base = { width: w, height: h, framerate: fps, bitrate, latencyMode: "quality" as const, bitrateMode: "variable" as const };
   if (testing.only) {
     const sw = { ...base, hardwareAcceleration: "prefer-software" as const };
     const t: Record<string, Pick> = {

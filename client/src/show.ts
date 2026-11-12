@@ -138,11 +138,11 @@ export const isRecording = (channelId: string) => useShows.getState().status[cha
 // ---------------------------------------------------------------- compositor
 
 export type RecRes = "1080p" | "1440p" | "2160p";
-// size and video bitrate at 60 fps (30 fps uses 70% of it)
+// size and video bitrate at 60 fps (30 fps uses 70% of it): recording-grade, like OBS's
 const RES: Record<RecRes, [number, number, number]> = {
-  "1080p": [1920, 1080, 12_000_000],
-  "1440p": [2560, 1440, 20_000_000],
-  "2160p": [3840, 2160, 40_000_000],
+  "1080p": [1920, 1080, 24_000_000],
+  "1440p": [2560, 1440, 40_000_000],
+  "2160p": [3840, 2160, 80_000_000],
 };
 
 /** The show's recording quality (older shows: the recorder's own last pick). */

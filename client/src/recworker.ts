@@ -56,7 +56,8 @@ function tick() {
   if (stopped || !venc || venc.state !== "configured") return;
   const now = performance.now();
   if (now - lastEnc < 1000 / fps - 2) return; // faster than the chosen frame rate: skip
-  if (venc.encodeQueueSize > 3) {
+  // quality mode keeps a few frames in hand to look ahead; only skip when it's really behind
+  if (venc.encodeQueueSize > 8) {
     dropped++; // the encoder is behind: skip rather than pile up
     return;
   }
