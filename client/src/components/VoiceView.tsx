@@ -482,7 +482,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
 
   const games = useGames((g) => g.list);
   const gameIds = new Set(
-    games.map((g) => g.sourceId).filter(Boolean) as string[],
+    games.map((g) => g.sourceId?.split(":").slice(0, 2).join(":")).filter(Boolean) as string[],
   );
 
   useEffect(() => {
@@ -492,12 +492,14 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
     ]).then(([s, gs]) => {
       setSources(s);
       // a game is open: start on its window
-      const game = gs.find(
-        (g) => g.sourceId && s.some((x) => x.id === g.sourceId),
-      );
-      if (game) {
+      const key = (id: string) => id.split(":").slice(0, 2).join(":");
+      const match = gs
+        .map((g) => g.sourceId && s.find((x) => key(x.id) === key(g.sourceId!)))
+        .find(Boolean);
+      if (match) {
         setTab("window");
-        setPicked(game.sourceId);
+        setPicked(match.id);
+        setAudio(true);
       } else {
         setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
       }
@@ -530,7 +532,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         {sources === null && <div className="muted">Loading…</div>}
         {sources
           ?.filter((s) => s.kind === tab)
-          .sort((a, b) => Number(gameIds.has(b.id)) - Number(gameIds.has(a.id)))
+          .sort((a, b) => Number(gameIds.has(b.id.split(":").slice(0, 2).join(":"))) - Number(gameIds.has(a.id.split(":").slice(0, 2).join(":"))))
           .map((s) => (
             <div
               key={s.id}
@@ -538,7 +540,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
               onClick={() => setPicked(s.id)}
               onDoubleClick={go}
             >
-              {gameIds.has(s.id) && (
+              {gameIds.has(s.id.split(":").slice(0, 2).join(":")) && (
                 <span className="source-game">🎮 Game</span>
               )}
               {s.thumbnail ? (
@@ -573,8 +575,13 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
             checked={audio}
             onChange={(e) => setAudio(e.target.checked)}
           />{" "}
-          Share system audio
+          {picked?.startsWith("window:") ? "Share this app's sound" : "Share sound"}
         </label>
+        {audio && (
+          <span className="muted small" style={{ maxWidth: 260 }}>
+            {picked?.startsWith("window:") ? "Only that app — not your other calls, music or notifications." : "The game you're playing if there is one, otherwise everything except Llamble."}
+          </span>
+        )}
         <div className="grow" />
         <button className="btn" onClick={onClose}>
           Cancel

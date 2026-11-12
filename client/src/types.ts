@@ -290,6 +290,8 @@ declare global {
       platform: string;
       getScreenSources: () => Promise<{ id: string; name: string; kind: "screen" | "window"; thumbnail: string | null; icon: string | null }[]>;
       setScreenSource: (c: { id: string; audio: boolean }) => Promise<boolean>;
+      /** one program's sound for a screen share (Windows 10 2004+); resolves to what's captured, or null */
+      appAudio?: { start: (sourceId: string) => Promise<string | null>; stop: () => Promise<void>; on: (cb: (pcm: Uint8Array) => void) => () => void };
       flash: () => void;
       setUnread: (n: number) => void;
       focus: () => void;

@@ -2,12 +2,18 @@
 name = "llamble-helper"
 version = "0.1.0"
 edition = "2021"
-description = "Small Windows helper for the Llamble app: lists open windows (for game detection) and graphics cards. Reads one command per line on stdin, answers one JSON line on stdout."
+description = "Small Windows helper for the Llamble app: lists open windows (for game detection) and graphics cards, and captures one program's sound for screen sharing. Reads one command per line on stdin, answers one JSON line on stdout."
 publish = false
 
 # The only outside code is Microsoft's official Windows bindings.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
+  "implement",
+  "Win32_Media_Audio",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_Security",
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
   "Win32_System_Threading",
@@ -15,6 +21,9 @@ windows = { version = "0.58", features = [
   "Win32_System_ProcessStatus",
   "Win32_UI_Input_KeyboardAndMouse",
 ] }
+
+# the COM helper macro (#[implement]) needs the core crate by name; same Microsoft crate family
+windows-core = "0.58"
 
 [profile.release]
 opt-level = "s"

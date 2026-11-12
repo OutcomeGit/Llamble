@@ -22,6 +22,8 @@ export interface VoiceUI {
   deafened: boolean;
   camera: boolean;
   screen: boolean;
+  /** what sound the screen share carries: "app", "game:<name>", "all-but-llamble", "pc" (everything), or null */
+  shareSound?: string | null;
   speaking: string[];
   canSpeak: boolean;
   canVideo: boolean;
@@ -560,6 +562,10 @@ async function connect(channelId: string, rejoining: boolean) {
 export async function leaveVoice(notify = true) {
   wanted = null;
   // the phone stops capturing its screen too
+  if (appSound) {
+    appSound.stop();
+    appSound = null;
+  }
   if (phoneCap) {
     phoneCap.stop();
     phoneCap = null;
@@ -702,7 +708,9 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
   if (!room) return;
   while (!shareAllowed(quality) && SHARE_ORDER.indexOf(quality) > 0) quality = SHARE_ORDER[SHARE_ORDER.indexOf(quality) - 1];
   if (isAndroidApp) return startPhoneShare(quality);
-  await window.llambleNative?.setScreenSource({ id: sourceId, audio });
+  // Windows: take just the shared program's sound (or the game's) instead of the whole PC's
+  const app = audio ? await startAppAudio(sourceId) : null;
+  await window.llambleNative?.setScreenSource({ id: sourceId, audio: audio && !app });
   const p = sharePreset(quality);
   // People with smaller screens or slower connections get a lighter copy: VP9 sends
   // layers inside one stream; H.264 (Chromebooks) sends separate smaller copies.
@@ -719,29 +727,78 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
         // game/app sound: stereo, untouched (voice processing would mangle music and effects).
         // restrictOwnAudio leaves Llamble's own playback (the call's voices) out of the capture,
         // so sharing can never echo people back at themselves.
-        audio: audio
+        audio: audio && !app
           ? ({ echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, restrictOwnAudio: true } as any)
           : false,
         resolution: { width: p.width, height: p.height, frameRate: p.fps },
         contentHint: p.fps >= 60 ? "motion" : "detail",
         selfBrowserSurface: "exclude",
-        systemAudio: audio ? "include" : "exclude",
+        systemAudio: audio && !app ? "include" : "exclude",
       },
       // AV1/H.264 on the graphics card when it can, else VP9 (see encoder.ts)
       // shared sound goes out as stereo Opus at music quality, without the voice-call
       // tricks (DTX cuts "silence", RED doubles packets) that suit speech, not game audio
       { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: shareAudioBitrate() } },
     );
+    if (app && room) {
+      await room.localParticipant.publishTrack(new LocalAudioTrack(app.track, undefined, false), {
+        source: Track.Source.ScreenShareAudio,
+        forceStereo: true,
+        dtx: false,
+        red: false,
+        audioPreset: { maxBitrate: shareAudioBitrate() },
+      });
+      appSound = app;
+    } else app?.stop();
     watchEncoder("screen", codec);
     guardShareEcho();
-    vset({ screen: true, pickerOpen: false });
+    vset({ screen: true, pickerOpen: false, shareSound: app?.what ?? (audio ? "pc" : null) });
     const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
     if (t) watchForBlack(t);
   } catch (e: any) {
+    app?.stop();
     vset({ error: "Screen share failed: " + e.message, pickerOpen: false });
   }
   syncServerState();
   bump();
+}
+
+/** The shared program's sound, fed from llamble-helper.exe through the page's audio engine. */
+let appSound: { track: MediaStreamTrack; what: string; stop: () => void } | null = null;
+async function startAppAudio(sourceId: string): Promise<typeof appSound> {
+  const native = window.llambleNative?.appAudio;
+  if (!native) return null;
+  appSound?.stop();
+  appSound = null;
+  const what = await native.start(sourceId).catch(() => null);
+  if (!what) return null; // older Windows: fall back to the whole PC's sound
+  try {
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    await ctx.audioWorklet.addModule("./pcmPlayerWorklet.js");
+    const player = new AudioWorkletNode(ctx, "pcm-player", { outputChannelCount: [2] });
+    const dest = ctx.createMediaStreamDestination();
+    dest.channelCount = 2;
+    player.connect(dest);
+    await ctx.resume().catch(() => {});
+    const off = native.on((pcm) => {
+      const f = new Float32Array(pcm.byteLength / 4);
+      new Uint8Array(f.buffer).set(pcm);
+      player.port.postMessage(f, [f.buffer]);
+    });
+    return {
+      track: dest.stream.getAudioTracks()[0],
+      what,
+      stop: () => {
+        off();
+        native.stop();
+        ctx.close().catch(() => {});
+      },
+    };
+  } catch (e) {
+    console.warn("[llamble] app sound unavailable", e);
+    native.stop();
+    return null;
+  }
 }
 
 let screenOpts: Record<string, unknown> = {};
@@ -876,8 +933,14 @@ export async function stopScreenShare() {
     }
     cap.stop();
   }
+  if (appSound) {
+    const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track;
+    if (t) await room.localParticipant.unpublishTrack(t, true).catch(() => {});
+    appSound.stop();
+    appSound = null;
+  }
   await room.localParticipant.setScreenShareEnabled(false).catch(() => {});
-  vset({ screen: false });
+  vset({ screen: false, shareSound: null });
   useEncoder.setState({ screen: undefined });
   syncServerState();
   bump();

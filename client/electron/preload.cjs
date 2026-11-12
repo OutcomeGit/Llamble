@@ -4,6 +4,15 @@ contextBridge.exposeInMainWorld("llambleNative", {
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke("screen-sources"),
   setScreenSource: (choice) => ipcRenderer.invoke("set-screen-source", choice),
+  appAudio: {
+    start: (sourceId) => ipcRenderer.invoke("app-audio-start", sourceId),
+    stop: () => ipcRenderer.invoke("app-audio-stop"),
+    on: (cb) => {
+      const h = (_e, buf) => cb(buf);
+      ipcRenderer.on("app-audio", h);
+      return () => ipcRenderer.removeListener("app-audio", h);
+    },
+  },
   flash: () => ipcRenderer.send("flash"),
   setUnread: (n) => ipcRenderer.send("unread", n),
   focus: () => ipcRenderer.send("focus"),

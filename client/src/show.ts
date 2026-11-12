@@ -412,7 +412,23 @@ function name(uid: string) {
 
 // ---------------------------------------------------------------- recorder
 
-export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean; where?: "device" | "server" }>(() => ({
+/**
+ * The recording's video encoder. H.264 runs on nearly any graphics card (NVIDIA NVENC,
+ * AMD, Intel); VP9 only on the CPU, which can't keep up at 1440p (about 10 fps).
+ */
+async function recordingEncoder(w: number, h: number): Promise<{ mime: string; hardware: boolean }> {
+  const h264 = ["video/webm;codecs=h264,opus", "video/webm;codecs=avc1,opus", "video/x-matroska;codecs=avc1,opus"].find((m) => MediaRecorder.isTypeSupported(m));
+  if (h264 && typeof VideoEncoder !== "undefined") {
+    try {
+      const r = await VideoEncoder.isConfigSupported({ codec: "avc1.640034", width: w, height: h, framerate: 60, hardwareAcceleration: "prefer-hardware" } as VideoEncoderConfig);
+      if (r.supported) return { mime: h264, hardware: true };
+    } catch {}
+  }
+  const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "video/webm";
+  return { mime, hardware: false };
+}
+
+export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean; where?: "device" | "server"; encoder?: string; fps?: number }>(() => ({
   showId: null,
   uploaded: 0,
   pending: 0,
@@ -453,11 +469,21 @@ class Recorder {
     }
     const [w, h] = RES[res];
     this.comp = new Compositor(() => Object.values(useShows.getState().live).find((s) => s.id === this.showId), w, h);
-    const [, , bitrate] = RES[res];
-    const stream = (this.comp.canvas as any).captureStream(30) as MediaStream;
+    this.start(res, w, h);
+  }
+
+  /** Pick the encoder, then start recording (the graphics card when it can, at 60 fps). */
+  private async start(res: RecRes, w: number, h: number) {
+    const [, , baseRate] = RES[res];
+    const enc = await recordingEncoder(w, h);
+    if (this.stopped) return;
+    const fps = enc.hardware ? 60 : 30;
+    const bitrate = Math.round(baseRate * (fps === 60 ? 1.5 : 1));
+    const stream = (this.comp.canvas as any).captureStream(fps) as MediaStream;
     stream.addTrack(this.dest.stream.getAudioTracks()[0]);
-    const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
-    this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate, audioBitsPerSecond: 160_000 });
+    console.info(`[llamble] recording ${w}x${h} at ${fps} fps with ${enc.mime} (${enc.hardware ? "graphics card" : "CPU"})`);
+    useRecorder.setState({ encoder: enc.hardware ? "graphics card" : "processor", fps });
+    this.rec = new MediaRecorder(stream, { mimeType: enc.mime, videoBitsPerSecond: bitrate, audioBitsPerSecond: 160_000 });
     this.rec.ondataavailable = (e) => {
       if (!e.data.size) return;
       if (this.toServer) {
@@ -480,12 +506,15 @@ class Recorder {
     };
     this.unblockSound();
     this.rec.start(4000);
-    // draw at ~30 fps even when the app is in the background
-    this.timer = window.setInterval(() => {
-      this.comp.draw();
-      this.mixAudio();
-    }, 33);
-    useRecorder.setState({ showId, uploaded: 0, pending: 0, error: null, where: this.toServer ? "server" : "device" });
+    // draw on a timer, not animation frames, so it keeps going while the app is in the background
+    this.timer = window.setInterval(
+      () => {
+        this.comp.draw();
+        this.mixAudio();
+      },
+      Math.floor(1000 / fps),
+    );
+    useRecorder.setState({ showId: this.showId, uploaded: 0, pending: 0, error: null, where: this.toServer ? "server" : "device" });
   }
 
   /**

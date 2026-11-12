@@ -1,5 +1,6 @@
-// Plays raw sound handed over by the Android app (the shared screen's sound: 48 kHz stereo,
-// 16-bit) into an audio track, through a small buffer that absorbs uneven delivery.
+// Plays raw shared-screen sound (48 kHz stereo, interleaved) into an audio track, through a
+// small buffer that absorbs uneven delivery. The Android app sends 16-bit samples
+// (Int16Array buffer); the Windows app sends 32-bit float (Float32Array).
 class PcmPlayer extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -9,9 +10,11 @@ class PcmPlayer extends AudioWorkletProcessor {
     this.filled = 0;
     this.started = false;
     this.port.onmessage = (e) => {
-      const pcm = new Int16Array(e.data);
+      const f = e.data instanceof Float32Array ? e.data : null;
+      const pcm = f || new Int16Array(e.data);
+      const k = f ? 1 : 1 / 32768;
       for (let i = 0; i < pcm.length; i++) {
-        this.buf[this.write] = pcm[i] / 32768;
+        this.buf[this.write] = pcm[i] * k;
         this.write = (this.write + 1) % this.buf.length;
         if (this.filled < this.buf.length) this.filled++;
         else this.read = (this.read + 1) % this.buf.length; // too far behind: drop the oldest

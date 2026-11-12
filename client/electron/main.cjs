@@ -150,6 +150,62 @@ function pttStop() {
   ptt = null;
 }
 ipcMain.handle("ptt-start", (_e, vk) => pttStart(Number(vk)));
+
+// ---- screen-share sound: just the shared app's sound (or a game's), via llamble-helper.exe ----
+// Windows 10 2004+ can capture one program's sound. Sharing a window → that program only.
+// Sharing a whole screen → the game you're playing if one is running, else everything
+// except Llamble itself. Other call apps, music and notifications stay out.
+let appAudio = null;
+function appAudioStop() {
+  if (!appAudio) return;
+  const p = appAudio;
+  appAudio = null;
+  try { p.stdin.end(); } catch {}
+  setTimeout(() => { try { p.kill(); } catch {} }, 500);
+}
+function appAudioStart(sourceId) {
+  appAudioStop();
+  if (process.platform !== "win32") return Promise.resolve(null);
+  const exe = require("./helper.cjs").exePath();
+  if (!exe) return Promise.resolve(null);
+  const m = /^window:(\d+):/.exec(String(sourceId || ""));
+  let args, what;
+  if (m) {
+    args = ["audio", "window", m[1]];
+    what = "app";
+  } else {
+    const game = (require("./games.cjs").current() || []).find((g) => g.pid);
+    args = game ? ["audio", "app", String(game.pid)] : ["audio", "except", String(process.pid)];
+    what = game ? "game:" + game.name : "all-but-llamble";
+  }
+  const p = require("child_process").spawn(exe, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  appAudio = p;
+  let rest = Buffer.alloc(0);
+  p.stdout.on("data", (d) => {
+    // whole stereo float frames only (8 bytes each)
+    const all = rest.length ? Buffer.concat([rest, d]) : d;
+    const n = all.length - (all.length % 8);
+    rest = Buffer.from(all.subarray(n));
+    if (n && win && !win.isDestroyed()) win.webContents.send("app-audio", all.subarray(0, n));
+  });
+  p.on("exit", () => { if (appAudio === p) appAudio = null; });
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    let err = "";
+    p.stderr.setEncoding("utf8");
+    p.stderr.on("data", (d) => {
+      err += d;
+      if (/^ok/m.test(err)) finish(what);
+      else if (/error|usage/.test(err)) { console.warn("[llamble] app sound:", err.trim()); finish(null); }
+    });
+    p.on("exit", () => finish(null));
+    setTimeout(() => finish(null), 4000);
+  }).then((v) => { if (!v && appAudio === p) appAudioStop(); return v; });
+}
+ipcMain.handle("app-audio-start", (_e, sourceId) => appAudioStart(sourceId));
+ipcMain.handle("app-audio-stop", () => appAudioStop());
+
 ipcMain.handle("ptt-stop", () => pttStop());
 
 // ---- auto-update from GitHub Releases ----
@@ -196,6 +252,10 @@ let tray = null;
 let quitting = false;
 let pendingInvite = null;
 let chosenScreen = null; // { id, audio }
+// "window:<hwnd>:<n>" — the trailing number differs between our game list and Electron's, so match on the window itself
+const sourceKey = (id) => String(id || "").split(":").slice(0, 2).join(":");
+const sameSource = (a, b) => a === b || sourceKey(a) === sourceKey(b);
+const findSource = (sources, id) => sources.find((s) => s.id === id) || sources.find((s) => sameSource(s.id, id));
 
 if (process.defaultApp) {
   app.setAsDefaultProtocolClient("llamble", process.execPath, [path.resolve(process.argv[1] || ".")]);
@@ -358,7 +418,8 @@ app.whenReady().then(() => {
   ses.setDisplayMediaRequestHandler(async (_req, cb) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ["screen", "window"] });
-      const pick = (chosenScreen && sources.find((s) => s.id === chosenScreen.id)) || sources[0];
+      const pick = (chosenScreen && findSource(sources, chosenScreen.id)) || sources[0];
+      if (chosenScreen && pick && !sameSource(pick.id, chosenScreen.id)) console.warn("[llamble] picked source not found, sharing", pick.id, "instead of", chosenScreen.id);
       if (!pick) return cb({});
       const wantAudio = chosenScreen ? chosenScreen.audio : false;
       cb(wantAudio && process.platform === "win32" ? { video: pick, audio: "loopback" } : { video: pick });
@@ -384,7 +445,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); require("./helper.cjs").stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStop(); require("./helper.cjs").stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 

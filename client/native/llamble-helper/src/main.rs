@@ -10,11 +10,17 @@
 //! button) and prints "down" / "up" when it changes, so push-to-talk works while a game
 //! has focus. It reads no other keys and records nothing. Exits when stdin closes.
 //!
+//! Sound mode: `llamble-helper audio window <hwnd>` (or `app <pid>` / `except <pid>`)
+//! streams that one program's sound for a screen share (see audio.rs).
+//!
 //! It only reads: window titles, which program owns each window and where that
 //! program is installed, and the graphics adapters Windows reports. It never opens
 //! other programs' memory, never runs anything, and never touches files.
 
 use std::io::{BufRead, Write};
+
+#[cfg(windows)]
+mod audio;
 
 fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
@@ -33,6 +39,12 @@ fn esc(s: &str) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("audio") {
+        #[cfg(windows)]
+        std::process::exit(audio::run(&args[2..]));
+        #[cfg(not(windows))]
+        std::process::exit(2);
+    }
     if args.get(1).map(String::as_str) == Some("ptt") {
         let vk: i32 = args.get(2).and_then(|v| v.parse().ok()).unwrap_or(0);
         if !(1..=254).contains(&vk) {

@@ -100,6 +100,7 @@ async function poll() {
       name,
       exe: String(w.exe || "").toLowerCase(),
       title: w.title || name,
+      pid: w.pid || 0,
       // Electron's id for that window, so "Stream <game>" can pick it directly
       sourceId: w.hwnd ? `window:${w.hwnd}:0` : null,
     });
