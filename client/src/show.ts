@@ -146,6 +146,7 @@ interface Source {
   kind: "camera" | "screen";
   el: HTMLVideoElement;
   track: Track;
+  missingSince?: number;
 }
 
 /**
@@ -205,12 +206,24 @@ export class Compositor {
       const p = ps.find((x) => x.identity === person.user_id);
       if (!p) continue;
       const cam = c.camera && lkTrack(p, Track.Source.Camera);
-      const scr = c.screen && lkTrack(p, Track.Source.ScreenShare);
+      // a shared window that briefly sends no picture (game lost focus, changed mode, skipped
+      // frames) reads as "muted" for a moment: keep showing it rather than flipping away
+      const scr = c.screen && lkTrack(p, Track.Source.ScreenShare, true);
       if (cam) want.set(person.user_id, { uid: person.user_id, kind: "camera", track: cam });
       if (scr) want.set("screen:" + person.user_id, { uid: person.user_id, kind: "screen", track: scr });
     }
+    const now = Date.now();
     for (const [k, src] of this.sources) {
       const w = want.get(k);
+      // gone for a moment: hold the last picture for a few seconds before switching shots
+      if (!w && src.track.mediaStreamTrack?.readyState !== "ended") {
+        src.missingSince ??= now;
+        if (now - src.missingSince < 4000) continue;
+      }
+      if (w && src.track === w.track) {
+        src.missingSince = undefined;
+        continue;
+      }
       if (!w || src.track !== w.track) {
         src.track.detach(src.el);
         src.el.remove();
@@ -437,9 +450,9 @@ export class Compositor {
   }
 }
 
-function lkTrack(p: Participant, source: Track.Source): Track | null {
+function lkTrack(p: Participant, source: Track.Source, evenIfPaused = false): Track | null {
   const pub = p.getTrackPublication(source);
-  return pub && !pub.isMuted && pub.track ? pub.track : null;
+  return pub && (evenIfPaused || !pub.isMuted) && pub.track && pub.track.mediaStreamTrack?.readyState !== "ended" ? pub.track : null;
 }
 
 function trackOf(p: Participant, source: Track.Source): MediaStreamTrack | null {

@@ -8,6 +8,13 @@ import { create } from "zustand";
 import { avatarUrl } from "./api";
 import { currentChannelId, memberName, useStore } from "./store";
 import { useVoice } from "./voice";
+import { useRecorder } from "./show";
+
+function recLine(): string | undefined {
+  const r = useRecorder.getState();
+  if (!r.showId) return undefined;
+  return [r.encoder, r.fps ? `${r.fpsNow ?? "…"}/${r.fps} fps` : ""].filter(Boolean).join(" · ") || "starting…";
+}
 
 export type WidgetId = "voice" | "chat" | "alerts";
 
@@ -119,6 +126,8 @@ export interface OverlaySnapshot {
   chat: OverlayLine[];
   alerts: OverlayLine[];
   now: number;
+  /** while this app records a show: "AV1 · graphics card · 58/60 fps" */
+  rec?: string;
 }
 
 const alerts: OverlayLine[] = [];
@@ -191,6 +200,7 @@ export function buildSnapshot(): OverlaySnapshot {
     chat,
     alerts: alerts.slice(),
     now: Date.now(),
+    rec: recLine(),
   };
 }
 
@@ -240,6 +250,7 @@ export function startOverlayFeed() {
   started = true;
   useStore.subscribe(bumpSnapshot);
   useVoice.subscribe(bumpSnapshot);
+  useRecorder.subscribe(bumpSnapshot);
   useOverlayPrefs.subscribe(bumpSnapshot);
   // fades are time based: refresh now and then even when nothing changes
   setInterval(() => listeners.size && bumpSnapshot(), 2000);

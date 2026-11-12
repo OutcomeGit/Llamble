@@ -1270,3 +1270,4 @@ body.pop-body > .pop { height: 100vh; }
   .mix-row input[type="range"], .music-row input[type="range"] { width: 80px; }
   .music-row { flex-wrap: wrap; }
 }
+.ov-rec { color: #ff6b6b; font-size: 12px; font-weight: 700; margin: 2px 0 4px; }

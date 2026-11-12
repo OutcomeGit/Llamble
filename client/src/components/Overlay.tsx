@@ -24,6 +24,7 @@ function VoiceWidget({ s }: { s: OverlaySnapshot }) {
         {s.muted && <Icon name="micOff" size={14} className="ov-red" />}
         {s.deafened && <Icon name="deaf" size={14} className="ov-red" />}
       </div>
+      {s.rec && <div className="ov-rec">● REC · {s.rec}</div>}
       {list.map((x) => (
         <div key={x.id} className={"ov-person" + (x.speaking ? " speaking" : "")}>
           {p.voiceAvatars && <Face name={x.name} avatar={x.avatar} speaking={x.speaking} size={24} />}
