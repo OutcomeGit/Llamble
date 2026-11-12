@@ -17,7 +17,7 @@ import { api } from "./api";
 import { closeMenu, closeModal, openModal, useUI } from "./ui";
 
 // handle for automated tests and troubleshooting from the dev console
-(window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), localrec, startPhoneCapture, openLibrary, micSound, setMicSound, PRESETS, openHome, openGuildView,
+(window as any).llambleDebug = { selectChannel, joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), localrec, startPhoneCapture, openLibrary, micSound, setMicSound, PRESETS, openHome, openGuildView,
   // tests: the show's music player (file handed over as base64)
   showMusic: async (b64: string, name: string) => {
     const m = await import("./showmusic");

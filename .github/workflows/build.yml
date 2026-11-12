@@ -68,7 +68,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: home-screenshots
-          path: /tmp/home*.png
+          path: |
+            /tmp/home*.png
+            /tmp/show-rec.webm
           if-no-files-found: ignore
       # also keep them on a side branch (handy to look at without downloading artifacts)
       - name: Save Home screenshots to the ci-screenshots branch

@@ -59,6 +59,9 @@ with sync_playwright() as p:
     # the director's panel, for a look (saved with the CI screenshots)
     try:
         pages[0].set_viewport_size({"width": 1280, "height": 900})
+        gid = [g["id"] for g in ready["guilds"] if any(c["id"] == vc for c in g["channels"])][0]
+        pages[0].evaluate("([g, c]) => window.llambleDebug.selectChannel(g, c)", [gid, vc])
+        pages[0].wait_for_timeout(1000)
         pages[0].locator("button", has_text="Director").first.click(timeout=5000)
         pages[0].wait_for_timeout(1500)
         pages[0].locator(".director").screenshot(path="/tmp/home-director-mixer.png")
@@ -81,7 +84,11 @@ assert "video" in kinds and "audio" in kinds and kinds["audio"]["codec_name"] ==
 assert (kinds["video"]["width"], kinds["video"]["height"]) == (1920, 1080), kinds["video"]
 frames = int(subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.strip())
 dec = subprocess.run(["ffmpeg", "-v", "error", "-i", "/tmp/show-rec.webm", "-f", "null", "-"], capture_output=True, text=True)
-assert not dec.stderr.strip(), "decode errors: " + dec.stderr[:400]
+if dec.stderr.strip():
+    pk = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts_time,size", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()
+    small = [l for l in pk if int(l.split(",")[1] or 0) < 3]
+    print("audio packets:", len(pk), "| first:", pk[:3], "| last:", pk[-3:], "| tiny:", small[:5])
+    raise SystemExit("decode errors: " + dec.stderr[:400])
 vol = subprocess.run(["ffmpeg", "-i", "/tmp/show-rec.webm", "-vn", "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True).stderr
 mean = float([l for l in vol.splitlines() if "mean_volume" in l][0].split(":")[1].split()[0])
 print(f"{kinds['video']['codec_name']} {frames} frames, opus sound at {mean} dB mean")
