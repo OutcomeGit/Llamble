@@ -75,6 +75,11 @@ fn parse(args: &[String]) -> Option<Opts> {
     (o.window.is_some() || o.point.is_some()).then_some(o)
 }
 
+/// Name the step in an error, so a report says which call refused.
+fn step<T>(name: &str, r: Result<T>) -> Result<T> {
+    r.map_err(|e| windows::core::Error::new(e.code(), format!("{name}: {}", e.message())))
+}
+
 fn say(line: &str) {
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{line}");
@@ -294,7 +299,7 @@ unsafe fn record(o: Opts) -> Result<()> {
             total_arrived.fetch_add(1, Ordering::SeqCst);
             let Some(p) = p.as_ref() else { return Ok(()) };
             let res = (|| -> Result<()> {
-            let frame = p.TryGetNextFrame()?;
+            let frame = step("next frame", p.TryGetNextFrame())?;
             if stop.load(Ordering::Relaxed) {
                 return Ok(());
             }
@@ -304,7 +309,7 @@ unsafe fn record(o: Opts) -> Result<()> {
             {
                 let mut ps = pool_size.lock().unwrap();
                 if content.Width != ps.Width || content.Height != ps.Height {
-                    p.Recreate(&gpu.rt_device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, content)?;
+                    step("resize capture", p.Recreate(&gpu.rt_device, DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, content))?;
                     *ps = content;
                 }
             }
@@ -320,18 +325,17 @@ unsafe fn record(o: Opts) -> Result<()> {
                 }
             };
             last = t;
-            let src: ID3D11Texture2D = frame.Surface()?.cast::<IDirect3DDxgiInterfaceAccess>()?.GetInterface()?;
+            let src: ID3D11Texture2D = step("frame texture", frame.Surface().and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>()).and_then(|a| a.GetInterface()))?;
             let mut dst: *mut core::ffi::c_void = std::ptr::null_mut();
-            sample.GetBufferByIndex(0)?.cast::<IMFDXGIBuffer>()?.GetResource(&ID3D11Texture2D::IID, &mut dst)?;
+            step("encoder frame", sample.GetBufferByIndex(0).and_then(|b| b.cast::<IMFDXGIBuffer>()).and_then(|b| b.GetResource(&ID3D11Texture2D::IID, &mut dst)))?;
             let dst = ID3D11Texture2D::from_raw(dst);
             let cw = (content.Width.max(0) as u32).min(w);
             let ch = (content.Height.max(0) as u32).min(h);
             let wr = writer.lock().unwrap();
             gpu.ctx.CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, 0, Some(&D3D11_BOX { left: 0, top: 0, front: 0, right: cw, bottom: ch, back: 1 }));
             let _ = t0.compare_exchange(-1, t, Ordering::SeqCst, Ordering::SeqCst);
-            sample.SetSampleTime(t - t0.load(Ordering::SeqCst))?;
-            sample.SetSampleDuration(frame_len)?;
-            wr.sink.WriteSample(wr.video, &sample)?;
+            step("frame time", sample.SetSampleTime(t - t0.load(Ordering::SeqCst)).and_then(|_| sample.SetSampleDuration(frame_len)))?;
+            step("encode", wr.sink.WriteSample(wr.video, &sample))?;
             frames.fetch_add(1, Ordering::Relaxed);
             frames_total.fetch_add(1, Ordering::SeqCst);
             Ok(())
