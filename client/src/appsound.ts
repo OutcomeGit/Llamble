@@ -15,7 +15,7 @@ export async function startNativeSound(key: string, sourceId: string, mode: "app
   try {
     const ctx = new AudioContext({ sampleRate: 48000 });
     await ctx.audioWorklet.addModule("./pcmPlayerWorklet.js");
-    const player = new AudioWorkletNode(ctx, "pcm-player", { outputChannelCount: [2] });
+    const player = new AudioWorkletNode(ctx, "pcm-player", { outputChannelCount: [2], processorOptions: { cushion: 0.15 } });
     const dest = ctx.createMediaStreamDestination();
     dest.channelCount = 2;
     player.connect(dest);

@@ -2,8 +2,11 @@
 // small buffer that absorbs uneven delivery. The Android app sends 16-bit samples
 // (Int16Array buffer); the Windows app sends 32-bit float (Float32Array).
 class PcmPlayer extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
+    // how much sound to hold before playing (and after running dry): enough to ride out late
+    // deliveries while the page is busy, small enough to stay roughly in step with the video
+    this.cushion = Math.round(48000 * 2 * ((options && options.processorOptions && options.processorOptions.cushion) || 0.06));
     this.buf = new Float32Array(48000 * 2); // 1 second, interleaved stereo
     this.read = 0;
     this.write = 0;
@@ -24,7 +27,7 @@ class PcmPlayer extends AudioWorkletProcessor {
   process(_inputs, outputs) {
     const [l, r] = outputs[0];
     // wait for ~60 ms of sound before starting, so small hiccups don't click
-    if (!this.started && this.filled < 48000 * 2 * 0.06) return true;
+    if (!this.started && this.filled < this.cushion) return true;
     this.started = true;
     for (let i = 0; i < l.length; i++) {
       if (this.filled >= 2) {
