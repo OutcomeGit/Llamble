@@ -75,6 +75,15 @@ with sync_playwright() as p:
     data = base64.b64decode(pages[0].evaluate("id => window.llambleDebug.recordingB64(id)", sid))
     open("/tmp/show-rec.webm", "wb").write(data)
     print(f"recording kept in the browser: {len(data) // 1024} KB")
+    # for comparison: 3 s from the browser's own recorder (its own WebM/Opus writer)
+    ref = pages[0].evaluate('''async () => {
+      const ac = new AudioContext({ sampleRate: 48000 }); const o = ac.createOscillator(); const d = ac.createMediaStreamDestination(); o.connect(d); o.start(); await ac.resume();
+      const c = document.createElement("canvas"); c.width = 320; c.height = 240; const g = c.getContext("2d"); const t = setInterval(() => { g.fillStyle = "#" + Math.floor(Math.random() * 999); g.fillRect(0, 0, 320, 240) }, 33);
+      const st = c.captureStream(30); st.addTrack(d.stream.getAudioTracks()[0]);
+      const r = new MediaRecorder(st, { mimeType: "video/webm;codecs=vp8,opus" }); const parts = []; r.ondataavailable = (e) => parts.push(e.data); r.start(1000);
+      await new Promise((x) => setTimeout(x, 3000)); await new Promise((x) => { r.onstop = x; r.stop() }); clearInterval(t);
+      const b = new Uint8Array(await new Blob(parts).arrayBuffer()); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s) }''')
+    open("/tmp/ref-mediarecorder.webm", "wb").write(base64.b64decode(ref))
     br.close()
 
 probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height", "-of", "json", "/tmp/show-rec.webm"], capture_output=True, text=True)
@@ -98,6 +107,8 @@ if dec.stderr.strip():
     import re
     bad = subprocess.run(["ffmpeg", "-v", "error", "-err_detect", "explode", "-i", "/tmp/show-rec.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr
     print("strict decode:", bad[:300])
+    refdec = subprocess.run(["ffmpeg", "-v", "error", "-i", "/tmp/ref-mediarecorder.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr
+    print("the browser's own recorder, same check:", refdec.strip()[:200] or "no errors")
     vers = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout.splitlines()[0]
     print("ffmpeg:", vers)
     print("audio packets:", len(pk), "| first:", pk[:3], "| last:", pk[-3:], "| tiny:", small[:5])
