@@ -64,7 +64,12 @@ async function goLive() {
   if (!lp) return;
   const { out } = engine();
   track = new LocalAudioTrack(out.stream.getAudioTracks()[0], undefined, false);
-  await lp.publishTrack(track, { name: SHOW_MUSIC, source: Track.Source.Unknown, forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: 160_000 } });
+  try {
+    await lp.publishTrack(track, { name: SHOW_MUSIC, source: Track.Source.Unknown, forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: 160_000 } });
+  } catch (e: any) {
+    track = null;
+    throw new Error(/permission/i.test(e?.message || "") ? "Playing music into the call needs permission to talk and use video in this channel." : "Couldn't play into the call: " + (e?.message || e));
+  }
   useShowMusic.setState({ live: true });
   // duck: dip ducking files to a quarter while anyone talks
   duckTimer = window.setInterval(() => {
@@ -135,7 +140,13 @@ export async function playMusic(id: string) {
     patch(id, { playing: false, pos: 0 });
   };
   patch(id, { playing: true });
-  await goLive();
+  try {
+    await goLive();
+  } catch (e) {
+    stopVoice(id);
+    patch(id, { playing: false });
+    throw e;
+  }
 }
 
 function stopVoice(id: string) {

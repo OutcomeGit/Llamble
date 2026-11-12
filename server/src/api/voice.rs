@@ -24,7 +24,9 @@ async fn mint_livekit_token(state: &Shared, room: &str, identity: &str, name: &s
             "canSubscribe": true,
             "canPublish": !sources.is_empty(),
             "canPublishData": true,
-            "canPublishSources": sources,
+            // allowed everything (talk + video): no list, which also lets through tracks of
+            // no particular kind, like a show's music player; otherwise only what's allowed
+            "canPublishSources": if sources.len() >= 4 { &[][..] } else { sources },
         }
     });
     jsonwebtoken::encode(
