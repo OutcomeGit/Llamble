@@ -177,12 +177,13 @@ unsafe impl Sync for Gpu {}
 unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with_audio: bool) -> Result<(Writer, bool)> {
     let mut picks: Vec<(GUID, &'static str)> = vec![];
     if o.codec == "auto" || o.codec == "av1" {
+        // (o.codec "cpu": H.264 on the processor, the fallback when the graphics card refuses)
         picks.push((MFVideoFormat_AV1, "AV1"));
     }
     picks.push((MFVideoFormat_H264, "H.264"));
     let mut last = HRESULT(0x8000_4005u32 as i32).into();
     for (sub, name) in picks {
-        let gpu = gpu_encoder(sub);
+        let gpu = o.codec != "cpu" && gpu_encoder(sub);
         if !gpu && sub == MFVideoFormat_AV1 {
             continue; // AV1 on the processor is far too slow to record with
         }

@@ -117,7 +117,7 @@ function nativeRecStart(o) {
   const bpp = Math.max(0.03, Math.min(1, Number(o.bpp) || 0.2)); // bits per pixel per frame
   return (async () => {
     await fsp.mkdir(recDir(), { recursive: true });
-    const args = ["record", file, "--fps", String(fps), "--bpp", String(bpp), "--codec", o.codec === "h264" ? "h264" : "auto"];
+    const args = ["record", file, "--fps", String(fps), "--bpp", String(bpp), "--codec", o.codec === "h264" || o.codec === "cpu" ? o.codec : "auto"];
     const win32 = /^window:(\d+):/.exec(String(o.sourceId || ""));
     if (win32) {
       args.push("--window", win32[1]);
@@ -153,6 +153,9 @@ function nativeRecStart(o) {
     return await new Promise((resolve) => {
       let buf = "";
       let started = false;
+      let gpuStarted = false;
+      let recorded = 0;
+      let fellBack = false;
       p.stdout.setEncoding("utf8");
       p.stdout.on("data", (d) => {
         buf += d;
@@ -163,10 +166,21 @@ function nativeRecStart(o) {
           const [kind, ...rest] = line.split(" ");
           if (kind === "started") {
             started = true;
+            gpuStarted = rest[1] === "gpu";
             const [codec, where, w, h, rate] = rest;
             resolve({ id, codec, gpu: where === "gpu", width: Number(w), height: Number(h), bitrate: Number(rate) || 0, sound: what });
-          } else if (kind === "stat") send("native-rec-stat", { id, fps: Number(rest[0]), dropped: Number(rest[1]), bytes: Number(rest[2]) });
-          else if (kind === "warn") console.warn("[llamble] recorder:", rest.join(" "));
+          } else if (kind === "stat") {
+            recorded += Number(rest[0]) || 0;
+            send("native-rec-stat", { id, fps: Number(rest[0]), dropped: Number(rest[1]), bytes: Number(rest[2]) });
+          } else if (kind === "warn") {
+            console.warn("[llamble] recorder:", rest.join(" "));
+            // the graphics card's encoder refuses the frames: start again on the processor
+            if (gpuStarted && recorded === 0 && !o.retried && /encode:/.test(line)) {
+              o.retried = true;
+              fellBack = true;
+              try { p.kill(); } catch {}
+            }
+          }
           else if (kind === "error") {
             const why = rest.join(" ");
             console.warn("[llamble] recorder:", why);
@@ -178,6 +192,13 @@ function nativeRecStart(o) {
       p.stderr.on("data", (d) => console.warn("[llamble] recorder:", String(d).trim()));
       p.on("exit", async (code) => {
         if (nativeRec && nativeRec.p === p) nativeRec = null;
+        if (fellBack) {
+          console.warn("[llamble] recorder: the graphics card's encoder refused; recording on the processor instead");
+          const again = await nativeRecStart({ ...o, codec: "cpu" });
+          send("native-rec-stat", { id, error: "error" in again ? again.error : "Your graphics card's encoder didn't accept the video, so this is recording on the processor (smaller, slower)." });
+          resolveDone();
+          return;
+        }
         try {
           const cur = JSON.parse(await fsp.readFile(recMeta(id), "utf8"));
           await fsp.writeFile(recMeta(id), JSON.stringify({ ...cur, ended_at: Date.now() }));
