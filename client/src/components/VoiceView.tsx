@@ -38,6 +38,7 @@ import { SoundboardPanel, SoundboardTicker } from "./Soundboard";
 import { CameraFxPicker } from "./CameraFx";
 import { DirectorPanel, ShowBanner, StartShow } from "./Show";
 import { showQuality, useShows } from "../show";
+import { saveReplay, useReplay } from "../replay";
 import { canRecordNatively, pickRecording, startRecording, stopRecording, useNativeRec, type RecQuality } from "../nativerec";
 import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
@@ -276,6 +277,7 @@ export function VoiceView({ channel }: { channel: Channel }) {
         )}
         <StreamGameButton />
         <RecordButton />
+        <ReplayButton />
         <OverlayButton />
         <button
           className={
@@ -631,6 +633,19 @@ export function ScreenPicker({ onClose, mode = "share" }: { onClose: () => void;
         </button>
       </div>
     </div>
+  );
+}
+
+/** Save the instant replay (when it's on): the last stretch of your game, as a clip. */
+function ReplayButton() {
+  const running = useReplay((r) => !!r.running);
+  const saving = useReplay((r) => r.saving);
+  const keep = useReplay((r) => r.prefs.keep);
+  if (!running) return null;
+  return (
+    <button className="call-btn" disabled={saving} title={`Save the last ${keep >= 60 ? keep / 60 + " min" : keep + " s"} as a clip (Alt+F10)`} onClick={() => saveReplay()}>
+      ⏪
+    </button>
   );
 }
 

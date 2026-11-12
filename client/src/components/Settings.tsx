@@ -1,3 +1,5 @@
+import { canReplay, setReplayPrefs, useReplay, type ReplayPrefs } from "../replay";
+import type { RecQuality } from "../nativerec";
 import { GamesSettings } from "./Games";
 import { ScheduleSettings } from "./Alarms";
 import { MicSoundPanel } from "./MicSoundPanel";
@@ -518,7 +520,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "ai", label: "Lend My GPU", hidden: !window.llambleNative },
         { id: "notifications", label: "Notifications" },
         { id: "schedule", label: "Schedule & alarms" },
-        { id: "overlay", label: "Overlay" },
+        { id: "overlay", label: "Overlay & replay" },
         { id: "games", label: "Games", hidden: !window.llambleNative?.games },
         { id: "performance", label: "Performance", hidden: !window.llambleNative?.metrics },
         { id: "recordings", label: "Recordings" },
@@ -2080,6 +2082,65 @@ function RemoteAccess() {
   );
 }
 
+/** Instant replay (Windows app). */
+function ReplaySettings() {
+  const r = useReplay();
+  if (!canReplay()) return null;
+  const p = r.prefs;
+  return (
+    <div className="settings-block">
+      <h3>Instant replay</h3>
+      <label className="check">
+        <input type="checkbox" checked={p.on} onChange={(e) => setReplayPrefs({ on: e.target.checked })} /> Keep the last stretch of my game, so I can save it after something happens
+      </label>
+      <p className="muted small">
+        Recorded on your graphics card and held in memory — nothing is saved or sent anywhere until you press <b>Alt+F10</b> (or ⏪ in a call or the overlay). Follows the game you're playing; without one, it keeps your main screen.
+      </p>
+      {p.on && (
+        <div className="row gap" style={{ flexWrap: "wrap" }}>
+          <label>
+            Keep
+            <select value={p.keep} onChange={(e) => setReplayPrefs({ keep: Number(e.target.value) as ReplayPrefs["keep"] })}>
+              <option value={30}>30 seconds</option>
+              <option value={60}>1 minute</option>
+              <option value={120}>2 minutes</option>
+              <option value={300}>5 minutes</option>
+            </select>
+          </label>
+          <label>
+            Smoothness
+            <select value={p.fps} onChange={(e) => setReplayPrefs({ fps: Number(e.target.value) as 30 | 60 })}>
+              <option value={60}>60 fps</option>
+              <option value={30}>30 fps</option>
+            </select>
+          </label>
+          <label>
+            Quality
+            <select value={p.quality} onChange={(e) => setReplayPrefs({ quality: e.target.value as RecQuality })}>
+              <option value="good">Good</option>
+              <option value="great">Great</option>
+              <option value="max">Max</option>
+            </select>
+          </label>
+          <label>
+            Sound
+            <select value={p.sound} onChange={(e) => setReplayPrefs({ sound: e.target.value as ReplayPrefs["sound"] })}>
+              <option value="app">Just the game</option>
+              <option value="all">Everything on this PC</option>
+              <option value="off">No sound</option>
+            </select>
+          </label>
+        </div>
+      )}
+      {p.on && (
+        <p className="small">
+          {r.running ? `● Keeping ${r.running.target} · ${r.running.width}×${r.running.height} · ${r.running.codec} on the ${r.running.gpu ? "graphics card" : "processor"}` : r.error ? <span className="error-text">{r.error}</span> : "Starting…"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function OverlaySettings() {
   const p = useOverlayPrefs();
   const pop = usePopout((s) => s.win);
@@ -2130,6 +2191,7 @@ function OverlaySettings() {
         <p className="error-text">This browser can't keep a window on top. Use Chrome or Edge, or the Windows app.</p>
       )}
 
+      <ReplaySettings />
       <h3>What to show</h3>
       {widgetRow("voice", "Voice", "People in your voice channel")}
       {p.widgets.voice.on && (

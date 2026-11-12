@@ -4,6 +4,21 @@ contextBridge.exposeInMainWorld("llambleNative", {
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke("screen-sources"),
   setScreenSource: (choice) => ipcRenderer.invoke("set-screen-source", choice),
+  // instant replay (Windows): keeps the last seconds of your game; Alt+F10 saves
+  replay: {
+    set: (o) => ipcRenderer.invoke("replay-set", o),
+    save: (secs) => ipcRenderer.invoke("replay-save", secs),
+    on: (cb) => {
+      const s = (_e, v) => cb("state", v);
+      const d = (_e, v) => cb("saved", v);
+      ipcRenderer.on("replay-state", s);
+      ipcRenderer.on("replay-saved", d);
+      return () => {
+        ipcRenderer.removeListener("replay-state", s);
+        ipcRenderer.removeListener("replay-saved", d);
+      };
+    },
+  },
   // native recording (Windows): the helper records a window/screen on the graphics card to MP4
   nativeRec: {
     start: (o) => ipcRenderer.invoke("native-rec-start", o),

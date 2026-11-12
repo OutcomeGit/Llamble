@@ -106,6 +106,41 @@ ipcMain.handle("rec-folder", () => recDir());
 // (Windows Graphics Capture → the card's own encoder → MP4, like dedicated recording apps).
 // It writes into Videos\Llamble next to the show recordings; the Library lists both.
 let nativeRec = null; // { p, id, file, done }
+
+/** Helper arguments for capturing `sourceId` ("window:<hwnd>:…" or a screen; "" = main screen) with `sound`. */
+async function captureArgs(sourceId, sound) {
+  const args = [];
+  const win32 = /^window:(\d+):/.exec(String(sourceId || ""));
+  if (win32) {
+    args.push("--window", win32[1]);
+  } else {
+    // a whole screen: find it by a point in its middle, in real pixels
+    const { screen } = require("electron"); // only usable once the app is ready
+    let disp = screen.getPrimaryDisplay();
+    if (sourceId) {
+      const srcs = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
+      const src = findSource(srcs, sourceId);
+      disp = screen.getAllDisplays().find((d) => String(d.id) === String(src && src.display_id)) || disp;
+    }
+    const pt = screen.dipToScreenPoint({ x: Math.round(disp.bounds.x + disp.bounds.width / 2), y: Math.round(disp.bounds.y + disp.bounds.height / 2) });
+    args.push("--point", `${Math.round(pt.x)},${Math.round(pt.y)}`);
+  }
+  let what = "none";
+  if (sound === "all") {
+    args.push("--audio", "except", String(process.pid));
+    what = "all-but-llamble";
+  } else if (sound !== "off") {
+    if (win32) {
+      args.push("--audio", "window", win32[1]);
+      what = "app";
+    } else {
+      const game = (require("./games.cjs").current() || []).find((g) => g.pid);
+      args.push("--audio", game ? "app" : "except", String(game ? game.pid : process.pid));
+      what = game ? "game:" + game.name : "all-but-llamble";
+    }
+  }
+  return { args, what };
+}
 function nativeRecStart(o) {
   if (nativeRec) return Promise.resolve({ error: "already recording" });
   if (process.platform !== "win32") return Promise.resolve({ error: "only in the Windows app" });
@@ -118,32 +153,9 @@ function nativeRecStart(o) {
   return (async () => {
     await fsp.mkdir(recDir(), { recursive: true });
     const args = ["record", file, "--fps", String(fps), "--bpp", String(bpp), "--codec", o.codec === "h264" || o.codec === "cpu" ? o.codec : "auto"];
-    const win32 = /^window:(\d+):/.exec(String(o.sourceId || ""));
-    if (win32) {
-      args.push("--window", win32[1]);
-    } else {
-      // a whole screen: find it by a point in its middle, in real pixels
-      const { screen } = require("electron"); // only usable once the app is ready
-      const srcs = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
-      const src = findSource(srcs, o.sourceId) || srcs[0];
-      const disp = screen.getAllDisplays().find((d) => String(d.id) === String(src && src.display_id)) || screen.getPrimaryDisplay();
-      const pt = screen.dipToScreenPoint({ x: Math.round(disp.bounds.x + disp.bounds.width / 2), y: Math.round(disp.bounds.y + disp.bounds.height / 2) });
-      args.push("--point", `${Math.round(pt.x)},${Math.round(pt.y)}`);
-    }
-    let what = "none";
-    if (o.sound === "all") {
-      args.push("--audio", "except", String(process.pid));
-      what = "all-but-llamble";
-    } else if (o.sound !== "off") {
-      if (win32) {
-        args.push("--audio", "window", win32[1]);
-        what = "app";
-      } else {
-        const game = (require("./games.cjs").current() || []).find((g) => g.pid);
-        args.push("--audio", game ? "app" : "except", String(game ? game.pid : process.pid));
-        what = game ? "game:" + game.name : "all-but-llamble";
-      }
-    }
+    const cap = await captureArgs(o.sourceId, o.sound);
+    args.push(...cap.args);
+    const what = cap.what;
     const started_at = Date.now();
     await fsp.writeFile(recMeta(id), JSON.stringify({ id, title: o.title || "", channel_id: "", started_at, kind: "clip", mime: "video/mp4", sound: what }));
     const p = require("child_process").spawn(exe, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -222,6 +234,105 @@ async function nativeRecStop() {
 }
 ipcMain.handle("native-rec-start", (_e, o) => nativeRecStart(o || {}));
 ipcMain.handle("native-rec-stop", () => nativeRecStop());
+// ---- instant replay: the helper keeps the last N seconds of your game (or main screen) in
+// memory, encoded on the graphics card; Alt+F10 (or the buttons) saves it as a clip. Off unless
+// turned on in Settings. Follows the game: when one starts or quits, it switches to it. ----
+let replay = null; // { p, target, started, info, saves: Map }
+let replayOpts = null; // { keep, sound, fps, bpp } while it's on
+let replayTimer = null;
+function replayTarget() {
+  const g = (require("./games.cjs").current() || []).find((x) => x.sourceId);
+  return g ? { sourceId: g.sourceId, name: g.name } : { sourceId: "", name: "" };
+}
+function replaySend(v) {
+  if (win && !win.isDestroyed()) win.webContents.send("replay-state", v);
+}
+function replayStop() {
+  const r = replay;
+  replay = null;
+  if (!r) return;
+  try { r.p.stdin.write("stop\n"); } catch {}
+  setTimeout(() => { try { r.p.kill(); } catch {} }, 3000);
+}
+async function replayStart() {
+  replayStop();
+  if (!replayOpts || process.platform !== "win32") return;
+  const exe = require("./helper.cjs").exePath();
+  if (!exe) return replaySend({ on: false, error: "the recorder helper is missing" });
+  const target = replayTarget();
+  const cap = await captureArgs(target.sourceId, replayOpts.sound);
+  const args = ["replay", ...cap.args, "--keep", String(replayOpts.keep), "--fps", String(replayOpts.fps), "--bpp", String(replayOpts.bpp)];
+  const p = require("child_process").spawn(exe, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  const r = { p, target, info: null, saves: [] };
+  replay = r;
+  let buf = "";
+  p.stdout.setEncoding("utf8");
+  p.stdout.on("data", (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      const [kind, ...rest] = line.split(" ");
+      if (kind === "started") {
+        r.info = { codec: rest[0], gpu: rest[1] === "gpu", width: Number(rest[2]), height: Number(rest[3]) };
+        replaySend({ on: true, ...r.info, target: target.name || "your screen", sound: cap.what });
+      } else if (kind === "saved" || (kind === "error" && r.saves.length)) {
+        const next = r.saves.shift();
+        if (next) next(kind === "saved" ? { secs: Number(rest[0]) } : { error: rest.join(" ") });
+      } else if (kind === "error") {
+        console.warn("[llamble] replay:", line);
+        replaySend({ on: false, error: rest.join(" ") });
+      } else if (kind === "warn") console.warn("[llamble] replay:", line);
+    }
+  });
+  p.stderr.on("data", (d) => console.warn("[llamble] replay:", String(d).trim()));
+  p.on("exit", () => {
+    if (replay === r) {
+      replay = null;
+      // it died on its own: try again in a bit
+      if (replayOpts) setTimeout(() => replayOpts && !replay && replayStart(), 5000);
+    }
+  });
+}
+/** Save the last `secs` seconds. Resolves to the clip's id, or an error. */
+async function replaySave(secs) {
+  const r = replay;
+  if (!r || !r.info) return { error: replayOpts ? "Replay is still starting" : "Instant replay is off (Settings → Overlay & replay)" };
+  await fsp.mkdir(recDir(), { recursive: true });
+  const id = "replay-" + Date.now().toString(36);
+  const file = path.join(recDir(), id + ".mp4");
+  const res = await new Promise((resolve) => {
+    r.saves.push(resolve);
+    try { r.p.stdin.write(`save ${file} ${Math.round(secs || replayOpts.keep)}\n`); } catch { resolve({ error: "replay stopped" }); }
+    setTimeout(() => resolve({ error: "saving took too long" }), 20000);
+  });
+  if (res.error) return res;
+  const now = Date.now();
+  const title = (r.target.name ? r.target.name + " — " : "") + "replay";
+  await fsp.writeFile(recMeta(id), JSON.stringify({ id, title, channel_id: "", started_at: now - res.secs * 1000, ended_at: now, kind: "clip", mime: "video/mp4" }));
+  if (win && !win.isDestroyed()) win.webContents.send("replay-saved", { id, secs: res.secs, title });
+  return { id, secs: res.secs };
+}
+function replaySet(o) {
+  replayOpts = o && o.on ? { keep: Math.max(10, Math.min(300, Number(o.keep) || 60)), sound: o.sound === "all" || o.sound === "off" ? o.sound : "app", fps: o.fps === 30 ? 30 : 60, bpp: Math.max(0.03, Math.min(1, Number(o.bpp) || 0.2)) } : null;
+  try { globalShortcut.unregister("Alt+F10"); } catch {}
+  clearInterval(replayTimer);
+  if (!replayOpts) {
+    replayStop();
+    replaySend({ on: false });
+    return;
+  }
+  globalShortcut.register("Alt+F10", () => replaySave(replayOpts && replayOpts.keep));
+  replayStart();
+  // follow the game: switch when one starts or quits
+  replayTimer = setInterval(() => {
+    if (replay && replayTarget().sourceId !== replay.target.sourceId) replayStart();
+  }, 10000);
+}
+ipcMain.handle("replay-set", (_e, o) => replaySet(o));
+ipcMain.handle("replay-save", (_e, secs) => replaySave(secs));
+
 
 // play a recording in the app (with seeking: Range requests)
 async function serveRecording(req, u) {
@@ -581,7 +692,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStopAll(); nativeRecStop(); require("./helper.cjs").stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStopAll(); nativeRecStop(); replayOpts = null; replayStop(); require("./helper.cjs").stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 

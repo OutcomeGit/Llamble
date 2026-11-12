@@ -1,3 +1,4 @@
+import { initReplay } from "./replay";
 import { useEffect, useState } from "react";
 import { EmailResetLanding } from "./components/Recovery";
 import { api, session, setSession } from "./api";
@@ -72,6 +73,7 @@ export default function App() {
   useEffect(() => {
     const n = window.llambleNative;
     if (!n) return;
+    initReplay();
     const a = n.onHotkey((k) => (k === "mute" ? toggleMute() : k === "deafen" ? toggleDeafen() : null));
     const b = n.onInvite((code) => openModal({ kind: "joinInvite", code }));
     return () => {

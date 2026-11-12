@@ -1275,3 +1275,4 @@ body.pop-body > .pop { height: 100vh; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #f23f43; animation: rec-blink 1.2s infinite; flex-shrink: 0; }
 @keyframes rec-blink { 50% { opacity: 0.35; } }
 .rec-err { color: #f23f43; }
+.ov-replay { color: #b5bac1; font-size: 11px; margin: 0 0 4px; }

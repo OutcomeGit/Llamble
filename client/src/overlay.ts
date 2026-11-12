@@ -10,6 +10,7 @@ import { currentChannelId, memberName, useStore } from "./store";
 import { useVoice } from "./voice";
 import { useRecorder } from "./show";
 import { useNativeRec } from "./nativerec";
+import { useReplay } from "./replay";
 
 function recLine(): string | undefined {
   const n = useNativeRec.getState();
@@ -131,6 +132,8 @@ export interface OverlaySnapshot {
   now: number;
   /** while this app records a show: "AV1 · graphics card · 58/60 fps" */
   rec?: string;
+  /** instant replay is keeping your game: how long */
+  replay?: string;
 }
 
 const alerts: OverlayLine[] = [];
@@ -204,6 +207,7 @@ export function buildSnapshot(): OverlaySnapshot {
     alerts: alerts.slice(),
     now: Date.now(),
     rec: recLine(),
+    replay: useReplay.getState().running ? (useReplay.getState().prefs.keep >= 60 ? useReplay.getState().prefs.keep / 60 + " min" : useReplay.getState().prefs.keep + " s") : undefined,
   };
 }
 
@@ -255,6 +259,7 @@ export function startOverlayFeed() {
   useVoice.subscribe(bumpSnapshot);
   useRecorder.subscribe(bumpSnapshot);
   useNativeRec.subscribe(bumpSnapshot);
+  useReplay.subscribe(bumpSnapshot);
   useOverlayPrefs.subscribe(bumpSnapshot);
   // fades are time based: refresh now and then even when nothing changes
   setInterval(() => listeners.size && bumpSnapshot(), 2000);
