@@ -25,6 +25,7 @@ import {
   leaveVoice,
   participants,
   startScreenShare,
+  type ShareSound,
   stopScreenShare,
   toggleCamera,
   toggleDeafen,
@@ -475,7 +476,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   > | null>(null);
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [picked, setPicked] = useState<string | null>(null);
-  const [audio, setAudio] = useState(true);
+  const [audio, setAudio] = useState<ShareSound>(() => (localStorage.getItem("llamble.shareSound") as ShareSound) || "app");
   // starts at your default (Settings → Voice & Video); changing it here is just for this share
   const [quality, setQuality] = useState<ShareQuality>(defaultShareQuality());
   useStore((s) => s.config.media); // re-check the server's limits when they change
@@ -499,7 +500,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
       if (match) {
         setTab("window");
         setPicked(match.id);
-        setAudio(true);
+        if (audio === "off") setAudio("app");
       } else {
         setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
       }
@@ -509,6 +510,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const go = async () => {
     if (!picked) return;
     onClose();
+    localStorage.setItem("llamble.shareSound", audio);
     await startScreenShare(picked, audio, quality);
   };
 
@@ -569,17 +571,21 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={audio}
-            onChange={(e) => setAudio(e.target.checked)}
-          />{" "}
-          {picked?.startsWith("window:") ? "Share this app's sound" : "Share sound"}
+        <label>
+          Sound
+          <select value={audio} onChange={(e) => setAudio(e.target.value as ShareSound)}>
+            <option value="app">{picked?.startsWith("window:") ? "Just this app" : "Just the game"}</option>
+            <option value="all">Everything playing on this PC</option>
+            <option value="off">No sound</option>
+          </select>
         </label>
-        {audio && (
+        {audio !== "off" && (
           <span className="muted small" style={{ maxWidth: 260 }}>
-            {picked?.startsWith("window:") ? "Only that app — not your other calls, music or notifications." : "The game you're playing if there is one, otherwise everything except Llamble."}
+            {audio === "all"
+              ? "All your PC's sound (other call apps and music too), except Llamble's own."
+              : picked?.startsWith("window:")
+                ? "Only that app — not your other calls, music or notifications."
+                : "The game you're playing; if none is open, everything except Llamble."}
           </span>
         )}
         <div className="grow" />

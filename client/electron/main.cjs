@@ -163,14 +163,18 @@ function appAudioStop() {
   try { p.stdin.end(); } catch {}
   setTimeout(() => { try { p.kill(); } catch {} }, 500);
 }
-function appAudioStart(sourceId) {
+function appAudioStart(sourceId, mode) {
   appAudioStop();
   if (process.platform !== "win32") return Promise.resolve(null);
   const exe = require("./helper.cjs").exePath();
   if (!exe) return Promise.resolve(null);
   const m = /^window:(\d+):/.exec(String(sourceId || ""));
   let args, what;
-  if (m) {
+  if (mode === "all") {
+    // everything playing on the PC — minus Llamble itself, so the call never echoes back
+    args = ["audio", "except", String(process.pid)];
+    what = "all-but-llamble";
+  } else if (m) {
     args = ["audio", "window", m[1]];
     what = "app";
   } else {
@@ -203,7 +207,7 @@ function appAudioStart(sourceId) {
     setTimeout(() => finish(null), 4000);
   }).then((v) => { if (!v && appAudio === p) appAudioStop(); return v; });
 }
-ipcMain.handle("app-audio-start", (_e, sourceId) => appAudioStart(sourceId));
+ipcMain.handle("app-audio-start", (_e, sourceId, mode) => appAudioStart(sourceId, mode));
 ipcMain.handle("app-audio-stop", () => appAudioStop());
 
 ipcMain.handle("ptt-stop", () => pttStop());

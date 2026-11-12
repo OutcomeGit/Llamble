@@ -704,12 +704,17 @@ function sharePreset(q: ShareQuality): { width: number; height: number; fps: num
   return { width, height, fps, bitrate: rate[q] };
 }
 
-export async function startScreenShare(sourceId: string, audio: boolean, quality: ShareQuality) {
+/** What sound a screen share carries: none, just the shared app (or the game), or everything on the PC. */
+export type ShareSound = "off" | "app" | "all";
+
+export async function startScreenShare(sourceId: string, sound: boolean | ShareSound, quality: ShareQuality) {
+  const mode: ShareSound = sound === true ? "app" : sound === false ? "off" : sound;
+  const audio = mode !== "off";
   if (!room) return;
   while (!shareAllowed(quality) && SHARE_ORDER.indexOf(quality) > 0) quality = SHARE_ORDER[SHARE_ORDER.indexOf(quality) - 1];
   if (isAndroidApp) return startPhoneShare(quality);
   // Windows: take just the shared program's sound (or the game's) instead of the whole PC's
-  const app = audio ? await startAppAudio(sourceId) : null;
+  const app = audio ? await startAppAudio(sourceId, mode === "all" ? "all" : "app") : null;
   await window.llambleNative?.setScreenSource({ id: sourceId, audio: audio && !app });
   const p = sharePreset(quality);
   // People with smaller screens or slower connections get a lighter copy: VP9 sends
@@ -765,12 +770,12 @@ export async function startScreenShare(sourceId: string, audio: boolean, quality
 
 /** The shared program's sound, fed from llamble-helper.exe through the page's audio engine. */
 let appSound: { track: MediaStreamTrack; what: string; stop: () => void } | null = null;
-async function startAppAudio(sourceId: string): Promise<typeof appSound> {
+async function startAppAudio(sourceId: string, mode: "app" | "all"): Promise<typeof appSound> {
   const native = window.llambleNative?.appAudio;
   if (!native) return null;
   appSound?.stop();
   appSound = null;
-  const what = await native.start(sourceId).catch(() => null);
+  const what = await native.start(sourceId, mode).catch(() => null);
   if (!what) return null; // older Windows: fall back to the whole PC's sound
   try {
     const ctx = new AudioContext({ sampleRate: 48000 });
