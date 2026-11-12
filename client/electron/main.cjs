@@ -155,16 +155,19 @@ ipcMain.handle("ptt-start", (_e, vk) => pttStart(Number(vk)));
 // Windows 10 2004+ can capture one program's sound. Sharing a window → that program only.
 // Sharing a whole screen → the game you're playing if one is running, else everything
 // except Llamble itself. Other call apps, music and notifications stay out.
-let appAudio = null;
-function appAudioStop() {
-  if (!appAudio) return;
-  const p = appAudio;
-  appAudio = null;
+// Several can run at once, by name: "share" (the screen share's sound), "rec" (a show
+// recording taking in the whole PC's sound).
+const appAudio = new Map();
+function appAudioStop(key = "share") {
+  const p = appAudio.get(key);
+  if (!p) return;
+  appAudio.delete(key);
   try { p.stdin.end(); } catch {}
   setTimeout(() => { try { p.kill(); } catch {} }, 500);
 }
-function appAudioStart(sourceId, mode) {
-  appAudioStop();
+function appAudioStopAll() { for (const k of [...appAudio.keys()]) appAudioStop(k); }
+function appAudioStart(key, sourceId, mode) {
+  appAudioStop(key);
   if (process.platform !== "win32") return Promise.resolve(null);
   const exe = require("./helper.cjs").exePath();
   if (!exe) return Promise.resolve(null);
@@ -183,16 +186,16 @@ function appAudioStart(sourceId, mode) {
     what = game ? "game:" + game.name : "all-but-llamble";
   }
   const p = require("child_process").spawn(exe, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-  appAudio = p;
+  appAudio.set(key, p);
   let rest = Buffer.alloc(0);
   p.stdout.on("data", (d) => {
     // whole stereo float frames only (8 bytes each)
     const all = rest.length ? Buffer.concat([rest, d]) : d;
     const n = all.length - (all.length % 8);
     rest = Buffer.from(all.subarray(n));
-    if (n && win && !win.isDestroyed()) win.webContents.send("app-audio", all.subarray(0, n));
+    if (n && win && !win.isDestroyed()) win.webContents.send("app-audio", key, all.subarray(0, n));
   });
-  p.on("exit", () => { if (appAudio === p) appAudio = null; });
+  p.on("exit", () => { if (appAudio.get(key) === p) appAudio.delete(key); });
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
@@ -205,10 +208,10 @@ function appAudioStart(sourceId, mode) {
     });
     p.on("exit", () => finish(null));
     setTimeout(() => finish(null), 4000);
-  }).then((v) => { if (!v && appAudio === p) appAudioStop(); return v; });
+  }).then((v) => { if (!v && appAudio.get(key) === p) appAudioStop(key); return v; });
 }
-ipcMain.handle("app-audio-start", (_e, sourceId, mode) => appAudioStart(sourceId, mode));
-ipcMain.handle("app-audio-stop", () => appAudioStop());
+ipcMain.handle("app-audio-start", (_e, key, sourceId, mode) => appAudioStart(String(key), sourceId, mode));
+ipcMain.handle("app-audio-stop", (_e, key) => appAudioStop(String(key)));
 
 ipcMain.handle("ptt-stop", () => pttStop());
 
@@ -449,7 +452,7 @@ app.whenReady().then(() => {
 });
 
 app.on("open-url", (e, url) => { e.preventDefault(); handleLink(url); });
-app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStop(); require("./helper.cjs").stop(); });
+app.on("before-quit", () => { quitting = true; llm.stop(); games.stop(); pttStop(); appAudioStopAll(); require("./helper.cjs").stop(); });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 

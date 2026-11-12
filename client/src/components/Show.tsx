@@ -5,6 +5,7 @@ import { memberName, useStore } from "../store";
 import { toast } from "../ui";
 import { canShareScreen, defaultShareQuality, participants, startScreenShare, stopScreenShare, useVoice } from "../voice";
 import { openModal } from "../ui";
+import { MusicPanel, SoundMixer } from "./ShowSound";
 
 /** Pick a screen, window or app to share (same picker as the Share Screen button). */
 async function pickScreen(replace = false) {
@@ -190,7 +191,14 @@ export function ShowBanner({ onDirect }: { onDirect: () => void }) {
         {rec.showId === show.id && (
           <span className="muted small">
             {" "}
-            · {(rec.uploaded / 1e6).toFixed(0)} MB {rec.where === "server" ? "saved to the server" : "saved on this device"}{rec.error ? " · " + rec.error : ""}
+            · {(rec.uploaded / 1e6).toFixed(0)} MB {rec.where === "server" ? "saved to the server" : "saved on this device"}
+            {rec.encoder && (
+              <span title="What's encoding the video, and how many frames a second it's managing">
+                {" "}
+                · {rec.encoder} · {rec.fpsNow !== undefined ? `${rec.fpsNow}/${rec.fps}` : rec.fps} fps
+              </span>
+            )}
+            {rec.error ? " · " + rec.error : ""}
             {soundWarn && <b className="rec-sound-warn"> · 🔇 Tap anywhere to turn on sound in the recording</b>}
           </span>
         )}
@@ -412,6 +420,10 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
           </button>
         ))}
       </div>
+      <div className="camfx-title">Sound in the recording</div>
+      <SoundMixer show={show} />
+      <div className="camfx-title">Music & sounds</div>
+      <MusicPanel />
       <div className="camfx-title">Lower third</div>
       <div className="row gap">
         <input placeholder="Name / headline" value={lt.text} onChange={(e) => setLt({ ...lt, text: e.target.value })} />

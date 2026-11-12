@@ -18,6 +18,24 @@ import { closeMenu, closeModal, openModal, useUI } from "./ui";
 
 // handle for automated tests and troubleshooting from the dev console
 (window as any).llambleDebug = { joinVoice, leaveVoice, getRoom, voice: () => useVoice.getState(), useVoice, toggleCamera, setWatching, recorder: () => useRecorder.getState(), localrec, startPhoneCapture, openLibrary, micSound, setMicSound, PRESETS, openHome, openGuildView,
+  // tests: the show's music player (file handed over as base64)
+  showMusic: async (b64: string, name: string) => {
+    const m = await import("./showmusic");
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    await m.addMusic([new File([bytes], name)]);
+    const it = m.useShowMusic.getState().items.at(-1)!;
+    m.setMusic(it.id, { loop: true });
+    await m.playMusic(it.id);
+    return m.useShowMusic.getState();
+  },
+  // tests: a recording kept in this browser, as base64
+  recordingB64: async (id: string) => {
+    const url = await localrec.playUrl(id);
+    const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    return btoa(bin);
+  },
   // tests: open "Share to…" for a message
   openShare: async (cid: string, mid: string) => {
     const msgs = await api<any[]>(`/api/channels/${cid}/messages?limit=20`);

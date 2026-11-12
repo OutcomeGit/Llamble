@@ -5,6 +5,10 @@
 //    so a crash keeps everything; nothing reaches the server until they share it
 //  - or, if the show was set to save to the server (an instance option, off by default),
 //    streamed up to the server a few seconds at a time instead.
+import { CanvasRecorder } from "./webmrec";
+import { startNativeSound, type NativeSound } from "./appsound";
+import { builtinUrl } from "./soundboard";
+import { media } from "./api";
 import { create } from "zustand";
 import { Track, type Participant } from "livekit-client";
 import { api, session } from "./api";
@@ -29,6 +33,47 @@ export interface ShowState {
   title?: string | null;
   lower_third?: { text: string; sub?: string } | null;
   card?: string | null;
+  /** the director's sound mix for the recording: source key → on/off and volume (0–2) */
+  mix?: Record<string, MixEntry>;
+}
+
+export interface MixEntry {
+  on?: boolean;
+  vol?: number;
+}
+
+/** Name of the audio track the director's music player sends into the call. */
+export const SHOW_MUSIC = "show-music";
+
+/** How loud one sound source goes into the recording (0 when it's off). The whole-PC sound starts off. */
+export function mixGain(st: ShowState | undefined, key: string): number {
+  const m = st?.mix?.[key];
+  const on = m?.on ?? (key !== "pc");
+  return on ? Math.max(0, Math.min(2, m?.vol ?? 1)) : 0;
+}
+
+export interface MixSource {
+  key: string; // "mic:<uid>", "screen:<uid>", "music:<uid>", "soundboard", "pc", "master"
+  uid?: string;
+  kind: "mic" | "screen" | "music" | "soundboard" | "pc" | "master";
+  track: MediaStreamTrack | null;
+}
+
+/** Every sound a show can take in right now: voices and shared-app sound of the people who said yes, music, soundboard, PC sound. */
+export function mixSources(s: Show): MixSource[] {
+  const out: MixSource[] = [];
+  const ps = participants();
+  for (const person of s.people) {
+    const p = ps.find((x) => x.identity === person.user_id);
+    if (person.consent?.voice) out.push({ key: "mic:" + person.user_id, uid: person.user_id, kind: "mic", track: p ? trackOf(p, Track.Source.Microphone) : null });
+    if (person.consent?.screen) out.push({ key: "screen:" + person.user_id, uid: person.user_id, kind: "screen", track: p ? trackOf(p, Track.Source.ScreenShareAudio) : null });
+  }
+  for (const p of ps) {
+    const pub = [...p.trackPublications.values()].find((x) => x.trackName === SHOW_MUSIC && x.track && !x.isMuted);
+    if (pub && s.people.some((x) => x.user_id === p.identity)) out.push({ key: "music:" + p.identity, uid: p.identity, kind: "music", track: pub.track!.mediaStreamTrack });
+  }
+  out.push({ key: "soundboard", kind: "soundboard", track: null }, { key: "pc", kind: "pc", track: null });
+  return out;
 }
 export interface Show {
   id: string;
@@ -412,23 +457,7 @@ function name(uid: string) {
 
 // ---------------------------------------------------------------- recorder
 
-/**
- * The recording's video encoder. H.264 runs on nearly any graphics card (NVIDIA NVENC,
- * AMD, Intel); VP9 only on the CPU, which can't keep up at 1440p (about 10 fps).
- */
-async function recordingEncoder(w: number, h: number): Promise<{ mime: string; hardware: boolean }> {
-  const h264 = ["video/webm;codecs=h264,opus", "video/webm;codecs=avc1,opus", "video/x-matroska;codecs=avc1,opus"].find((m) => MediaRecorder.isTypeSupported(m));
-  if (h264 && typeof VideoEncoder !== "undefined") {
-    try {
-      const r = await VideoEncoder.isConfigSupported({ codec: "avc1.640034", width: w, height: h, framerate: 60, hardwareAcceleration: "prefer-hardware" } as VideoEncoderConfig);
-      if (r.supported) return { mime: h264, hardware: true };
-    } catch {}
-  }
-  const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "video/webm";
-  return { mime, hardware: false };
-}
-
-export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean; where?: "device" | "server"; encoder?: string; fps?: number }>(() => ({
+export const useRecorder = create<{ showId: string | null; uploaded: number; pending: number; error: string | null; soundBlocked?: boolean; where?: "device" | "server"; encoder?: string; fps?: number; fpsNow?: number }>(() => ({
   showId: null,
   uploaded: 0,
   pending: 0,
@@ -438,9 +467,17 @@ export const useRecorder = create<{ showId: string | null; uploaded: number; pen
 class Recorder {
   comp: Compositor;
   private rec: MediaRecorder | null = null;
-  private audio = new AudioContext();
+  private audio = new AudioContext({ sampleRate: 48000 });
+  private cr: CanvasRecorder | null = null;
   private dest = this.audio.createMediaStreamDestination();
-  private mixed = new Map<string, MediaStreamAudioSourceNode>();
+  private mixed = new Map<string, { node: MediaStreamAudioSourceNode; gain: GainNode; track: MediaStreamTrack }>();
+  private bus = this.audio.createGain();
+  private sbGain = this.audio.createGain();
+  private sbCache = new Map<string, Promise<AudioBuffer>>();
+  private offSoundboard: () => void = () => {};
+  private pc: NativeSound | null = null;
+  private pcGain: GainNode | null = null;
+  private pcStarting = false;
   private timer = 0;
   private seq = 0;
   private queue: Blob[] = [];
@@ -467,6 +504,32 @@ class Recorder {
         })
         .catch((e) => useRecorder.setState({ error: "Couldn't save on this device: " + (e?.message || e) }));
     }
+    this.bus.connect(this.dest);
+    this.sbGain.connect(this.bus);
+    // soundboard clips played in the show's call go into the recording too
+    this.offSoundboard = onEvent((t, d) => {
+      if (t !== "SOUNDBOARD_PLAY" || this.stopped) return;
+      const sh = this.show();
+      if (!sh || d.channel_id !== sh.channel_id) return;
+      const url = d.sound.builtin ? builtinUrl(d.sound.builtin) : media(`/api/files/${d.sound.file_id}`);
+      let buf = this.sbCache.get(url);
+      if (!buf) {
+        buf = fetch(url)
+          .then((r) => r.arrayBuffer())
+          .then((a) => this.audio.decodeAudioData(a));
+        this.sbCache.set(url, buf);
+      }
+      buf
+        .then((b) => {
+          const src = this.audio.createBufferSource();
+          const g = this.audio.createGain();
+          g.gain.value = d.sound.volume ?? 1;
+          src.buffer = b;
+          src.connect(g).connect(this.sbGain);
+          src.start();
+        })
+        .catch(() => this.sbCache.delete(url));
+    });
     const [w, h] = RES[res];
     this.comp = new Compositor(() => Object.values(useShows.getState().live).find((s) => s.id === this.showId), w, h);
     this.start(res, w, h);
@@ -475,46 +538,62 @@ class Recorder {
   /** Pick the encoder, then start recording (the graphics card when it can, at 60 fps). */
   private async start(res: RecRes, w: number, h: number) {
     const [, , baseRate] = RES[res];
-    const enc = await recordingEncoder(w, h);
-    if (this.stopped) return;
-    const fps = enc.hardware ? 60 : 30;
-    const bitrate = Math.round(baseRate * (fps === 60 ? 1.5 : 1));
-    const stream = (this.comp.canvas as any).captureStream(fps) as MediaStream;
-    stream.addTrack(this.dest.stream.getAudioTracks()[0]);
-    console.info(`[llamble] recording ${w}x${h} at ${fps} fps with ${enc.mime} (${enc.hardware ? "graphics card" : "CPU"})`);
-    useRecorder.setState({ encoder: enc.hardware ? "graphics card" : "processor", fps });
-    this.rec = new MediaRecorder(stream, { mimeType: enc.mime, videoBitsPerSecond: bitrate, audioBitsPerSecond: 160_000 });
-    this.rec.ondataavailable = (e) => {
-      if (!e.data.size) return;
-      if (this.toServer) {
-        this.queue.push(e.data);
-        useRecorder.setState({ pending: this.queue.length });
-        this.pump();
-        return;
-      }
-      // onto this device, in order
-      const piece = e.data;
-      this.local = this.local.then(() =>
-        localrec
-          .append(this.showId, piece)
-          .then((size) => {
-            this.localSize = size;
-            useRecorder.setState({ uploaded: size, error: null });
-          })
-          .catch((err) => useRecorder.setState({ error: "Couldn't save on this device: " + (err?.message || err) })),
-      );
-    };
+    const audioTrack = this.dest.stream.getAudioTracks()[0];
     this.unblockSound();
-    this.rec.start(4000);
+    const cr = await CanvasRecorder.start(this.comp.canvas, audioTrack, 60, Math.round(baseRate * 1.5), (b) => this.piece(b), (e) => useRecorder.setState({ error: "Recording trouble: " + e })).catch((e) => {
+      console.warn("[llamble] recorder unavailable", e);
+      return null;
+    });
+    if (this.stopped) {
+      cr?.stop();
+      return;
+    }
+    let fps = 30;
+    if (cr) {
+      this.cr = cr;
+      fps = cr.info!.fps;
+      console.info(`[llamble] recording ${w}x${h} at ${fps} fps with ${cr.info!.codec} on the ${cr.info!.hardware ? "graphics card" : "processor"}`);
+      useRecorder.setState({ encoder: `${cr.info!.codec} · ${cr.info!.hardware ? "graphics card" : "processor"}`, fps });
+    } else {
+      // older engines: the browser's own recorder (VP9/VP8 on the processor)
+      const stream = (this.comp.canvas as any).captureStream(30) as MediaStream;
+      stream.addTrack(audioTrack);
+      const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
+      this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: baseRate, audioBitsPerSecond: 160_000 });
+      this.rec.ondataavailable = (e) => e.data.size && this.piece(e.data);
+      this.rec.start(4000);
+      useRecorder.setState({ encoder: "VP9 · processor", fps });
+    }
     // draw on a timer, not animation frames, so it keeps going while the app is in the background
     this.timer = window.setInterval(
       () => {
         this.comp.draw();
+        this.cr?.frame();
         this.mixAudio();
+        if (this.cr && useRecorder.getState().fpsNow !== this.cr.fpsNow) useRecorder.setState({ fpsNow: this.cr.fpsNow });
       },
       Math.floor(1000 / fps),
     );
     useRecorder.setState({ showId: this.showId, uploaded: 0, pending: 0, error: null, where: this.toServer ? "server" : "device" });
+  }
+
+  /** A finished piece of the video file: onto this device in order, or up to the server. */
+  private piece(data: Blob) {
+    if (this.toServer) {
+      this.queue.push(data);
+      useRecorder.setState({ pending: this.queue.length });
+      this.pump();
+      return;
+    }
+    this.local = this.local.then(() =>
+      localrec
+        .append(this.showId, data)
+        .then((size) => {
+          this.localSize = size;
+          useRecorder.setState({ uploaded: size, error: null });
+        })
+        .catch((err) => useRecorder.setState({ error: "Couldn't save on this device: " + (err?.message || err) })),
+    );
   }
 
   /**
@@ -544,35 +623,57 @@ class Recorder {
     this.audio.onstatechange = () => useRecorder.setState({ soundBlocked: this.audio.state !== "running" && !this.stopped });
   }
 
-  /** Mix the voices (and shared-screen sound) of everyone who agreed to voice. */
+  private show() {
+    return Object.values(useShows.getState().live).find((x) => x.id === this.showId);
+  }
+
+  /** Mix every sound source at the director's levels (voices only from people who said yes). */
   private mixAudio() {
-    const s = Object.values(useShows.getState().live).find((x) => x.id === this.showId);
+    const s = this.show();
     if (!s) return;
+    const st = s.state || {};
+    const now = this.audio.currentTime;
     const want = new Map<string, MediaStreamTrack>();
-    for (const p of participants()) {
-      const person = s.people.find((x) => x.user_id === p.identity);
-      if (person?.consent?.voice) {
-        const t = trackOf(p, Track.Source.Microphone);
-        if (t) want.set(p.identity + ":mic", t);
-      }
-      if (person?.consent?.screen) {
-        const t = trackOf(p, Track.Source.ScreenShareAudio);
-        if (t) want.set(p.identity + ":screen", t);
-      }
-    }
-    for (const [k, node] of this.mixed) {
-      const t = want.get(k);
-      if (!t || node.mediaStream.getAudioTracks()[0] !== t) {
-        node.disconnect();
+    for (const src of mixSources(s)) if (src.track) want.set(src.key, src.track);
+    for (const [k, m] of this.mixed) {
+      if (want.get(k) !== m.track) {
+        m.node.disconnect();
+        m.gain.disconnect();
         this.mixed.delete(k);
       }
     }
     for (const [k, t] of want) {
-      if (this.mixed.has(k)) continue;
-      const node = this.audio.createMediaStreamSource(new MediaStream([t]));
-      node.connect(this.dest);
-      this.mixed.set(k, node);
+      let m = this.mixed.get(k);
+      if (!m) {
+        const node = this.audio.createMediaStreamSource(new MediaStream([t]));
+        const gain = this.audio.createGain();
+        node.connect(gain).connect(this.bus);
+        m = { node, gain, track: t };
+        this.mixed.set(k, m);
+      }
+      m.gain.gain.setTargetAtTime(mixGain(st, k), now, 0.05);
     }
+    this.sbGain.gain.setTargetAtTime(mixGain(st, "soundboard"), now, 0.05);
+    this.bus.gain.setTargetAtTime(mixGain(st, "master"), now, 0.05);
+    // the recording PC's own sound (everything but Llamble), when the director turns it on
+    const pcVol = mixGain(st, "pc");
+    if (pcVol > 0 && !this.pc && !this.pcStarting) {
+      this.pcStarting = true;
+      startNativeSound("rec", "", "all").then((n) => {
+        this.pcStarting = false;
+        if (!n) return;
+        if (this.stopped) return n.stop();
+        this.pc = n;
+        this.pcGain = this.audio.createGain();
+        this.audio.createMediaStreamSource(new MediaStream([n.track])).connect(this.pcGain).connect(this.bus);
+      });
+    } else if (pcVol === 0 && this.pc) {
+      this.pc.stop();
+      this.pc = null;
+      this.pcGain?.disconnect();
+      this.pcGain = null;
+    }
+    this.pcGain?.gain.setTargetAtTime(pcVol, now, 0.05);
   }
 
   private async pump() {
@@ -613,6 +714,11 @@ class Recorder {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.timer);
+    if (this.cr) {
+      const last = await this.cr.stop();
+      if (last) this.piece(last);
+      this.cr = null;
+    }
     if (this.rec && this.rec.state !== "inactive") {
       await new Promise<void>((res) => {
         this.rec!.onstop = () => res();
@@ -620,6 +726,8 @@ class Recorder {
       });
     }
     this.comp.destroy();
+    this.offSoundboard();
+    this.pc?.stop();
     this.audio.close().catch(() => {});
     if (!this.toServer) {
       await this.local;

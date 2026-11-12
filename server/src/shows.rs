@@ -452,7 +452,7 @@ pub async fn set_state(State(state): State<Shared>, auth: AuthUser, Path(id): Pa
     }
     let mut cur: Value = serde_json::from_str(&s.state).unwrap_or(json!({}));
     if let (Some(c), Some(r)) = (cur.as_object_mut(), req.as_object()) {
-        for k in ["focus", "hold", "layout", "title", "lower_third", "card"] {
+        for k in ["focus", "hold", "layout", "title", "lower_third", "card", "mix"] {
             if let Some(v) = r.get(k) {
                 c.insert(k.to_string(), v.clone());
             }

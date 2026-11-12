@@ -476,7 +476,8 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   > | null>(null);
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [picked, setPicked] = useState<string | null>(null);
-  const [audio, setAudio] = useState<ShareSound>(() => (localStorage.getItem("llamble.shareSound") as ShareSound) || "app");
+  // always starts on the shared app's (or game's) sound; change it here for this share only
+  const [audio, setAudio] = useState<ShareSound>("app");
   // starts at your default (Settings → Voice & Video); changing it here is just for this share
   const [quality, setQuality] = useState<ShareQuality>(defaultShareQuality());
   useStore((s) => s.config.media); // re-check the server's limits when they change
@@ -500,7 +501,6 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
       if (match) {
         setTab("window");
         setPicked(match.id);
-        if (audio === "off") setAudio("app");
       } else {
         setPicked(s.find((x) => x.kind === "screen")?.id ?? s[0]?.id ?? null);
       }
@@ -510,7 +510,6 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const go = async () => {
     if (!picked) return;
     onClose();
-    localStorage.setItem("llamble.shareSound", audio);
     await startScreenShare(picked, audio, quality);
   };
 

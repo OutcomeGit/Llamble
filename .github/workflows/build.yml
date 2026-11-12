@@ -62,6 +62,7 @@ jobs:
           python -m playwright install --with-deps chromium > /dev/null
           python tests/voice_e2e.py http://localhost:8090 llamble || { docker logs llamble | tail -80; exit 1; }
           python tests/phone_share_test.py http://localhost:8090
+          python tests/show_record_test.py http://localhost:8090 || { docker logs llamble | tail -60; exit 1; }
       - name: Upload Home screenshots
         if: always()
         uses: actions/upload-artifact@v4

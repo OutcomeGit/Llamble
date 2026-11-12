@@ -5,10 +5,10 @@ contextBridge.exposeInMainWorld("llambleNative", {
   getScreenSources: () => ipcRenderer.invoke("screen-sources"),
   setScreenSource: (choice) => ipcRenderer.invoke("set-screen-source", choice),
   appAudio: {
-    start: (sourceId, mode) => ipcRenderer.invoke("app-audio-start", sourceId, mode),
-    stop: () => ipcRenderer.invoke("app-audio-stop"),
+    start: (key, sourceId, mode) => ipcRenderer.invoke("app-audio-start", key, sourceId, mode),
+    stop: (key) => ipcRenderer.invoke("app-audio-stop", key),
     on: (cb) => {
-      const h = (_e, buf) => cb(buf);
+      const h = (_e, key, buf) => cb(key, buf);
       ipcRenderer.on("app-audio", h);
       return () => ipcRenderer.removeListener("app-audio", h);
     },

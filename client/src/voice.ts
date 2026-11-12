@@ -1,3 +1,4 @@
+import { startNativeSound, type NativeSound } from "./appsound";
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
   Room, RoomEvent, ScreenSharePresets, Track, VideoPreset, VideoPresets, LocalAudioTrack, LocalVideoTrack, type RemoteTrackPublication, type VideoCodec,
@@ -769,41 +770,11 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
 }
 
 /** The shared program's sound, fed from llamble-helper.exe through the page's audio engine. */
-let appSound: { track: MediaStreamTrack; what: string; stop: () => void } | null = null;
-async function startAppAudio(sourceId: string, mode: "app" | "all"): Promise<typeof appSound> {
-  const native = window.llambleNative?.appAudio;
-  if (!native) return null;
+let appSound: NativeSound | null = null;
+async function startAppAudio(sourceId: string, mode: "app" | "all"): Promise<NativeSound | null> {
   appSound?.stop();
   appSound = null;
-  const what = await native.start(sourceId, mode).catch(() => null);
-  if (!what) return null; // older Windows: fall back to the whole PC's sound
-  try {
-    const ctx = new AudioContext({ sampleRate: 48000 });
-    await ctx.audioWorklet.addModule("./pcmPlayerWorklet.js");
-    const player = new AudioWorkletNode(ctx, "pcm-player", { outputChannelCount: [2] });
-    const dest = ctx.createMediaStreamDestination();
-    dest.channelCount = 2;
-    player.connect(dest);
-    await ctx.resume().catch(() => {});
-    const off = native.on((pcm) => {
-      const f = new Float32Array(pcm.byteLength / 4);
-      new Uint8Array(f.buffer).set(pcm);
-      player.port.postMessage(f, [f.buffer]);
-    });
-    return {
-      track: dest.stream.getAudioTracks()[0],
-      what,
-      stop: () => {
-        off();
-        native.stop();
-        ctx.close().catch(() => {});
-      },
-    };
-  } catch (e) {
-    console.warn("[llamble] app sound unavailable", e);
-    native.stop();
-    return null;
-  }
+  return startNativeSound("share", sourceId, mode);
 }
 
 let screenOpts: Record<string, unknown> = {};
@@ -967,6 +938,10 @@ export async function applyDevicePrefs() {
 /** Phones and tablets (Android Chrome, iOS) can't share their screen from a browser. */
 export function canShareScreen(): boolean {
   return !!window.llambleNative || canPhoneShare() || typeof navigator.mediaDevices?.getDisplayMedia === "function";
+}
+
+export function localParticipant(): LocalParticipant | null {
+  return room?.localParticipant ?? null;
 }
 
 export function participants(): Participant[] {
