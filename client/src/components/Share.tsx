@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { selectChannel, useStore } from "../store";
+import { homeOf, selectChannel, useStore } from "../store";
 import type { Message } from "../types";
 import { closeModal, toast } from "../ui";
 import { Icon } from "./common";
@@ -91,7 +91,7 @@ export function ShareModal({ msg }: { msg: Message }) {
             className="btn"
             disabled={busy}
             onClick={async () => {
-              if (await send()) selectChannel(to.guildId ?? "@me", to.id);
+              if (await send()) selectChannel(to.guildId ?? homeOf(useStore.getState().channels[to.id]), to.id);
             }}
           >
             Share & go there

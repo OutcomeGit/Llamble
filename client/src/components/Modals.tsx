@@ -1,8 +1,10 @@
+import { bannerCss, useProfile } from "./Profile";
 import { useShallow } from "zustand/react/shallow";
 import { KidChats } from "./Family";
 import { RecoveryCodeNotice } from "./Recovery";
+import { PartyModal } from "./Friends";
 import { ShareModal } from "./Share";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { api, media, session } from "../api";
 import { can, memberName, roleColor, selectChannel, useStore } from "../store";
 import { P } from "../types";
@@ -68,6 +70,8 @@ function ModalBody({ m }: { m: ModalSpec }) {
       return <RecoveryCodeNotice code={m.code} />;
     case "share":
       return <ShareModal msg={m.msg} />;
+    case "party":
+      return <PartyModal partyId={m.partyId} with={m.with} />;
   }
 }
 
@@ -313,6 +317,7 @@ function InviteModal({ guildId }: { guildId: string }) {
             Code <b>{inv.code}</b> · server <b>{serverAddress()}</b>
             {!useStore.getState().config.public_domain && " · this home address only works on your network until Remote Access is on"}
           </div>
+          <SendToParty guildName={guild?.name || "my server"} link={inviteLink(inv.code)} />
         </>
       )}
       <div className="row gap">
@@ -402,6 +407,7 @@ function Profile({ userId, guildId }: { userId: string; guildId: string | null }
   const presence = useStore((s) => s.presences[userId]);
   const game = useStore((s) => s.games[userId]);
   const manageRoles = guildId ? can(guildId, P.MANAGE_ROLES) : false;
+  const prof = useProfile(user && !user.is_bot ? userId : null);
   if (!user) return null;
   const toggleRole = (rid: string, has: boolean) =>
     api(`/api/guilds/${guildId}/members/${userId}/roles/${rid}`, { method: has ? "DELETE" : "PUT" }).catch((e) => toast(e.message, "error"));
@@ -416,7 +422,7 @@ function Profile({ userId, guildId }: { userId: string; guildId: string | null }
   };
   return (
     <div className="modal profile">
-      <div className="profile-banner" style={{ background: roleColor(guildId, userId) || "#5865f2" }} />
+      <div className="profile-banner" style={{ background: prof?.banner ? bannerCss(prof.banner) : roleColor(guildId, userId) || bannerCss("") }} />
       <div className="profile-avatar">
         <Avatar user={user} size={88} status />
       </div>
@@ -426,6 +432,7 @@ function Profile({ userId, guildId }: { userId: string; guildId: string | null }
         </h2>
         <div className="muted">@{user.username}{user.is_admin ? " · server admin" : ""}</div>
         <div className="muted small">{user.is_bot ? "AI assistant (llama.cpp)" : presence && presence !== "offline" ? presence : "offline"}</div>
+        {prof?.bio && <div className="profile-bio">{prof.bio}</div>}
         {game && presence && presence !== "offline" && (
           <div className="playing" style={{ marginTop: 6 }}>
             🎮 Playing <b>{game}</b>
@@ -500,5 +507,32 @@ function SaveGif({ fileId, url: initialUrl, preview }: { fileId?: string; url?: 
         </button>
       </div>
     </form>
+  );
+}
+
+/** Invite a whole party: posts the invite in the party's chat. */
+function SendToParty({ guildName, link }: { guildName: string; link: string }) {
+  const channels = useStore((s) => s.channels);
+  const parties = useMemo(() => Object.values(channels).filter((c) => c.kind === "party"), [channels]);
+  const [sent, setSent] = useState<string[]>([]);
+  if (!parties.length) return null;
+  return (
+    <div className="row gap" style={{ flexWrap: "wrap", marginTop: 8 }}>
+      <span className="muted small">Invite a party:</span>
+      {parties.map((p) => (
+        <button
+          key={p.id}
+          className="btn small"
+          disabled={sent.includes(p.id)}
+          onClick={() =>
+            api(`/api/channels/${p.id}/messages`, { body: { content: `Come join me in ${guildName}: ${link}` } })
+              .then(() => setSent((x) => [...x, p.id]))
+              .catch((e) => toast(e.message, "error"))
+          }
+        >
+          {sent.includes(p.id) ? `Sent to ${p.name}` : p.name}
+        </button>
+      ))}
+    </div>
   );
 }

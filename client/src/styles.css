@@ -945,6 +945,7 @@ body.pop-body > .pop { height: 100vh; }
   background-size: 100% 32px; }
 .hb-index::before { content: ""; position: absolute; left: 0; right: 0; top: 40px; border-top: 2px solid rgba(229, 72, 77, 0.45); }
 .hb-index-title { margin: 0 0 14px; font-size: 15px; font-weight: 800; color: #2b2b2b; }
+.hb-plain .hb-index-title { color: var(--text-strong, #f2f3f5); }
 .hb-call { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; min-width: 0; }
 .hb-call-people { display: flex; gap: 2px; margin-left: auto; }
 .hb-join { border: 0; cursor: pointer; background: #22a55a; color: #fff; font-weight: 700; font-size: 12px; padding: 4px 12px; border-radius: 12px; }
@@ -1014,6 +1015,10 @@ body.pop-body > .pop { height: 100vh; }
 .hb-felt-lavender { --felt: #b7a2ea; --felt-ink: #2e1f57; }
 .hb-felt-sunset { --felt: #f2a25b; --felt-ink: #4a2208; }
 .hb-felt-midnight { --felt: #22335c; --felt-ink: #eef2ff; }
+/* felt boards get a rim in a lighter shade of their own color (no wooden frame) and sit straight on the app background */
+.hb-felt { --felt-edge: color-mix(in srgb, var(--felt) 65%, white); background: transparent; }
+.hb-felt .hb-frame { box-shadow: inset 0 0 0 10px var(--felt-edge), inset 0 0 0 12px color-mix(in srgb, var(--felt) 70%, black), inset 0 0 40px rgba(0, 0, 0, 0.3), 0 8px 30px rgba(0, 0, 0, 0.45); }
+.hb-felt.hb-felt-midnight { --felt-edge: #3b4a70; }
 .hb-felt-midnight .hb-frame { box-shadow: inset 0 0 0 10px #3b4a70, inset 0 0 0 12px #1a2440, inset 0 0 40px rgba(0, 0, 0, 0.5), 0 8px 30px rgba(0, 0, 0, 0.45); }
 
 /* board color swatches */
@@ -1201,3 +1206,51 @@ body.pop-body > .pop { height: 100vh; }
 
 /* menus, lists and buttons aren't text to select (a long-press would select them on touch screens) */
 .sidebar, .guildbar, .settings-nav, .titlebar, .user-panel, .btn, button, .channel, .chat-header { -webkit-user-select: none; user-select: none; }
+
+/* ---- friends and parties ---- */
+.friends-add { display: flex; gap: 4px; padding: 8px 8px 2px; align-items: center; }
+.friends-add input { flex: 1; min-width: 0; padding: 6px 8px; }
+.playing-line { color: #3ba55d; }
+.friend-page { height: 100%; overflow-y: auto; display: flex; justify-content: center; padding: 28px 16px; box-sizing: border-box; }
+.friend-card { width: min(560px, 100%); align-self: flex-start; background: var(--bg-2, #2b2d31); border: 1px solid var(--bg-3, #3f4147); border-radius: 14px; overflow: hidden; position: relative; }
+.friend-card .profile-banner { height: 96px; background: linear-gradient(135deg, #5865f2, #3ba55d); }
+.friend-card .profile-avatar { position: absolute; top: 44px; left: 22px; border: 6px solid var(--bg-2, #2b2d31); border-radius: 50%; }
+.friend-card-body { padding: 62px 24px 22px; display: flex; flex-direction: column; gap: 6px; }
+.friend-card-body h2 { margin: 0; }
+.friend-status { margin-top: 4px; }
+.friend-voice { display: flex; align-items: center; gap: 8px; background: var(--bg-1, #313338); padding: 8px 12px; border-radius: 8px; margin-top: 6px; color: #3ba55d; }
+.friend-voice .grow { color: var(--text); }
+.friend-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.friend-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.friend-mutual { display: flex; flex-wrap: wrap; gap: 6px; }
+.friend-chip { background: var(--bg-1, #313338); border: 0; color: var(--text); padding: 5px 12px; border-radius: 14px; cursor: pointer; font-size: 13px; }
+.friend-chip:hover { background: var(--bg-hover); }
+.friend-note { width: 100%; min-height: 64px; resize: vertical; box-sizing: border-box; }
+.sidebar-header.static .grow { flex: 1; }
+.dm-section { display: flex; align-items: center; justify-content: space-between; padding: 14px 10px 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted); }
+.party-av { background: #3a5a7a; color: #fff; font-size: 12px; font-weight: 700; }
+.party-split { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.party-stage { flex: 3; min-height: 0; display: flex; }
+.party-stage > * { flex: 1; min-height: 0; }
+.party-chat { flex: 2; min-height: 0; display: flex; border-top: 1px solid var(--border, #3f4147); }
+.party-chat > * { flex: 1; min-width: 0; }
+.party-modal { width: min(460px, 94vw); }
+.party-search { width: 100%; margin: 8px 0; }
+.party-people { max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.party-person { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.party-person:hover, .party-person.on { background: var(--bg-hover); }
+.party-members .member { display: flex; align-items: center; gap: 8px; padding: 4px 8px; }
+.note-groups { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+@media (max-width: 760px) {
+  .friend-page { padding: 10px 8px; }
+  .party-stage { flex: 1; }
+  .party-members { position: fixed; right: 0; top: var(--titlebar); bottom: 0; width: min(300px, 82vw); z-index: 60; }
+}
+.empty-main p { max-width: 460px; text-align: center; }
+.profile-bio { white-space: pre-wrap; margin-top: 8px; padding: 10px 12px; background: var(--bg-1, #313338); border-radius: 8px; line-height: 1.4; }
+.banner-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.banner-pick { width: 46px; height: 28px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.banner-pick.on { border-color: #fff; box-shadow: 0 0 0 2px var(--brand, #5865f2); }
+.friend-card .profile-avatar.clickable { cursor: pointer; }
+.friend-card-body > input { width: 100%; box-sizing: border-box; }
+.right { text-align: right; }

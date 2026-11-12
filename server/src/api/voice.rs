@@ -66,7 +66,7 @@ pub async fn join(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<S
     // learned its address or after an update: give it a moment instead of failing the call
     crate::voice_server::wait_ready(&state, std::time::Duration::from_secs(12)).await;
     let ch = load_channel(&state.db, &cid).await?;
-    if !(ch.kind == "voice" || ch.kind == "dm") {
+    if !(ch.kind == "voice" || ch.kind == "dm" || ch.kind == "party") {
         return Err(AppError::bad("not a voice channel"));
     }
     let p = require_channel(&state.db, &ch, &auth.id, perms::VIEW | perms::CONNECT).await?;
@@ -130,8 +130,8 @@ pub async fn update(State(state): State<Shared>, auth: AuthUser, Json(req): Json
 /// For DMs: ring the other participants.
 pub async fn ring(State(state): State<Shared>, auth: AuthUser, Path(cid): Path<String>) -> ApiResult<Json<Value>> {
     let ch = load_channel(&state.db, &cid).await?;
-    if ch.kind != "dm" {
-        return Err(AppError::bad("only DMs can ring"));
+    if ch.kind != "dm" && ch.kind != "party" {
+        return Err(AppError::bad("only DMs and parties can ring"));
     }
     require_channel(&state.db, &ch, &auth.id, perms::CONNECT).await?;
     let ids: Vec<String> = channel_audience(&state.db, &ch).await.into_iter().filter(|u| u != &auth.id).collect();

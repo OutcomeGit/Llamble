@@ -116,7 +116,7 @@ export interface Role {
   deny?: number;
 }
 
-export type ChannelKind = "text" | "voice" | "category" | "dm";
+export type ChannelKind = "text" | "voice" | "category" | "dm" | "party";
 
 export interface Channel {
   id: string;
@@ -130,6 +130,8 @@ export interface Channel {
   last_message_id: string | null;
   recipients?: User[];
   retention_days?: number | null;
+  /** parties: who made it (can rename it, remove people, delete it) */
+  owner_id?: string | null;
 }
 
 export interface Member {
@@ -368,4 +370,13 @@ export interface LlmStatus {
   port: number | null;
   url: string | null;
   model: string | null;
+}
+
+/** a friendship, or a request either way */
+export interface Friend {
+  user: User;
+  state: "friend" | "outgoing" | "incoming";
+  since: number;
+  /** my private note about them */
+  note?: string;
 }

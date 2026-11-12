@@ -9,7 +9,7 @@ import { AlarmRinging, AlarmSuggestion } from "./components/Alarms";
 import { connectGateway, disconnectGateway } from "./gateway";
 import { Login } from "./components/Login";
 import { Shell } from "./components/Shell";
-import { currentChannelId, memberName, mentionsMe, onEvent, selectChannel, totalUnreadBadge, useStore } from "./store";
+import { currentChannelId, homeOf, memberName, mentionsMe, onEvent, selectChannel, totalUnreadBadge, useStore } from "./store";
 import { openModal } from "./ui";
 import { toggleDeafen, toggleMute } from "./voice";
 import { sounds } from "./sounds";
@@ -129,7 +129,7 @@ export default function App() {
           const notif = new Notification(memberName(ch.guild_id, msg.author) + where, { body: body.slice(0, 180), silent: true, tag: "m:" + msg.id });
           notif.onclick = () => {
             window.llambleNative?.focus();
-            selectChannel(ch.guild_id || "@me", ch.id);
+            selectChannel(homeOf(ch), ch.id);
           };
         }
       }),

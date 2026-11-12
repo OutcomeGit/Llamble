@@ -1,3 +1,4 @@
+import { partyMenuItems } from "./Friends";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { can, memberName, setMessages, useStore } from "../store";
@@ -27,6 +28,8 @@ export function ChatView({ channel }: { channel: Channel }) {
   };
 
   const title = channel.kind === "dm" ? otherUser?.display_name ?? "Direct Message" : channel.name;
+  const party = channel.kind === "party";
+  const inPartyVoice = useStore((s) => (party ? Object.values(s.voiceStates).filter((x) => x.channel_id === channel.id).length : 0));
 
   return (
     <div
@@ -47,7 +50,7 @@ export function ChatView({ channel }: { channel: Channel }) {
       }}
     >
       <header className="chat-header">
-        {channel.kind === "dm" ? <Avatar user={otherUser} size={24} status /> : <Icon name="hash" size={22} className="muted" />}
+        {channel.kind === "dm" ? <Avatar user={otherUser} size={24} status /> : <Icon name={party ? "users" : "hash"} size={22} className="muted" />}
         <span className="chat-title">{title}</span>
         {otherUser?.is_bot && <BotTag />}
         {channel.topic && <span className="chat-topic ellipsis">{channel.topic}</span>}
@@ -64,7 +67,12 @@ export function ChatView({ channel }: { channel: Channel }) {
             <Icon name="speaker" size={20} />
           </button>
         )}
-        {channel.guild_id && (
+        {party && !inCall && (
+          <button className="btn small green" title="Join the party's voice room" onClick={() => joinVoice(channel.id)}>
+            <Icon name="speaker" size={16} /> {inPartyVoice ? `Join voice (${inPartyVoice} in)` : "Voice"}
+          </button>
+        )}
+        {(channel.guild_id || party) && (
           <button className={"icon-btn" + (memberListOpen ? " on" : "")} title="Member list" onClick={() => useStore.setState({ memberListOpen: !memberListOpen })}>
             <Icon name="users" size={20} />
           </button>
@@ -76,6 +84,7 @@ export function ChatView({ channel }: { channel: Channel }) {
             const items: { label: string; onClick: () => void; danger?: boolean }[] = [
               { label: "Select messages to delete", onClick: () => useUI.setState({ selecting: { channelId: channel.id, ids: [] } }) },
             ];
+            if (party) items.unshift(...partyMenuItems(channel));
             if (channel.guild_id && can(channel.guild_id, P.MANAGE_GUILD))
               items.push({
                 label: "Clear all messages in this channel",
@@ -131,7 +140,7 @@ export function ChatView({ channel }: { channel: Channel }) {
           <MessageList channel={channel} />
           <TypingBar channelId={channel.id} guildId={channel.guild_id} />
           <SelectBar channelId={channel.id} />
-          <Composer ref={composer} channel={channel} placeholder={channel.kind === "dm" ? `Message @${title}` : `Message #${channel.name}`} />
+          <Composer ref={composer} channel={channel} placeholder={channel.kind === "dm" ? `Message @${title}` : party ? `Message ${channel.name}` : `Message #${channel.name}`} />
         </div>
         {results && (
           <div className="search-results">
@@ -153,7 +162,7 @@ export function ChatView({ channel }: { channel: Channel }) {
         <div className="drop-overlay">
           <div>
             <Icon name="attach" size={40} />
-            <h3>Upload to {channel.kind === "dm" ? title : "#" + channel.name}</h3>
+            <h3>Upload to {channel.kind === "dm" || party ? title : "#" + channel.name}</h3>
           </div>
         </div>
       )}
@@ -329,7 +338,15 @@ function ChannelStart({ channel }: { channel: Channel }) {
   const bot = useStore((s) => s.config.bot);
   return (
     <div className="channel-start">
-      {channel.kind === "dm" ? (
+      {channel.kind === "party" ? (
+        <>
+          <div className="channel-start-icon">
+            <Icon name="users" size={40} />
+          </div>
+          <h1>{channel.name}</h1>
+          <p className="muted">The start of this party. It has its own voice room too: press Voice up top. Add people from the ⋯ menu.</p>
+        </>
+      ) : channel.kind === "dm" ? (
         <>
           <Avatar user={other} size={80} />
           <h1>{other?.display_name}</h1>

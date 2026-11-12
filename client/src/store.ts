@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BoardPrefs, Channel, Guild, GuildBoardPrefs, GuildPayload, Highlight, LlambleNews, Member, Message, NewsItem, Note, Role, User, VoiceState } from "./types";
+import type { BoardPrefs, Channel, Guild, GuildBoardPrefs, GuildPayload, Highlight, LlambleNews, Member, Message, NewsItem, Note, Role, User, VoiceState, Friend } from "./types";
 import { ALL_PERMS, P } from "./types";
 
 export interface ServerConfig {
@@ -29,12 +29,14 @@ interface State {
   hasMore: Record<string, boolean>;
   readStates: Record<string, string>;
   mentions: Record<string, number>;
+  /** friends and friend requests, by user id */
+  friends: Record<string, Friend>;
   presences: Record<string, string>;
   /** what each person is playing ("Playing X"), from the Windows app's game detection */
   games: Record<string, string>;
   voiceStates: Record<string, VoiceState>;
   typing: Record<string, Record<string, number>>;
-  /** guild id, "@me" (direct messages) or "@home" */
+  /** guild id, "@me" (direct messages), "@friends", "@parties" or "@home" */
   selectedGuild: string;
   /** a server's Notes board or Highlights is open instead of a channel */
   /** "board" while a server's board is open in the main area instead of a channel */
@@ -44,9 +46,11 @@ interface State {
   /** what each board shows ("@home" or a server id): everything, or one kind */
   boardFilter: Record<string, BoardFilter>;
   /** what Home's main area shows: the board, or the Library */
-  homePage: "board" | "library";
+  homePage: "board" | "library" | "profile";
   /** phones: showing the open page (true) or the server/channel list (false) */
   mobileMain: boolean;
+  /** the friend whose page is open under Friends */
+  selectedFriend: string | null;
   /** notes I can see (Home's "For you" and boards I've opened) */
   notes: Record<string, Note>;
   highlights: Record<string, Highlight>;
@@ -75,6 +79,7 @@ export const useStore = create<State>(() => ({
   hasMore: {},
   readStates: {},
   mentions: {},
+  friends: {},
   presences: {},
   games: {},
   voiceStates: {},
@@ -86,6 +91,7 @@ export const useStore = create<State>(() => ({
   boardFilter: {},
   homePage: "board",
   mobileMain: true,
+  selectedFriend: null,
   notes: {},
   highlights: {},
   news: {},
@@ -116,6 +122,11 @@ export type BoardFilter = "all" | "notes" | "highlights" | "news";
 export function openHome(filter: BoardFilter = "all") {
   localStorage.setItem("llamble.lastGuild", "@home");
   set({ selectedGuild: "@home", homePage: "board", boardFilter: { ...get().boardFilter, "@home": filter } });
+}
+
+export function openMyProfile() {
+  localStorage.setItem("llamble.lastGuild", "@home");
+  set({ selectedGuild: "@home", homePage: "profile" });
 }
 
 export function openLibrary() {
@@ -150,12 +161,24 @@ export function guildPrefs(s: State, gid: string): GuildBoardPrefs {
   return s.boardPrefs.guilds[gid] ?? { notes: true, highlights: true, news: true, highlight_types: "all" };
 }
 
+/** Where a channel lives in the left bar: its server, Parties, or Direct Messages. */
+export function homeOf(ch: { guild_id?: string | null; kind?: string } | undefined): string {
+  if (ch?.guild_id) return ch.guild_id;
+  return ch?.kind === "party" ? "@parties" : "@me";
+}
+
+/** Open a friend's page under Friends. */
+export function openFriend(userId: string | null) {
+  localStorage.setItem("llamble.lastGuild", "@friends");
+  set({ selectedGuild: "@friends", selectedFriend: userId });
+}
+
 export function currentChannelId(s: State = get()): string | null {
   const g = s.selectedGuild;
-  if (g === "@home" || s.guildView[g]) return null;
+  if (g === "@home" || g === "@friends" || s.guildView[g]) return null;
   const c = s.lastChannel[g];
-  if (c && s.channels[c] && (g === "@me" ? !s.channels[c].guild_id : s.channels[c].guild_id === g)) return c;
-  if (g === "@me") return null;
+  if (c && s.channels[c] && homeOf(s.channels[c]) === g) return c;
+  if (g === "@me" || g === "@parties") return null;
   const first = Object.values(s.channels)
     .filter((ch) => ch.guild_id === g && ch.kind === "text")
     .sort(channelSort(s))[0];
@@ -216,7 +239,7 @@ export function isUnread(ch: Channel, s: State = get()): boolean {
 export function totalUnreadBadge(s: State = get()): number {
   let n = 0;
   for (const [cid, c] of Object.entries(s.mentions)) if (s.channels[cid]) n += c;
-  for (const ch of Object.values(s.channels)) if (ch.kind === "dm" && isUnread(ch, s) && !s.mentions[ch.id]) n += 1;
+  for (const ch of Object.values(s.channels)) if ((ch.kind === "dm" || ch.kind === "party") && isUnread(ch, s) && !s.mentions[ch.id]) n += 1;
   return n;
 }
 
@@ -285,6 +308,11 @@ export function handleEvent(t: string, d: any) {
         for (const u of dm.recipients || []) st.users[u.id] = u;
       }
       st.users[d.user.id] = d.user;
+      st.friends = {};
+      for (const f of (d.friends || []) as Friend[]) {
+        st.friends[f.user.id] = f;
+        st.users[f.user.id] = { ...st.users[f.user.id], ...f.user };
+      }
       const readStates: Record<string, string> = {};
       for (const r of d.read_states) readStates[r.channel_id] = r.last_read_id;
       const presences: Record<string, string> = {};
@@ -296,7 +324,7 @@ export function handleEvent(t: string, d: any) {
       presences[d.user.id] = localStorage.getItem("llamble.status") || "online";
       const voiceStates: Record<string, VoiceState> = {};
       for (const v of d.voice_states) voiceStates[v.user_id] = v;
-      if (st.selectedGuild !== "@me" && st.selectedGuild !== "@home" && !st.guilds[st.selectedGuild]) st.selectedGuild = "@home";
+      if (!st.selectedGuild.startsWith("@") && !st.guilds[st.selectedGuild]) st.selectedGuild = "@home";
       set({ ...st, me: d.user, ready: true, readStates, presences, games, voiceStates, config: d.config, messages: {}, hasMore: {} });
       break;
     }
@@ -322,6 +350,13 @@ export function handleEvent(t: string, d: any) {
       const users = { ...s.users };
       for (const u of d.recipients || []) users[u.id] = u;
       set({ channels: { ...s.channels, [d.id]: { ...s.channels[d.id], ...d } }, users });
+      break;
+    }
+    case "FRIEND_UPDATE": {
+      const friends = { ...s.friends };
+      if (d.state === "none") delete friends[d.user.id];
+      else friends[d.user.id] = d;
+      set({ friends, users: d.state === "none" ? s.users : { ...s.users, [d.user.id]: { ...s.users[d.user.id], ...d.user } } });
       break;
     }
     case "CHANNEL_DELETE": {
@@ -374,7 +409,7 @@ export function handleEvent(t: string, d: any) {
       if (s.messages[msg.channel_id]) patch.messages = { ...s.messages, [msg.channel_id]: upsertMessage(s.messages[msg.channel_id], msg) };
       if (ch) patch.channels = { ...s.channels, [ch.id]: { ...ch, last_message_id: !ch.last_message_id || msg.id > ch.last_message_id ? msg.id : ch.last_message_id } };
       if (s.me && msg.author.id === s.me.id) patch.readStates = { ...s.readStates, [msg.channel_id]: msg.id };
-      else if (s.me && (mentionsMe(msg.content, s.me) || (ch && ch.kind === "dm"))) {
+      else if (s.me && (mentionsMe(msg.content, s.me) || (ch && (ch.kind === "dm" || ch.kind === "party")))) {
         patch.mentions = { ...s.mentions, [msg.channel_id]: (s.mentions[msg.channel_id] || 0) + 1 };
       }
       const typing = s.typing[msg.channel_id];

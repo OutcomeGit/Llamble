@@ -211,6 +211,21 @@ export function NoteComposer({ guildId, onPosted }: { guildId: string; onPosted?
   const [expiry, setExpiry] = useState("never");
   const [busy, setBusy] = useState(false);
   const list = members.filter((u) => !q.trim() || (memberName(guildId, u) || u.username).toLowerCase().includes(q.trim().toLowerCase()));
+  // quick picks: your friends and your parties (only the ones in this server can see the note)
+  const friendsMap = useStore((s) => s.friends);
+  const channels = useStore((s) => s.channels);
+  const groups = useMemo(() => {
+    const here = new Set(members.map((u) => u.id));
+    const out: { label: string; ids: string[] }[] = [];
+    const fr = Object.values(friendsMap).filter((f) => f.state === "friend" && here.has(f.user.id)).map((f) => f.user.id);
+    if (fr.length) out.push({ label: "All my friends", ids: fr });
+    for (const c of Object.values(channels))
+      if (c.kind === "party") {
+        const ids = (c.recipients || []).map((r) => r.id).filter((id) => here.has(id));
+        if (ids.length) out.push({ label: c.name, ids });
+      }
+    return out;
+  }, [friendsMap, channels, members]);
 
   const post = async () => {
     if (!text.trim() || (who === "people" && !picked.length)) return;
@@ -262,6 +277,15 @@ export function NoteComposer({ guildId, onPosted }: { guildId: string; onPosted?
       </div>
       {who === "people" && (
         <div className="note-people">
+          {groups.length > 0 && (
+            <div className="note-groups">
+              {groups.map((g) => (
+                <button key={g.label} className="btn small" title={`Pick ${g.ids.length} ${g.ids.length === 1 ? "person" : "people"} in this server`} onClick={() => setPicked((p) => [...new Set([...p, ...g.ids])])}>
+                  + {g.label}
+                </button>
+              ))}
+            </div>
+          )}
           <input placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="note-people-list">
             {list.map((u) => (

@@ -260,7 +260,7 @@ pub async fn show_channel(state: &Shared, id: &str) -> Option<(String, String)> 
 async fn require_in_channel(state: &Shared, auth: &AuthUser, cid: &str) -> ApiResult<crate::models::Channel> {
     let ch = load_channel(&state.db, cid).await?;
     crate::perms::require_channel(&state.db, &ch, &auth.id, crate::perms::VIEW | crate::perms::CONNECT).await?;
-    if ch.kind != "voice" && ch.kind != "dm" {
+    if ch.kind != "voice" && ch.kind != "dm" && ch.kind != "party" {
         return Err(AppError::bad("shows happen in voice channels and calls"));
     }
     Ok(ch)

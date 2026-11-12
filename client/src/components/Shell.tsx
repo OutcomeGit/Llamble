@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, media as mediaSrc } from "../api";
-import { can, currentChannelId, isUnread, onEvent, openGuildView, openHome, selectChannel, showMobileNav, useStore } from "../store";
+import { can, currentChannelId, homeOf, isUnread, onEvent, openFriend, openGuildView, openHome, selectChannel, showMobileNav, useStore } from "../store";
 import { useIsPhone } from "../phone";
 import { Board, useUnreadNotes } from "./Home";
 import { P } from "../types";
@@ -17,6 +17,8 @@ import { notifyResetRequest } from "./Recovery";
 import { Sidebar } from "./Sidebar";
 import { VoiceView } from "./VoiceView";
 import { Library } from "./Library";
+import { MyProfile } from "./Profile";
+import { FriendProfile, PartiesEmpty, PartyMembers, PartyView } from "./Friends";
 import { androidSend, isAndroidApp, useAndroidUpdate } from "../android";
 
 export function Shell() {
@@ -105,6 +107,8 @@ export function Shell() {
           {selectedGuild === "@home" ? (
             homePage === "library" ? (
               <Library />
+            ) : homePage === "profile" ? (
+              <MyProfile />
             ) : (
               <Board key="@home" scope="@home" />
             )
@@ -113,14 +117,23 @@ export function Shell() {
           ) : channel ? (
             channel.kind === "voice" ? (
               <VoiceView channel={channel} />
+            ) : channel.kind === "party" ? (
+              <PartyView channel={channel} />
             ) : (
               <ChatView key={channel.id} channel={channel} />
             )
+          ) : selectedGuild === "@friends" ? (
+            <FriendProfile />
+          ) : selectedGuild === "@parties" ? (
+            <PartiesEmpty />
+          ) : selectedGuild === "@me" ? (
+            <EmptyMain home />
           ) : (
-            <EmptyMain home={selectedGuild === "@me"} />
+            <EmptyMain home={false} />
           )}
         </main>
-        {mobile && channel && channel.kind === "text" && memberListOpen && <div className="member-backdrop" onClick={() => useStore.setState({ memberListOpen: false })} />}
+        {channel?.kind === "party" && memberListOpen && <PartyMembers channel={channel} />}
+        {mobile && channel && (channel.kind === "text" || channel.kind === "party") && memberListOpen && <div className="member-backdrop" onClick={() => useStore.setState({ memberListOpen: false })} />}
         {channel && channel.guild_id && channel.kind === "text" && memberListOpen && <MemberList guildId={channel.guild_id} />}
       </div>
       {ringing && <RingBanner />}
@@ -145,7 +158,7 @@ function RingBanner() {
         className="btn green"
         onClick={() => {
           useStore.setState({ ringing: null });
-          selectChannel("@me", ringing.channel_id);
+          selectChannel(homeOf(useStore.getState().channels[ringing.channel_id]) , ringing.channel_id);
           import("../voice").then((v) => v.joinVoice(ringing.channel_id));
         }}
       >
@@ -164,7 +177,7 @@ function EmptyMain({ home }: { home: boolean }) {
     <div className="empty-main">
       <div className="empty-art">💬</div>
       <h2>{home ? "No conversation selected" : "No channels yet"}</h2>
-      <p className="muted">{home ? "Pick a friend from the list, or start a chat from someone's profile." : "Create a channel to get started."}</p>
+      <p className="muted">{home ? "Pick a conversation from the list, or message a friend from Friends." : "Create a channel to get started."}</p>
       {home && bot && (
         <button
           className="btn primary"
@@ -189,7 +202,7 @@ function GuildBar() {
   const unreadByGuild = useStore((s) => {
     const out: Record<string, { unread: boolean; mentions: number }> = {};
     for (const ch of Object.values(s.channels)) {
-      const key = ch.guild_id || "@me";
+      const key = homeOf(ch);
       const o = (out[key] ||= { unread: false, mentions: 0 });
       if (ch.kind !== "voice" && ch.kind !== "category" && isUnread(ch, s)) o.unread = true;
       o.mentions += s.mentions[ch.id] || 0;
@@ -198,7 +211,9 @@ function GuildBar() {
   });
   const unread = JSON.parse(unreadByGuild) as Record<string, { unread: boolean; mentions: number }>;
   // conversations with anything unread (not just mentions), so new DMs are noticeable
-  const unreadDms = useStore((s) => Object.values(s.channels).filter((c) => !c.guild_id && c.kind !== "voice" && c.kind !== "category" && isUnread(c, s)).length);
+  const unreadDms = useStore((s) => Object.values(s.channels).filter((c) => c.kind === "dm" && isUnread(c, s)).length);
+  const unreadParties = useStore((s) => Object.values(s.channels).filter((c) => c.kind === "party" && isUnread(c, s)).length);
+  const requests = useStore((s) => Object.values(s.friends).filter((f) => f.state === "incoming").length);
   const voiceGuild = useStore((s) => {
     const cid = useVoice.getState().channelId;
     return cid ? s.channels[cid]?.guild_id : null;
@@ -227,6 +242,28 @@ function GuildBar() {
         >
           <Icon name="chat" size={22} />
           {unreadDms || unread["@me"]?.mentions ? <span className="badge">{Math.max(unreadDms, unread["@me"]?.mentions || 0)}</span> : null}
+        </button>
+      </div>
+      <div className="guild-wrap">
+        <span className={"guild-pill" + (selected === "@friends" ? " active" : requests ? " unread" : "")} />
+        <button
+          className={"guild-btn dms" + (selected === "@friends" ? " active" : "")}
+          onClick={() => openFriend(useStore.getState().selectedFriend)}
+          title={requests ? `Friends · ${requests} new request${requests > 1 ? "s" : ""}` : "Friends"}
+        >
+          <Icon name="users" size={22} />
+          {requests ? <span className="badge">{requests}</span> : null}
+        </button>
+      </div>
+      <div className="guild-wrap">
+        <span className={"guild-pill" + (selected === "@parties" ? " active" : unreadParties ? " unread" : "")} />
+        <button
+          className={"guild-btn dms" + (selected === "@parties" ? " active" : "") + (unreadParties ? " has-unread" : "")}
+          onClick={() => selectChannel("@parties", null)}
+          title={unreadParties ? `Parties · ${unreadParties} unread` : "Parties"}
+        >
+          <Icon name="party" size={22} />
+          {unreadParties || unread["@parties"]?.mentions ? <span className="badge">{Math.max(unreadParties, unread["@parties"]?.mentions || 0)}</span> : null}
         </button>
       </div>
       <div className="guild-sep" />

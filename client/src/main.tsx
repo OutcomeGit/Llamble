@@ -8,7 +8,7 @@ import App from "./App";
 import "./styles.css";
 import { getRoom, joinVoice, leaveVoice, micSound, setMicSound, setWatching, toggleCamera, useVoice } from "./voice";
 import { PRESETS } from "./micsound";
-import { openGuildView, openHome, openLibrary, selectChannel, showMobileNav, useStore } from "./store";
+import { homeOf, openGuildView, openHome, openLibrary, selectChannel, showMobileNav, useStore } from "./store";
 import { isPhone } from "./phone";
 import { useRecorder } from "./show";
 import * as localrec from "./localrec";
@@ -74,7 +74,7 @@ if (isAndroidApp && !isOverlay) {
     if (m.event === "leave-voice") leaveVoice();
     if (m.event === "resume") checkGateway();
     // a tapped notification from the listener: open that chat
-    if (m.event === "open-channel" && m.channel_id) selectChannel((m.guild_id as string) || "@me", String(m.channel_id));
+    if (m.event === "open-channel" && m.channel_id) selectChannel((m.guild_id as string) || homeOf(useStore.getState().channels[String(m.channel_id)]), String(m.channel_id));
   });
   // notifications while closed: tell the app's listener who's signed in (each time it opens)
   androidListener(session.server, session.token);

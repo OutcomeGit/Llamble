@@ -359,7 +359,7 @@ pub async fn open_dm(State(state): State<Shared>, auth: AuthUser, Json(req): Jso
         "SELECT 1 FROM members a JOIN members b ON a.guild_id = b.guild_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1",
     ).bind(&auth.id).bind(&req.recipient_id).fetch_optional(&state.db).await?;
     let family = crate::kids::is_guardian(&state, &auth.id, &req.recipient_id).await || crate::kids::is_guardian(&state, &req.recipient_id, &auth.id).await;
-    if shares.is_none() && !auth.is_admin && !family {
+    if shares.is_none() && !auth.is_admin && !family && !crate::api::social::is_friend(&state, &auth.id, &req.recipient_id).await {
         return Err(AppError::forbidden());
     }
     if let Err(kid) = crate::kids::dm_allowed(&state, &auth.id, &req.recipient_id).await {
@@ -396,6 +396,10 @@ pub async fn dm_payload(state: &Shared, cid: &str) -> ApiResult<Value> {
     let users = load_users(&state.db, &ids).await?;
     let mut v = serde_json::to_value(&ch).unwrap();
     v["recipients"] = json!(users.values().collect::<Vec<_>>());
+    if ch.kind == "party" {
+        let owner: Option<String> = sqlx::query_scalar("SELECT owner_id FROM channels WHERE id = ?").bind(cid).fetch_one(&state.db).await?;
+        v["owner_id"] = json!(owner);
+    }
     Ok(v)
 }
 

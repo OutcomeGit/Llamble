@@ -6,6 +6,7 @@ pub mod gifs;
 pub mod highlights;
 pub mod notes;
 pub mod schedule;
+pub mod social;
 pub mod news;
 pub mod guilds;
 pub mod messages;
@@ -40,6 +41,8 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/users/@me", get(auth::me).patch(auth::update_me))
+        .route("/api/users/@me/profile", patch(social::edit_profile))
+        .route("/api/users/{uid}/profile", get(social::get_profile))
         .route("/api/users/@me/sessions", get(auth::sessions))
         .route("/api/users/@me/channels", post(messages::open_dm))
         .route("/api/guilds", post(guilds::create_guild))
@@ -155,6 +158,11 @@ pub fn router(state: Shared) -> Router<Shared> {
         .route("/api/shows/{id}/state", post(crate::shows::set_state))
         .route("/api/shows/{id}/chunk", post(crate::shows::upload_chunk).layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
         .route("/api/notify/stream", get(crate::pushes::stream))
+        .route("/api/friends", get(social::list_friends).post(social::add_friend))
+        .route("/api/friends/{uid}", get(social::get_friend).put(social::accept_friend).patch(social::note_friend).delete(social::remove_friend))
+        .route("/api/parties", post(social::create_party))
+        .route("/api/parties/{id}", patch(social::rename_party).delete(social::delete_party))
+        .route("/api/parties/{id}/members/{uid}", put(social::add_to_party).delete(social::remove_from_party))
         .route("/api/shows/{id}/stop", post(crate::shows::stop))
         .route("/api/shows/{id}/upload/begin", post(crate::shows::upload_begin))
         .route("/api/shows/{id}/upload/done", post(crate::shows::upload_done))

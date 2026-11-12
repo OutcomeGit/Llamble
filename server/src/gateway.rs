@@ -67,6 +67,7 @@ async fn ready_payload(state: &Shared, auth: &AuthUser) -> anyhow::Result<Value>
         "user": user,
         "guilds": guilds,
         "dms": dms,
+        "friends": crate::api::social::list_friends(axum::extract::State(state.clone()), auth.clone()).await.map(|j| j.0).unwrap_or(json!([])),
         "read_states": reads.into_iter().map(|(c, m)| json!({ "channel_id": c, "last_read_id": m })).collect::<Vec<_>>(),
         "presences": presences,
         "voice_states": voice,

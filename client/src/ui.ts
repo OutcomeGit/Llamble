@@ -17,7 +17,8 @@ export type ModalSpec =
   | { kind: "prompt"; title: string; label: string; placeholder?: string; initial?: string; password?: boolean; confirmLabel?: string; onSubmit: (v: string) => void | Promise<void> }
   | { kind: "kidChats"; kidId: string; name: string }
   | { kind: "recoveryCode"; code: string }
-  | { kind: "share"; msg: import("./types").Message };
+  | { kind: "share"; msg: import("./types").Message }
+  | { kind: "party"; partyId?: string; with?: string[] };
 
 export interface MenuItem {
   label: string;

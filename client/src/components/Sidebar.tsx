@@ -2,12 +2,13 @@ import { listeningIn, useListen } from "../listen";
 import { useShows } from "../show";
 import { api } from "../api";
 import { sendGateway } from "../gateway";
-import { can, channelSort, currentChannelId, isUnread, memberName, notesForMe, openGuildView, openHome, openLibrary, selectChannel, useStore } from "../store";
+import { can, channelSort, currentChannelId, homeOf, isUnread, memberName, notesForMe, openGuildView, openHome, openLibrary, openMyProfile, selectChannel, useStore } from "../store";
 import { P, type Channel } from "../types";
 import { copy, openMenu, openModal, toggleCollapsed, toast, useUI } from "../ui";
 import { canShareScreen, joinVoice, leaveVoice, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, useVoice } from "../voice";
 import { Avatar, BotTag, Icon } from "./common";
 import { markGuildRead } from "./Shell";
+import { FriendsSidebar, PartiesSidebar } from "./Friends";
 import { useShallow } from "zustand/react/shallow";
 import { BOARD_NAME } from "../names";
 import { logout } from "../App";
@@ -16,7 +17,7 @@ export function Sidebar() {
   const gid = useStore((s) => s.selectedGuild);
   return (
     <aside className="sidebar">
-      {gid === "@home" ? <HomeSidebar /> : gid === "@me" ? <DmList /> : <ChannelList guildId={gid} />}
+      {gid === "@home" ? <HomeSidebar /> : gid === "@me" ? <DmList /> : gid === "@friends" ? <FriendsSidebar /> : gid === "@parties" ? <PartiesSidebar /> : <ChannelList guildId={gid} />}
       <VoicePanel />
       <UserPanel />
     </aside>
@@ -245,6 +246,20 @@ export function userMenu(e: React.MouseEvent, userId: string, guildId: string | 
       },
     });
   }
+  if (userId !== me.id && !user?.is_bot) {
+    const f = s.friends[userId]?.state;
+    if (!f)
+      items.push({
+        label: "Add friend",
+        onClick: () =>
+          api("/api/friends", { body: { user_id: userId } })
+            .then((r) => toast(r.state === "friend" ? "You're friends now" : "Friend request sent"))
+            .catch((err) => toast(err.message, "error")),
+      });
+    else if (f === "incoming")
+      items.push({ label: "Accept friend request", onClick: () => api(`/api/friends/${userId}`, { method: "PUT" }).catch((err) => toast(err.message, "error")) });
+    else if (f === "outgoing") items.push({ label: "Friend request sent", onClick: () => {} });
+  }
   const inVoice = useVoice.getState().channelId && s.voiceStates[userId]?.channel_id === useVoice.getState().channelId;
   if (inVoice && userId !== me.id) {
     const vol = Math.min(1, Number(localStorage.getItem("llamble.vol." + userId) || "1"));
@@ -344,6 +359,10 @@ function HomeSidebar() {
           </div>
         </div>
         <div className="sidebar-sep" />
+        <div className={"channel" + (page === "profile" ? " active" : "")} onClick={() => openMyProfile()} title="How others see you: picture, name, about me, banner">
+          <span className="channel-emoji">🪪</span>
+          <span className="ellipsis">My profile</span>
+        </div>
         <div className={"channel" + (page === "library" ? " active" : "")} onClick={() => openLibrary()} title="Your recordings (your files and post history come later)">
           <span className="channel-emoji">📚</span>
           <span className="ellipsis">Library</span>
@@ -387,7 +406,7 @@ function DmList() {
           const other = dm.recipients?.find((r) => r.id !== me?.id) || dm.recipients?.[0];
           return <DmRow key={dm.id} ch={dm} active={selected === dm.id} other={other} />;
         })}
-        {dms.length === 0 && <p className="muted small pad">Right-click anyone in a server and choose Message to start a conversation.</p>}
+        {dms.length === 0 && <p className="muted small pad">No conversations yet. Open Friends and press Message, or right-click anyone in a server.</p>}
       </div>
     </>
   );
@@ -427,11 +446,11 @@ function VoicePanel() {
   return (
     <div className="voice-panel">
       <div className="voice-panel-top">
-        <div className="voice-status" onClick={() => channel && selectChannel(channel.guild_id || "@me", channel.id)}>
+        <div className="voice-status" onClick={() => channel && selectChannel(homeOf(channel), channel.id)}>
           <div className={"voice-label " + v.status}>
             <Icon name="speaker" size={14} /> {label}
           </div>
-          <div className="muted small ellipsis">{channel?.kind === "dm" ? `Call with ${recipient?.display_name ?? ""}` : `${channel?.name ?? ""} / ${guild?.name ?? ""}`}</div>
+          <div className="muted small ellipsis">{channel?.kind === "dm" ? `Call with ${recipient?.display_name ?? ""}` : channel?.kind === "party" ? `Party · ${channel.name}` : `${channel?.name ?? ""} / ${guild?.name ?? ""}`}</div>
         </div>
         <button className="icon-btn" title="Disconnect" onClick={() => leaveVoice()}>
           <Icon name="phoneOff" size={20} />

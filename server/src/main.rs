@@ -86,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
     api::highlights::migrate(&state.db).await?;
     api::news::migrate(&state.db).await?;
     api::alarms::migrate(&state.db).await?;
+    api::social::migrate(&state.db).await?;
     api::schedule::migrate(&state.db).await?;
     soundboard::migrate(&state.db).await?;
     voicebot::migrate(&state.db).await?;

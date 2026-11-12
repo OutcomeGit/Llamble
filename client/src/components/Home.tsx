@@ -27,6 +27,7 @@ export function useUnreadNotes(): number {
 
 // Board looks. Felt boards borrow cork's paper labels and only swap the color.
 const STYLES = [
+  { id: "plain", label: "Gray", swatch: "var(--bg-2, #2b2d31)", cls: "hb-plain" },
   { id: "cork", label: "Cork", swatch: "#b9895a", cls: "hb-cork" },
   { id: "spit", label: "Llama green", swatch: "#7fc458", cls: "hb-cork hb-felt hb-felt-spit" },
   { id: "sky", label: "Sky", swatch: "#8ec9f0", cls: "hb-cork hb-felt hb-felt-sky" },
@@ -34,7 +35,6 @@ const STYLES = [
   { id: "sunset", label: "Sunset", swatch: "#f2a25b", cls: "hb-cork hb-felt hb-felt-sunset" },
   { id: "midnight", label: "Midnight", swatch: "#22335c", cls: "hb-cork hb-felt hb-felt-midnight" },
   { id: "chalkboard", label: "Chalkboard", swatch: "#233229", cls: "hb-chalkboard" },
-  { id: "plain", label: "Plain", swatch: "var(--bg-2, #2b2d31)", cls: "hb-plain" },
 ] as const;
 type BoardStyle = (typeof STYLES)[number]["id"];
 
@@ -43,7 +43,7 @@ function savedStyle(): BoardStyle {
     const v = localStorage.getItem("llamble.homeBoard");
     if (STYLES.some((x) => x.id === v)) return v as BoardStyle;
   } catch {}
-  return "cork";
+  return "plain";
 }
 
 const FILTER_TITLES: Record<string, string> = {

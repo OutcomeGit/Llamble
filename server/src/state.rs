@@ -214,7 +214,8 @@ impl AppState {
     pub async fn related_users(&self, user_id: &str) -> Vec<String> {
         sqlx::query_scalar(
             "SELECT DISTINCT m2.user_id FROM members m1 JOIN members m2 ON m1.guild_id = m2.guild_id WHERE m1.user_id = ?1
-             UNION SELECT DISTINCT d2.user_id FROM dm_members d1 JOIN dm_members d2 ON d1.channel_id = d2.channel_id WHERE d1.user_id = ?1",
+             UNION SELECT DISTINCT d2.user_id FROM dm_members d1 JOIN dm_members d2 ON d1.channel_id = d2.channel_id WHERE d1.user_id = ?1
+             UNION SELECT other_id FROM friends WHERE user_id = ?1 AND state = 'friend'",
         )
         .bind(user_id)
         .fetch_all(&self.db)
