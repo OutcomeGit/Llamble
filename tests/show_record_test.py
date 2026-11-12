@@ -93,7 +93,13 @@ assert "video" in kinds and "audio" in kinds and kinds["audio"]["codec_name"] ==
 assert (kinds["video"]["width"], kinds["video"]["height"]) == (1920, 1080), kinds["video"]
 frames = int(subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.strip())
 dec = subprocess.run(["ffmpeg", "-v", "error", "-i", "/tmp/show-rec.webm", "-f", "null", "-"], capture_output=True, text=True)
-if dec.stderr.strip():
+# ffmpeg 8 objects to one Opus packet at the end of browser-made WebM files (the browser's own
+# recorder trips it too); ignore exactly that, only when the reference file shows it as well
+QUIRK = "Error parsing Opus packet header."
+refdec = subprocess.run(["ffmpeg", "-v", "error", "-i", "/tmp/ref-mediarecorder.webm", "-map", "0:a", "-f", "null", "-"], capture_output=True, text=True).stderr
+errs = [l for l in dec.stderr.splitlines() if l.strip() and not (QUIRK in l and QUIRK in refdec)]
+print("decode check:", "clean" if not dec.stderr.strip() else f"only ffmpeg's known end-of-file Opus quirk ({len(dec.stderr.splitlines())} line)" if not errs else "ERRORS")
+if errs:
     pk = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts_time,size", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()
     small = [l for l in pk if int(l.split(",")[1] or 0) < 3]
     lastpk = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time,size,pos", "-of", "csv=p=0", "/tmp/show-rec.webm"], capture_output=True, text=True).stdout.splitlines()[-4:]
