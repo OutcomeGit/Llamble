@@ -1,3 +1,4 @@
+import { useGames } from "./games";
 import { startNativeSound, type NativeSound } from "./appsound";
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
@@ -718,6 +719,11 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
   const app = audio ? await startAppAudio(sourceId, mode === "all" ? "all" : "app") : null;
   await window.llambleNative?.setScreenSource({ id: sourceId, audio: audio && !app });
   const p = sharePreset(quality);
+  // a game: keep the frame rate steady (let sharpness give way first), tell the encoder it's
+  // motion, and give it more room; documents and desktops keep sharp text instead
+  const key = (id?: string) => (id || "").split(":").slice(0, 2).join(":");
+  const isGame = useGames.getState().list.some((g) => g.sourceId && key(g.sourceId) === key(sourceId));
+  if (isGame) p.bitrate = Math.round(p.bitrate * 1.4);
   // People with smaller screens or slower connections get a lighter copy: VP9 sends
   // layers inside one stream; H.264 (Chromebooks) sends separate smaller copies.
   const codec = await pickCodec("screen");
@@ -739,14 +745,14 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
           ? ({ echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, restrictOwnAudio: true } as any)
           : false,
         resolution: { width: p.width, height: p.height, frameRate: p.fps },
-        contentHint: p.fps >= 60 ? "motion" : "detail",
+        contentHint: isGame || p.fps >= 60 ? "motion" : "detail",
         selfBrowserSurface: "exclude",
         systemAudio: audio && !app ? "include" : "exclude",
       },
       // AV1/H.264 on the graphics card when it can, else VP9 (see encoder.ts)
       // shared sound goes out as stereo Opus at music quality, without the voice-call
       // tricks (DTX cuts "silence", RED doubles packets) that suit speech, not game audio
-      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: shareAudioBitrate() } },
+      { ...screenOpts, videoCodec: codec, backupCodec: needsBackup(codec), forceStereo: true, dtx: false, red: false, audioPreset: { maxBitrate: shareAudioBitrate() }, degradationPreference: isGame || p.fps >= 60 ? "maintain-framerate" : "maintain-resolution" },
     );
     if (app && room) {
       await room.localParticipant.publishTrack(new LocalAudioTrack(app.track, undefined, false), {
