@@ -486,10 +486,18 @@ class Recorder {
     const canWorker = typeof Worker !== "undefined" && typeof VideoEncoder !== "undefined" && typeof (globalThis as any).MediaStreamTrackProcessor !== "undefined";
     const pick = canWorker ? await pickVideoEncoder(w, h, this.fps, bitrate).catch(() => null) : null;
     if (this.stopped) return;
+    let worker: Worker | null = null;
     if (pick) {
+      try {
+        worker = new RecWorker();
+      } catch (e) {
+        console.warn("[llamble] recorder thread unavailable, recording the old way", e);
+      }
+    }
+    if (pick && worker) {
       const fps = pick.hardware ? this.fps : Math.min(30, this.fps);
-      const worker = new RecWorker();
       this.worker = worker;
+      worker.onerror = (e) => useRecorder.setState({ error: "Recording trouble: " + (e.message || "the recorder stopped") });
       let gotStopped: (b: Blob | null) => void = () => {};
       this.stoppedBlob = new Promise((r) => (gotStopped = r));
       worker.onmessage = (e) => {
