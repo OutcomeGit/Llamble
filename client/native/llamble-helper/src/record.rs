@@ -18,6 +18,7 @@
 #![cfg(windows)]
 
 use crate::audio;
+use crate::replay;
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -46,10 +47,12 @@ struct Opts {
     bpp: Option<f64>,
     codec: String,
     audio: Option<(String, u64)>,
+    /// instant replay: keep this many seconds in memory instead of writing a file
+    keep: Option<u64>,
 }
 
 fn parse(args: &[String]) -> Option<Opts> {
-    let mut o = Opts { out: args.first()?.clone(), window: None, point: None, fps: 60, bitrate: 40_000_000, bpp: None, codec: "auto".into(), audio: None };
+    let mut o = Opts { out: args.first()?.clone(), window: None, point: None, fps: 60, bitrate: 40_000_000, bpp: None, codec: "auto".into(), audio: None, keep: None };
     let mut i = 1;
     while i < args.len() {
         let v = args.get(i + 1).cloned().unwrap_or_default();
@@ -62,6 +65,7 @@ fn parse(args: &[String]) -> Option<Opts> {
             "--fps" => o.fps = v.parse().ok().filter(|f| (10..=240).contains(f))?,
             "--bitrate" => o.bitrate = v.parse().ok().filter(|b| (1_000_000..=200_000_000).contains(b))?,
             "--codec" => o.codec = v,
+            "--keep" => o.keep = v.parse().ok(),
             "--bpp" => o.bpp = v.parse().ok().filter(|b: &f64| (0.01..=2.0).contains(b)),
             "--audio" => {
                 let id = args.get(i + 2)?.parse().ok()?;
@@ -84,6 +88,19 @@ fn say(line: &str) {
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{line}");
     let _ = out.flush();
+}
+
+/// `llamble-helper replay (--window <hwnd> | --point <x>,<y>) [--keep 60] [same options as record]`:
+/// keeps the last seconds in memory; on stdin, `save <out.mp4> <seconds>` writes a clip
+/// (answers `saved <path> <seconds>`), `stop` ends.
+pub fn run_replay(args: &[String]) -> i32 {
+    let mut a = vec!["-".to_string()];
+    a.extend_from_slice(args);
+    if !a.iter().any(|x| x == "--keep") {
+        a.push("--keep".into());
+        a.push("60".into());
+    }
+    run(&a)
 }
 
 pub fn run(args: &[String]) -> i32 {
@@ -174,7 +191,7 @@ unsafe impl Send for Gpu {}
 unsafe impl Sync for Gpu {}
 
 /// Open the MP4 with the best encoder: AV1 or H.264 on the graphics card, else H.264 on the processor.
-unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with_audio: bool) -> Result<(Writer, bool)> {
+unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with_audio: bool, memory: Option<&replay::Buffer>) -> Result<(Writer, bool)> {
     let mut picks: Vec<(GUID, &'static str)> = vec![];
     if o.codec == "auto" || o.codec == "av1" {
         // (o.codec "cpu": H.264 on the processor, the fallback when the graphics card refuses)
@@ -187,7 +204,9 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
         if !gpu && sub == MFVideoFormat_AV1 {
             continue; // AV1 on the processor is far too slow to record with
         }
-        let _ = std::fs::remove_file(&o.out);
+        if memory.is_none() {
+            let _ = std::fs::remove_file(&o.out);
+        }
         let mut attrs = None;
         MFCreateAttributes(&mut attrs, 4)?;
         let attrs = attrs.unwrap();
@@ -198,8 +217,15 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
         }
         let path: Vec<u16> = o.out.encode_utf16().chain([0]).collect();
         let attempt = (|| -> Result<Writer> {
-            let sink = MFCreateSinkWriterFromURL(PCWSTR(path.as_ptr()), None, &attrs)?;
-            let video = sink.AddStream(&video_type(sub, w, h, o.fps, o.bitrate)?)?;
+            let (sink, video) = if let Some(buf) = memory {
+                // instant replay: a fragmented MP4 into memory (streams: 0 video, 1 sound)
+                let ms = MFCreateFMPEG4MediaSink(&buf.stream(), &video_type(sub, w, h, o.fps, o.bitrate)?, if with_audio { Some(audio_type(true)?) } else { None }.as_ref())?;
+                (MFCreateSinkWriterFromMediaSink(&ms, &attrs)?, 0u32)
+            } else {
+                let sink = MFCreateSinkWriterFromURL(PCWSTR(path.as_ptr()), None, &attrs)?;
+                let v = sink.AddStream(&video_type(sub, w, h, o.fps, o.bitrate)?)?;
+                (sink, v)
+            };
             sink.SetInputMediaType(video, &video_type(MFVideoFormat_ARGB32, w, h, o.fps, 0)?, None)?;
             // recording-grade settings: variable bitrate, quality over speed, a key frame every 2 s
             let mut api: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -208,10 +234,11 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
                 let _ = api.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(eAVEncCommonRateControlMode_UnconstrainedVBR.0 as u32));
                 let _ = api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(o.bitrate));
                 let _ = api.SetValue(&CODECAPI_AVEncCommonQualityVsSpeed, &VARIANT::from(70u32));
-                let _ = api.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(o.fps * 2));
+                // a key frame every 2 s (every second for replay, so a clip can start close to where you asked)
+                let _ = api.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(if memory.is_some() { o.fps } else { o.fps * 2 }));
             }
             let audio = if with_audio {
-                let a = sink.AddStream(&audio_type(true)?)?;
+                let a = if memory.is_some() { 1 } else { sink.AddStream(&audio_type(true)?)? };
                 sink.SetInputMediaType(a, &audio_type(false)?, None)?;
                 Some(a)
             } else {
@@ -262,7 +289,8 @@ unsafe fn record(o: Opts) -> Result<()> {
     let mgr = mgr.unwrap();
     mgr.ResetDevice(&device, token)?;
     let audio_target = o.audio.as_ref().and_then(|(m, id)| audio::target(m, *id));
-    let (wr, on_gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some())?;
+    let memory = o.keep.map(replay::Buffer::new);
+    let (wr, on_gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some(), memory.as_ref())?;
 
     // frames the encoder owns (it hands one back when it's done with it); same pixel format as
     // what Windows captures (BGRA), so they can be copied on the graphics card
@@ -441,12 +469,15 @@ unsafe fn record(o: Opts) -> Result<()> {
 
     // progress every second, until "stop" (or the app goes away)
     {
-        let (frames, dropped, stop, out) = (frames.clone(), dropped.clone(), stop.clone(), o.out.clone());
+        let (frames, dropped, stop, out, mem) = (frames.clone(), dropped.clone(), stop.clone(), o.out.clone(), memory.clone());
         let (arrived, last_error) = (arrived.clone(), last_error.clone());
         std::thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                let bytes = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+                let bytes = match &mem {
+                    Some(m) => m.held().1 as u64,
+                    None => std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0),
+                };
                 say(&format!("stat {} {} {bytes}", frames.swap(0, Ordering::Relaxed), dropped.swap(0, Ordering::Relaxed)));
                 // frames came from Windows but didn't make it into the file: say why
                 let a = arrived.swap(0, Ordering::Relaxed);
@@ -459,9 +490,27 @@ unsafe fn record(o: Opts) -> Result<()> {
     }
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
-        if line.map(|l| l.trim() == "stop").unwrap_or(true) {
+        let Ok(line) = line else { break };
+        let line = line.trim();
+        if line == "stop" {
             break;
         }
+        // replay: "save <path> <seconds>" (the path may have spaces; seconds is last)
+        if let (Some(m), Some(rest)) = (&memory, line.strip_prefix("save ")) {
+            let (path, secs) = rest.rsplit_once(' ').map(|(p, s)| (p, s.parse().unwrap_or(30))).unwrap_or((rest, 30));
+            match m.save(path, secs) {
+                Ok(got) => say(&format!("saved {got} {path}")),
+                Err(e) => say(&format!("error couldn't save the clip: {e}")),
+            }
+        }
+    }
+    if memory.is_some() {
+        // nothing to finish: what wasn't saved is let go
+        stop.store(true, Ordering::SeqCst);
+        let _ = session.Close();
+        let _ = pool.Close();
+        say("done");
+        return Ok(());
     }
     stop.store(true, Ordering::SeqCst);
     let _ = session.Close();

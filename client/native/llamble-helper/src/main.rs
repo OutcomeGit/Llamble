@@ -23,6 +23,8 @@ use std::io::{BufRead, Write};
 mod audio;
 #[cfg(windows)]
 mod record;
+#[cfg(windows)]
+mod replay;
 
 fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
@@ -41,6 +43,12 @@ fn esc(s: &str) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("replay") {
+        #[cfg(windows)]
+        std::process::exit(record::run_replay(&args[2..]));
+        #[cfg(not(windows))]
+        std::process::exit(2);
+    }
     if args.get(1).map(String::as_str) == Some("record") {
         #[cfg(windows)]
         std::process::exit(record::run(&args[2..]));

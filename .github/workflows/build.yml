@@ -150,6 +150,31 @@ jobs:
           $box = [System.Text.Encoding]::ASCII.GetString($bytes, 4, 4)
           Write-Host ("MP4: {0:N0} KB, first box '{1}'" -f ($bytes.Length / 1KB), $box)
           if ($box -ne "ftyp" -or $bytes.Length -lt 10000) { throw "not a proper MP4" }
+          python ..\..\..\tests\mp4_check.py $mp4
+      - name: Instant replay saves a clip
+        continue-on-error: true
+        working-directory: client/native/llamble-helper
+        shell: pwsh
+        run: |
+          $clip = Join-Path $env:RUNNER_TEMP "replay-clip.mp4"
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = (Resolve-Path .\target\release\llamble-helper.exe).Path
+          $psi.Arguments = "replay --point 20,20 --fps 30 --bpp 0.1 --keep 20 --audio except 4"
+          $psi.RedirectStandardInput = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.UseShellExecute = $false
+          $p = [System.Diagnostics.Process]::Start($psi)
+          $note = Start-Process notepad -PassThru
+          Start-Sleep -Seconds 8
+          $p.StandardInput.WriteLine("save $clip 5")
+          Start-Sleep -Seconds 2
+          $p.StandardInput.WriteLine("stop")
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "replay didn't stop" }
+          Stop-Process -Id $note.Id -ErrorAction SilentlyContinue
+          $out = $p.StandardOutput.ReadToEnd()
+          Write-Host $out
+          if ($out -notmatch "(?m)^saved") { throw "no clip saved" }
+          python ..\..\..\tests\mp4_check.py $clip --fragmented
       # every push gets its own version so installed apps auto-update to it
       - run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
       # create the release up front (as a draft) so parallel uploads don't race to create it
