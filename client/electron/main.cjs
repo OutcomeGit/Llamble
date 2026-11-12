@@ -166,6 +166,7 @@ function nativeRecStart(o) {
             const [codec, where, w, h, rate] = rest;
             resolve({ id, codec, gpu: where === "gpu", width: Number(w), height: Number(h), bitrate: Number(rate) || 0, sound: what });
           } else if (kind === "stat") send("native-rec-stat", { id, fps: Number(rest[0]), dropped: Number(rest[1]), bytes: Number(rest[2]) });
+          else if (kind === "warn") console.warn("[llamble] recorder:", rest.join(" "));
           else if (kind === "error") {
             const why = rest.join(" ");
             console.warn("[llamble] recorder:", why);

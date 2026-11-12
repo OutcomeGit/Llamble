@@ -268,6 +268,10 @@ unsafe fn record(o: Opts) -> Result<()> {
     let t0 = Arc::new(AtomicI64::new(-1)); // the first frame's time: zero in the file
     let frames = Arc::new(AtomicU32::new(0));
     let frames_total = Arc::new(AtomicU32::new(0));
+    // what happened to frames that didn't make it in (shown once a second, then cleared)
+    let arrived = Arc::new(AtomicU32::new(0));
+    let total_arrived = Arc::new(AtomicU32::new(0));
+    let last_error: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let dropped = Arc::new(AtomicU32::new(0));
     let frame_len = 10_000_000i64 / o.fps as i64;
     let heard = Arc::new(AtomicBool::new(false)); // any sound written yet?
@@ -280,12 +284,16 @@ unsafe fn record(o: Opts) -> Result<()> {
     let pool_size = Arc::new(Mutex::new(size));
     {
         let (writer, t0, frames, dropped, stop, frames_total) = (writer.clone(), t0.clone(), frames.clone(), dropped.clone(), stop.clone(), frames_total.clone());
+        let (arrived, last_error, total_arrived) = (arrived.clone(), last_error.clone(), total_arrived.clone());
         let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone() };
         let pool_size = pool_size.clone();
         let mut last = i64::MIN;
         pool.FrameArrived(&TypedEventHandler::<Direct3D11CaptureFramePool, windows::core::IInspectable>::new(move |p, _| {
             let gpu = &gpu; // the whole bundle (see Gpu), not its parts one by one
+            arrived.fetch_add(1, Ordering::Relaxed);
+            total_arrived.fetch_add(1, Ordering::SeqCst);
             let Some(p) = p.as_ref() else { return Ok(()) };
+            let res = (|| -> Result<()> {
             let frame = p.TryGetNextFrame()?;
             if stop.load(Ordering::Relaxed) {
                 return Ok(());
@@ -326,6 +334,11 @@ unsafe fn record(o: Opts) -> Result<()> {
             wr.sink.WriteSample(wr.video, &sample)?;
             frames.fetch_add(1, Ordering::Relaxed);
             frames_total.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+            })();
+            if let Err(e) = res {
+                *last_error.lock().unwrap() = format!("{e}");
+            }
             Ok(())
         }))?;
     }
@@ -371,11 +384,18 @@ unsafe fn record(o: Opts) -> Result<()> {
     // progress every second, until "stop" (or the app goes away)
     {
         let (frames, dropped, stop, out) = (frames.clone(), dropped.clone(), stop.clone(), o.out.clone());
+        let (arrived, last_error) = (arrived.clone(), last_error.clone());
         std::thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 let bytes = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
                 say(&format!("stat {} {} {bytes}", frames.swap(0, Ordering::Relaxed), dropped.swap(0, Ordering::Relaxed)));
+                // frames came from Windows but didn't make it into the file: say why
+                let a = arrived.swap(0, Ordering::Relaxed);
+                let e = std::mem::take(&mut *last_error.lock().unwrap());
+                if !e.is_empty() {
+                    say(&format!("warn {a} frames arrived; last problem: {e}"));
+                }
             }
         });
     }
@@ -399,7 +419,8 @@ unsafe fn record(o: Opts) -> Result<()> {
         }
     }
     if frames_total.load(Ordering::SeqCst) == 0 {
-        return Err(windows::core::Error::new(HRESULT(0x8000_4005u32 as i32), "nothing was captured (is the window minimised?)"));
+        let why = if total_arrived.load(Ordering::SeqCst) == 0 { "Windows sent no picture (is the window minimised, or is there no desktop?)" } else { "pictures arrived but none could be recorded" };
+        return Err(windows::core::Error::new(HRESULT(0x8000_4005u32 as i32), why));
     }
     wr.sink.Finalize()?;
     drop(wr);
