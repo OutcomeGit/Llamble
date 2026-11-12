@@ -370,8 +370,9 @@ export class CanvasRecorder {
     this.reader?.cancel().catch(() => {});
     try {
       if (this.venc?.state === "configured") await this.venc.flush();
-      if (this.aenc?.state === "configured") await this.aenc.flush();
     } catch {}
+    // the sound encoder's final flush can hand back a malformed padding packet in some
+    // engine versions; the last <20 ms of sound isn't worth a broken file, so just close it
     this.venc?.close();
     this.aenc?.close();
     return this.writer?.take(true) ?? null;
