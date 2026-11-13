@@ -150,14 +150,18 @@ unsafe fn video_type(subtype: GUID, w: u32, h: u32, fps: u32, bitrate: u32) -> R
     t.SetUINT64(&MF_MT_FRAME_SIZE, ((w as u64) << 32) | h as u64)?;
     t.SetUINT64(&MF_MT_FRAME_RATE, ((fps as u64) << 32) | 1)?;
     t.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
-    if subtype != MFVideoFormat_NV12 {
+    if subtype == MFVideoFormat_ARGB32 {
+        t.SetUINT32(&MF_MT_DEFAULT_STRIDE, w * 4)?; // rows top to bottom, as Windows captures them
+    } else if subtype != MFVideoFormat_NV12 {
         t.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
     }
-    // HD colours (BT.709, video range): what the converter makes and what players expect
-    t.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)?;
-    t.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)?;
-    t.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32)?;
-    t.SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709.0 as u32)?;
+    if subtype != MFVideoFormat_ARGB32 {
+        // HD colours (BT.709, video range): what the converter makes and what players expect
+        t.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)?;
+        t.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)?;
+        t.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32)?;
+        t.SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709.0 as u32)?;
+    }
     if subtype == MFVideoFormat_H264 {
         t.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High.0 as u32)?;
     }
@@ -197,16 +201,16 @@ struct Gpu {
     ctx: ID3D11DeviceContext,
     alloc: IMFVideoSampleAllocatorEx,
     rt_device: IDirect3DDevice,
-    conv: Mutex<convert::Converter>,
-    /// no encoder on the graphics card: frames are converted into `nv12` and read back
-    /// through `staging` into memory for the processor's encoder
+    conv: Option<Mutex<convert::Converter>>,
+    /// no encoder on the graphics card: frames are converted into the first texture (NV12, or
+    /// BGRA without a video processor) and read back through the second into memory
     cpu: Option<(ID3D11Texture2D, ID3D11Texture2D)>,
 }
 unsafe impl Send for Gpu {}
 unsafe impl Sync for Gpu {}
 
 /// Open the MP4 with the best encoder: AV1 or H.264 on the graphics card, else H.264 on the processor.
-unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with_audio: bool, memory: Option<&replay::Buffer>) -> Result<(Writer, bool)> {
+unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with_audio: bool, memory: Option<&replay::Buffer>, nv12: bool) -> Result<(Writer, bool)> {
     let mut picks: Vec<(GUID, &'static str)> = vec![];
     if o.codec == "auto" || o.codec == "av1" {
         // (o.codec "cpu": H.264 on the processor, the fallback when the graphics card refuses)
@@ -215,7 +219,8 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
     picks.push((MFVideoFormat_H264, "H.264"));
     let mut last = HRESULT(0x8000_4005u32 as i32).into();
     for (sub, name) in picks {
-        let gpu = o.codec != "cpu" && gpu_encoder(sub);
+        // no video processor on this PC: the processor's encoder, fed screen pixels as they are
+        let gpu = nv12 && o.codec != "cpu" && gpu_encoder(sub);
         if !gpu && sub == MFVideoFormat_AV1 {
             continue; // AV1 on the processor is far too slow to record with
         }
@@ -241,7 +246,7 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
                 let v = sink.AddStream(&video_type(sub, w, h, o.fps, o.bitrate)?)?;
                 (sink, v)
             };
-            sink.SetInputMediaType(video, &video_type(MFVideoFormat_NV12, w, h, o.fps, 0)?, None)?;
+            sink.SetInputMediaType(video, &video_type(if nv12 { MFVideoFormat_NV12 } else { MFVideoFormat_ARGB32 }, w, h, o.fps, 0)?, None)?;
             // recording-grade settings: variable bitrate, quality over speed, a key frame every 2 s
             let mut api: *mut core::ffi::c_void = std::ptr::null_mut();
             if sink.GetServiceForStream(video, &GUID::zeroed(), &ICodecAPI::IID, &mut api).is_ok() && !api.is_null() {
@@ -327,7 +332,17 @@ unsafe fn record(o: Opts) -> Result<()> {
     mgr.ResetDevice(&device, token)?;
     let audio_target = o.audio.as_ref().and_then(|(m, id)| audio::target(m, *id));
     let memory = o.keep.map(replay::Buffer::new);
-    let (wr, on_gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some(), memory.as_ref())?;
+    // the graphics card's video processor (scales and converts for its encoder); PCs without one
+    // (no graphics driver, some virtual machines) record plain screen pixels on the processor
+    let conv = match convert::Converter::new(&device, &ctx, w, h, o.fps) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            say(&format!("note no video processor ({e}); recording on the processor"));
+            None
+        }
+    };
+    let (w, h) = if conv.is_some() { (w, h) } else { (src_w & !1, src_h & !1) }; // can't scale without it
+    let (wr, on_gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some(), memory.as_ref(), conv.is_some())?;
 
     // frames the encoder owns (it hands one back when it's done with it)
     let mut alloc: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -365,9 +380,14 @@ unsafe fn record(o: Opts) -> Result<()> {
     {
         let (writer, t0, frames, dropped, stop, frames_total) = (writer.clone(), t0.clone(), frames.clone(), dropped.clone(), stop.clone(), frames_total.clone());
         let (arrived, last_error, total_arrived) = (arrived.clone(), last_error.clone(), total_arrived.clone());
-        let conv = convert::Converter::new(&device, &ctx, w, h, o.fps)?;
-        let cpu = if on_gpu { None } else { Some((conv.nv12_texture(false)?, conv.nv12_texture(true)?)) };
-        let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone(), conv: Mutex::new(conv), cpu };
+        let cpu = if on_gpu {
+            None
+        } else if let Some(c) = &conv {
+            Some((c.nv12_texture(false)?, c.nv12_texture(true)?))
+        } else {
+            Some((bgra_texture(&device, w, h, false)?, bgra_texture(&device, w, h, true)?))
+        };
+        let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone(), conv: conv.map(Mutex::new), cpu };
         let pool_size = pool_size.clone();
         let area_id = o.area; // (a plain number: window handles can't cross threads)
         let mut last = i64::MIN;
@@ -408,11 +428,18 @@ unsafe fn record(o: Opts) -> Result<()> {
                 // the processor encodes: convert on the graphics card, then read it into memory
                 last = t;
                 let wr = writer.lock().unwrap();
-                step("convert", gpu.conv.lock().unwrap().convert(&src, &region, nv12))?;
+                match &gpu.conv {
+                    Some(c) => step("convert", c.lock().unwrap().convert(&src, &region, nv12))?,
+                    None => {
+                        let b = D3D11_BOX { right: region.left + (region.right - region.left).min(w), bottom: region.top + (region.bottom - region.top).min(h), ..region };
+                        gpu.ctx.CopySubresourceRegion(nv12, 0, 0, 0, 0, &src, 0, Some(&b));
+                    }
+                }
                 gpu.ctx.CopyResource(staging, nv12);
                 let mut map = D3D11_MAPPED_SUBRESOURCE::default();
                 step("read frame", gpu.ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut map)))?;
-                let (row, rows) = (w as usize, (h + h / 2) as usize); // Y rows, then half as many UV rows
+                // NV12: Y rows, then half as many UV rows; BGRA: 4 bytes a pixel
+                let (row, rows) = if gpu.conv.is_some() { (w as usize, (h + h / 2) as usize) } else { (w as usize * 4, h as usize) };
                 let buf = MFCreateMemoryBuffer((row * rows) as u32)?;
                 let mut p = std::ptr::null_mut();
                 buf.Lock(&mut p, None, None)?;
@@ -443,7 +470,7 @@ unsafe fn record(o: Opts) -> Result<()> {
             step("encoder frame", sample.GetBufferByIndex(0).and_then(|b| b.cast::<IMFDXGIBuffer>()).and_then(|b| b.GetResource(&ID3D11Texture2D::IID, &mut dst)))?;
             let dst = ID3D11Texture2D::from_raw(dst);
             let wr = writer.lock().unwrap();
-            step("convert", gpu.conv.lock().unwrap().convert(&src, &region, &dst))?;
+            step("convert", gpu.conv.as_ref().unwrap().lock().unwrap().convert(&src, &region, &dst))?;
             let _ = t0.compare_exchange(-1, t, Ordering::SeqCst, Ordering::SeqCst);
             step("frame time", sample.SetSampleTime(t - t0.load(Ordering::SeqCst)).and_then(|_| sample.SetSampleDuration(frame_len)))?;
             step("encode", wr.sink.WriteSample(wr.video, &sample))?;
@@ -563,6 +590,24 @@ unsafe fn record(o: Opts) -> Result<()> {
     say("done");
     let _ = MFShutdown();
     Ok(())
+}
+
+unsafe fn bgra_texture(device: &ID3D11Device, w: u32, h: u32, staging: bool) -> Result<ID3D11Texture2D> {
+    let desc = D3D11_TEXTURE2D_DESC {
+        Width: w,
+        Height: h,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        Usage: if staging { D3D11_USAGE_STAGING } else { D3D11_USAGE_DEFAULT },
+        BindFlags: if staging { 0 } else { D3D11_BIND_RENDER_TARGET.0 as u32 },
+        CPUAccessFlags: if staging { D3D11_CPU_ACCESS_READ.0 as u32 } else { 0 },
+        MiscFlags: 0,
+    };
+    let mut t = None;
+    device.CreateTexture2D(&desc, None, Some(&mut t))?;
+    Ok(t.unwrap())
 }
 
 /// Where a window is on its monitor's captured picture (physical pixels), clipped to it.
