@@ -139,7 +139,7 @@ jobs:
           # something moving on screen while it records
           $note = Start-Process notepad -PassThru
           Start-Sleep -Seconds 6
-          $p.StandardInput.WriteLine("stop")
+          try { $p.StandardInput.WriteLine("stop") } catch { Write-Host "(it had already stopped)" }
           if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "the recorder didn't finish" }
           Stop-Process -Id $note.Id -ErrorAction SilentlyContinue
           $out = $p.StandardOutput.ReadToEnd()
@@ -166,9 +166,7 @@ jobs:
           $p = [System.Diagnostics.Process]::Start($psi)
           $note = Start-Process notepad -PassThru
           Start-Sleep -Seconds 8
-          $p.StandardInput.WriteLine("save $clip 5")
-          Start-Sleep -Seconds 2
-          $p.StandardInput.WriteLine("stop")
+          try { $p.StandardInput.WriteLine("save $clip 5"); Start-Sleep -Seconds 2; $p.StandardInput.WriteLine("stop") } catch { Write-Host "(it had already stopped)" }
           if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "replay didn't stop" }
           Stop-Process -Id $note.Id -ErrorAction SilentlyContinue
           $out = $p.StandardOutput.ReadToEnd()
