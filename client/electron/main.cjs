@@ -3,6 +3,11 @@ const {
   app, BrowserWindow, Tray, Menu, ipcMain, desktopCapturer, session,
   shell, globalShortcut, nativeImage, Notification, protocol,
 } = require("electron");
+
+// Screen and window sharing through Windows Graphics Capture (what OBS uses). The engine's older
+// window capture can't see windows drawn with Vulkan or DirectX 12 (games, Godot): they come out
+// gray or black. Must be set before the app is ready.
+if (process.platform === "win32") app.commandLine.appendSwitch("enable-features", "AllowWgcWindowCapturer,AllowWgcScreenCapturer,AllowWgcZeroHz");
 const path = require("path");
 const llm = require("./llm.cjs");
 
