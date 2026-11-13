@@ -169,3 +169,14 @@ tests/run_all.sh                         # every API suite against a fresh serve
 - Push notifications for phones (an Android app would reuse the web UI)
 - Bot in voice channels (whisper.cpp in, TTS out)
 - E2E encryption for DMs
+
+## Licence
+
+Llamble is **source-available**: free to use and to self-host, with the code public so anyone can
+check what it does. It's licensed under the [PolyForm Shield License 1.0.0](LICENSE.md), which
+doesn't allow using it to build or sell a competing service. [LICENSING.md](LICENSING.md) explains
+what's allowed in plain English. Packs, themes and games from the Llamble Store have their own terms.
+
+Third-party software and its licences: [client/src/legal/third-party-licenses.txt](client/src/legal/third-party-licenses.txt)
+(regenerate with `python3 tools/third_party_licenses.py` after changing dependencies).
+Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md).

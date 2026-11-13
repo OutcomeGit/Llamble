@@ -533,6 +533,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         { id: "aimodel", label: "AI Model", hidden: me.instance_role !== "master" },
         { id: "remote", label: "Remote Access", hidden: me.instance_role !== "master" },
         { id: "end-section", label: "", section: true },
+        { id: "about", label: "About" },
         { id: "logout", label: "Log Out", danger: true },
       ]}
     >
@@ -562,6 +563,7 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
           <VoiceAiAdmin />
         </div>
       )}
+      {tab === "about" && <About />}
       {tab === "logout" && (
         <div>
           <h2>Log out</h2>
@@ -571,6 +573,49 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
         </div>
       )}
     </SettingsFrame>
+  );
+}
+
+// Llamble's own licence and the third-party notices. Both texts are big, so they're loaded only
+// when opened (a separate chunk, which also works when the desktop app runs from its files).
+function About() {
+  const [doc, setDoc] = useState<{ title: string; text: string } | null>(null);
+  const open = async (which: "license" | "third") => {
+    const m = which === "license" ? await import("../legal/license.txt?raw") : await import("../legal/third-party-licenses.txt?raw");
+    setDoc({ title: which === "license" ? "Llamble's licence" : "Third-party software", text: m.default });
+  };
+  return (
+    <div>
+      <h2>About Llamble</h2>
+      <p>
+        <b>Version</b> {__APP_VERSION__}
+      </p>
+      <p className="muted small">
+        Free to use and to run on your own server. The code is public so anyone can check what it does, under the PolyForm Shield
+        licence: you can't use it to build or sell a rival service. Packs, themes and games from the store have their own terms.
+      </p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button className="btn" onClick={() => open("license")}>
+          Licence (plain English + full text)
+        </button>
+        <button className="btn" onClick={() => open("third")}>
+          Third-party software
+        </button>
+      </div>
+      {doc && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0 }}>{doc.title}</h3>
+            <button className="btn" onClick={() => setDoc(null)}>
+              Close
+            </button>
+          </div>
+          <pre className="small" style={{ whiteSpace: "pre-wrap", maxHeight: "60vh", overflow: "auto", marginTop: 8, padding: 12, background: "var(--bg-2, rgba(0,0,0,.2))", borderRadius: 8 }}>
+            {doc.text}
+          </pre>
+        </div>
+      )}
+    </div>
   );
 }
 
