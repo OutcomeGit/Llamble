@@ -1,6 +1,6 @@
 # Llamble Games: SDK, packages and sessions
 
-Status: proposed design, Nov 9. It covers how games are packaged, how they run inside Llamble, how players in a session talk to each other, and how this ties into kid accounts, seats and the store (see ROADMAP → "Store and purchases").
+Status: proposed design, Nov 9. It covers how games are packaged, how they run inside Llamble, how players in a session talk to each other, and how this ties into kid accounts, seats and the store (see the store design).
 
 The first title will be **Page Terrace Shuffleboard**, a Three.js browser game. It already runs its whole game room inside the host's browser, so it needs no game code on the Llamble server.
 
@@ -68,7 +68,7 @@ llamble-game.sig       store signature (optional; free/unsigned packages are all
   - `Access-Control-Allow-Origin: *`, because sandboxed frames have an opaque origin and module scripts need CORS.
   - `Content-Security-Policy: default-src 'self' blob: data:; connect-src 'none'; frame-ancestors <app origin>`. **No network access.** All networking goes through the SDK.
   - `Cache-Control: public, max-age=31536000, immutable`, which is safe because paths include the version.
-- A game shown in a server's Games list but **not hosted** by the instance downloads from the store's file host instead (see ROADMAP "hosting"). The client checks the same file hashes either way.
+- A game shown in a server's Games list but **not hosted** by the instance downloads from the store's file host instead (admins choose what their instance hosts). The client checks the same file hashes either way.
 
 ### The frame
 ```html
@@ -180,7 +180,7 @@ The app enforces all of this. Games can't get around it.
 - **Quiet hours:** fire `pause` with reason `quiet-hours`, then `end` after 2 minutes.
 - **Guardian view:** guardians can see the kid's game history (game, when, who with, results) next to their chat logs. Game messages are not logged; they're game data, not chat.
 - **AI:** `ai.chat` for a kid always uses the kid-safe bot settings. Guardians can turn it off per kid.
-- **Purchases:** kids have no store accounts (ROADMAP). Getting a game needs a parent to buy or gift it.
+- **Purchases:** kids have no store accounts. Getting a game needs a parent to buy or gift it.
 
 ## 8. Seats and licenses (the store tie-in)
 
@@ -191,7 +191,7 @@ All of this is done by the **client app and the instance**. The game itself neve
   2. a free game (`price: 0` in the catalog, or any unsigned package the instance admin allowed), or
   3. a **seat** from that server's seat pack (type C).
 - **Seat lease:** the instance gives out a seat lease of **5 minutes**. The client renews it every **2 minutes** (`game_heartbeat`). A crashed app or a lost connection frees the seat within 5 minutes.
-- **No seat free:** the person sees a "waiting for a seat" message and gets pinged when one frees up (ROADMAP).
+- **No seat free:** the person sees a "waiting for a seat" message and gets pinged when one frees up.
 - **Spectating** never needs a seat.
 
 ## 9. Server changes (Rust)
@@ -232,7 +232,7 @@ seat_leases(pack_id, user_id, session_id, expires_at)
 
 ## 10. Client changes (React/Electron)
 
-1. **Games home** (ROADMAP Home → 🎮 Games): your games, what's listed in this server, who's playing right now, and Start.
+1. **Games home** (Home → 🎮 Games): your games, what's listed in this server, who's playing right now, and Start.
 2. **Launch sheet:** pick the channel, invite people or a party, play or spectate.
 3. **Game frame:** opens docked over the channel or fullscreen. The voice channel stays live underneath. It holds the `postMessage` bridge, enforces permissions and rate limits, and checks file hashes.
 4. **Join chips:** shown on channels and in member lists.
@@ -323,11 +323,11 @@ A native `.exe` can't be sandboxed the way a web game is: it has the same reach 
 
 ### Size and delivery
 - Native games can be many GB. The package format adds per-chunk hashes (4 MB chunks) so downloads resume and updates only fetch changed chunks.
-- **Instance hosting is a big win here:** the NAS downloads once, then everyone on the LAN installs at local speed. Admins choose which games to host (ROADMAP "hosting").
+- **Instance hosting is a big win here:** the NAS downloads once, then everyone on the LAN installs at local speed. Admins choose which games to host.
 - Store listings show the platform ("Windows app only") so web and Android users aren't surprised.
 
 ### Licensing
-- Native titles check their license through the app: the SDK gives `ll.license()` → `{ owned, seat }`, and Level 1 is enforced by the launcher. As with anything on a player's PC, a determined person can crack it (ROADMAP: the value is the content and the convenience).
+- Native titles check their license through the app: the SDK gives `ll.license()` → `{ owned, seat }`, and Level 1 is enforced by the launcher. As with anything on a player's PC, a determined person can crack it (the value is the content and the convenience).
 - Engine royalties (for example Unreal's) are between the developer and the engine maker. Llamble is just a store.
 
 ## 13. Developer kit
