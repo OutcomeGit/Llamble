@@ -18,6 +18,7 @@
 #![cfg(windows)]
 
 use crate::audio;
+use crate::convert;
 use crate::replay;
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
@@ -27,11 +28,14 @@ use windows::Foundation::TypedEventHandler;
 use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
-use windows::Win32::Foundation::{HMODULE, HWND, POINT};
+use windows::Win32::Foundation::{HMODULE, HWND, POINT, RECT};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use windows::Win32::UI::WindowsAndMessaging::IsIconic;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_MULTITHREADED};
 use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
@@ -40,7 +44,11 @@ use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemIntero
 struct Opts {
     out: String,
     window: Option<u64>,
+    /// a window and everything shown on top of it (its monitor, cut to the window's area)
+    area: Option<u64>,
     point: Option<(i32, i32)>,
+    /// recording height (width follows the shape); none = the captured size
+    height: Option<u32>,
     fps: u32,
     bitrate: u32,
     /// bits per pixel per frame: when given, the bitrate follows the captured size
@@ -52,12 +60,14 @@ struct Opts {
 }
 
 fn parse(args: &[String]) -> Option<Opts> {
-    let mut o = Opts { out: args.first()?.clone(), window: None, point: None, fps: 60, bitrate: 40_000_000, bpp: None, codec: "auto".into(), audio: None, keep: None };
+    let mut o = Opts { out: args.first()?.clone(), window: None, area: None, point: None, height: None, fps: 60, bitrate: 40_000_000, bpp: None, codec: "auto".into(), audio: None, keep: None };
     let mut i = 1;
     while i < args.len() {
         let v = args.get(i + 1).cloned().unwrap_or_default();
         match args[i].as_str() {
             "--window" => o.window = v.parse().ok(),
+            "--area" => o.area = v.parse().ok(),
+            "--height" => o.height = v.parse().ok().filter(|h| (240..=4320).contains(h)),
             "--point" => {
                 let (x, y) = v.split_once(',')?;
                 o.point = Some((x.trim().parse().ok()?, y.trim().parse().ok()?));
@@ -76,7 +86,7 @@ fn parse(args: &[String]) -> Option<Opts> {
         }
         i += 2;
     }
-    (o.window.is_some() || o.point.is_some()).then_some(o)
+    (o.window.is_some() || o.area.is_some() || o.point.is_some()).then_some(o)
 }
 
 /// Name the step in an error, so a report says which call refused.
@@ -140,11 +150,14 @@ unsafe fn video_type(subtype: GUID, w: u32, h: u32, fps: u32, bitrate: u32) -> R
     t.SetUINT64(&MF_MT_FRAME_SIZE, ((w as u64) << 32) | h as u64)?;
     t.SetUINT64(&MF_MT_FRAME_RATE, ((fps as u64) << 32) | 1)?;
     t.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
-    if subtype != MFVideoFormat_ARGB32 {
+    if subtype != MFVideoFormat_NV12 {
         t.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
-    } else {
-        t.SetUINT32(&MF_MT_DEFAULT_STRIDE, w * 4)?; // rows top to bottom, as Windows captures them
     }
+    // HD colours (BT.709, video range): what the converter makes and what players expect
+    t.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)?;
+    t.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)?;
+    t.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32)?;
+    t.SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709.0 as u32)?;
     if subtype == MFVideoFormat_H264 {
         t.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High.0 as u32)?;
     }
@@ -184,8 +197,10 @@ struct Gpu {
     ctx: ID3D11DeviceContext,
     alloc: IMFVideoSampleAllocatorEx,
     rt_device: IDirect3DDevice,
-    /// no encoder on the graphics card: frames are read back into memory for the processor's encoder
-    staging: Option<ID3D11Texture2D>,
+    conv: Mutex<convert::Converter>,
+    /// no encoder on the graphics card: frames are converted into `nv12` and read back
+    /// through `staging` into memory for the processor's encoder
+    cpu: Option<(ID3D11Texture2D, ID3D11Texture2D)>,
 }
 unsafe impl Send for Gpu {}
 unsafe impl Sync for Gpu {}
@@ -226,7 +241,7 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
                 let v = sink.AddStream(&video_type(sub, w, h, o.fps, o.bitrate)?)?;
                 (sink, v)
             };
-            sink.SetInputMediaType(video, &video_type(MFVideoFormat_ARGB32, w, h, o.fps, 0)?, None)?;
+            sink.SetInputMediaType(video, &video_type(MFVideoFormat_NV12, w, h, o.fps, 0)?, None)?;
             // recording-grade settings: variable bitrate, quality over speed, a key frame every 2 s
             let mut api: *mut core::ffi::c_void = std::ptr::null_mut();
             if sink.GetServiceForStream(video, &GUID::zeroed(), &ICodecAPI::IID, &mut api).is_ok() && !api.is_null() {
@@ -257,6 +272,8 @@ unsafe fn open_writer(o: &Opts, mgr: &IMFDXGIDeviceManager, w: u32, h: u32, with
 
 unsafe fn record(o: Opts) -> Result<()> {
     CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
+    // real pixels everywhere (window and monitor positions match what's captured)
+    let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     MFStartup(MF_VERSION, MFSTARTUP_FULL)?;
 
     // the graphics card
@@ -269,15 +286,35 @@ unsafe fn record(o: Opts) -> Result<()> {
     let rt_device: IDirect3DDevice = CreateDirect3D11DeviceFromDXGIDevice(&device.cast::<IDXGIDevice>()?)?.cast()?;
 
     // what to capture
+    // a window that shows other windows on top of itself (Godot's running game): its area instead
+    let mut o = o;
+    if let Some(h) = o.window {
+        if crate::area::covers(HWND(h as usize as *mut _)) {
+            o.area = Some(h);
+            o.window = None;
+            say("note capturing the window's area: it shows another window on top of itself");
+        }
+    }
     let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
-    let item: GraphicsCaptureItem = match (o.window, o.point) {
-        (Some(hwnd), _) => interop.CreateForWindow(HWND(hwnd as usize as *mut _))?,
-        (None, Some((x, y))) => interop.CreateForMonitor(MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST))?,
+    let item: GraphicsCaptureItem = match (o.window, o.area, o.point) {
+        (Some(hwnd), _, _) => interop.CreateForWindow(HWND(hwnd as usize as *mut _))?,
+        (None, Some(hwnd), _) => interop.CreateForMonitor(MonitorFromWindow(HWND(hwnd as usize as *mut _), MONITOR_DEFAULTTONEAREST))?,
+        (None, None, Some((x, y))) => interop.CreateForMonitor(MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST))?,
         _ => unreachable!(),
     };
     let size = item.Size()?;
-    let (w, h) = ((size.Width.max(2) as u32) & !1, (size.Height.max(2) as u32) & !1);
-    let mut o = o;
+    // what we're actually after: the whole item, or (area mode) the window's part of its monitor
+    let area = o.area.map(|h| HWND(h as usize as *mut _));
+    let (src_w, src_h) = match area.and_then(|hw| window_region(hw, size)) {
+        Some(b) => (b.right - b.left, b.bottom - b.top),
+        None => (size.Width.max(2) as u32, size.Height.max(2) as u32),
+    };
+    // the recording's size: as captured, or the chosen height with the same shape
+    let (w, h) = match o.height {
+        Some(oh) if oh < src_h || oh > src_h => (((src_w as f64 * oh as f64 / src_h as f64).round() as u32) & !1, oh & !1),
+        _ => (src_w & !1, src_h & !1),
+    };
+    let (w, h) = (w.max(2), h.max(2));
     if let Some(bpp) = o.bpp {
         o.bitrate = ((w as f64 * h as f64 * o.fps as f64 * bpp) as u32).clamp(4_000_000, 150_000_000);
     }
@@ -292,8 +329,7 @@ unsafe fn record(o: Opts) -> Result<()> {
     let memory = o.keep.map(replay::Buffer::new);
     let (wr, on_gpu) = open_writer(&o, &mgr, w, h, audio_target.is_some(), memory.as_ref())?;
 
-    // frames the encoder owns (it hands one back when it's done with it); same pixel format as
-    // what Windows captures (BGRA), so they can be copied on the graphics card
+    // frames the encoder owns (it hands one back when it's done with it)
     let mut alloc: *mut core::ffi::c_void = std::ptr::null_mut();
     MFCreateVideoSampleAllocatorEx(&IMFVideoSampleAllocatorEx::IID, &mut alloc)?;
     let alloc = IMFVideoSampleAllocatorEx::from_raw(alloc);
@@ -301,8 +337,11 @@ unsafe fn record(o: Opts) -> Result<()> {
     let mut aattrs = None;
     MFCreateAttributes(&mut aattrs, 2)?;
     let aattrs = aattrs.unwrap();
-    aattrs.SetUINT32(&MF_SA_D3D11_BINDFLAGS, (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32)?;
-    alloc.InitializeSampleAllocatorEx(4, 16, &aattrs, &video_type(MFVideoFormat_ARGB32, w, h, o.fps, 0)?)?;
+    // NV12 frames the converter paints into and the encoder reads
+    aattrs.SetUINT32(&MF_SA_D3D11_BINDFLAGS, (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_VIDEO_ENCODER.0) as u32)?;
+    if on_gpu {
+        alloc.InitializeSampleAllocatorEx(4, 16, &aattrs, &video_type(MFVideoFormat_NV12, w, h, o.fps, 0)?)?;
+    }
 
     let writer = Arc::new(Mutex::new(wr));
     let stop = Arc::new(AtomicBool::new(false));
@@ -326,27 +365,11 @@ unsafe fn record(o: Opts) -> Result<()> {
     {
         let (writer, t0, frames, dropped, stop, frames_total) = (writer.clone(), t0.clone(), frames.clone(), dropped.clone(), stop.clone(), frames_total.clone());
         let (arrived, last_error, total_arrived) = (arrived.clone(), last_error.clone(), total_arrived.clone());
-        let staging = if on_gpu {
-            None
-        } else {
-            let desc = D3D11_TEXTURE2D_DESC {
-                Width: w,
-                Height: h,
-                MipLevels: 1,
-                ArraySize: 1,
-                Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
-                SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-                Usage: D3D11_USAGE_STAGING,
-                BindFlags: 0,
-                CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-                MiscFlags: 0,
-            };
-            let mut t = None;
-            device.CreateTexture2D(&desc, None, Some(&mut t))?;
-            t
-        };
-        let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone(), staging };
+        let conv = convert::Converter::new(&device, &ctx, w, h, o.fps)?;
+        let cpu = if on_gpu { None } else { Some((conv.nv12_texture(false)?, conv.nv12_texture(true)?)) };
+        let gpu = Gpu { ctx: ctx.clone(), alloc: alloc.clone(), rt_device: rt_device.clone(), conv: Mutex::new(conv), cpu };
         let pool_size = pool_size.clone();
+        let area_id = o.area; // (a plain number: window handles can't cross threads)
         let mut last = i64::MIN;
         pool.FrameArrived(&TypedEventHandler::<Direct3D11CaptureFramePool, windows::core::IInspectable>::new(move |p, _| {
             let gpu = &gpu; // the whole bundle (see Gpu), not its parts one by one
@@ -373,26 +396,32 @@ unsafe fn record(o: Opts) -> Result<()> {
                 return Ok(());
             }
             let src: ID3D11Texture2D = step("frame texture", frame.Surface().and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>()).and_then(|a| a.GetInterface()))?;
-            let cw = (content.Width.max(0) as u32).min(w);
-            let ch = (content.Height.max(0) as u32).min(h);
-            let region = D3D11_BOX { left: 0, top: 0, front: 0, right: cw, bottom: ch, back: 1 };
-            if let Some(staging) = &gpu.staging {
-                // the processor encodes: read the picture back into memory
+            // the part we want: everything, or (area mode) where the window is right now
+            let region = match area_id.map(|h| HWND(h as usize as *mut _)) {
+                Some(hw) => match window_region(hw, content) {
+                    Some(b) => b,
+                    None => return Ok(()), // minimised or off this screen: skip
+                },
+                None => D3D11_BOX { left: 0, top: 0, front: 0, right: content.Width.max(2) as u32, bottom: content.Height.max(2) as u32, back: 1 },
+            };
+            if let Some((nv12, staging)) = &gpu.cpu {
+                // the processor encodes: convert on the graphics card, then read it into memory
                 last = t;
                 let wr = writer.lock().unwrap();
-                gpu.ctx.CopySubresourceRegion(staging, 0, 0, 0, 0, &src, 0, Some(&region));
+                step("convert", gpu.conv.lock().unwrap().convert(&src, &region, nv12))?;
+                gpu.ctx.CopyResource(staging, nv12);
                 let mut map = D3D11_MAPPED_SUBRESOURCE::default();
                 step("read frame", gpu.ctx.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut map)))?;
-                let row = (w * 4) as usize;
-                let buf = MFCreateMemoryBuffer(row as u32 * h)?;
+                let (row, rows) = (w as usize, (h + h / 2) as usize); // Y rows, then half as many UV rows
+                let buf = MFCreateMemoryBuffer((row * rows) as u32)?;
                 let mut p = std::ptr::null_mut();
                 buf.Lock(&mut p, None, None)?;
-                for y in 0..h as usize {
+                for y in 0..rows {
                     std::ptr::copy_nonoverlapping((map.pData as *const u8).add(y * map.RowPitch as usize), p.add(y * row), row);
                 }
                 buf.Unlock()?;
                 gpu.ctx.Unmap(staging, 0);
-                buf.SetCurrentLength(row as u32 * h)?;
+                buf.SetCurrentLength((row * rows) as u32)?;
                 let sample = MFCreateSample()?;
                 sample.AddBuffer(&buf)?;
                 let _ = t0.compare_exchange(-1, t, Ordering::SeqCst, Ordering::SeqCst);
@@ -414,7 +443,7 @@ unsafe fn record(o: Opts) -> Result<()> {
             step("encoder frame", sample.GetBufferByIndex(0).and_then(|b| b.cast::<IMFDXGIBuffer>()).and_then(|b| b.GetResource(&ID3D11Texture2D::IID, &mut dst)))?;
             let dst = ID3D11Texture2D::from_raw(dst);
             let wr = writer.lock().unwrap();
-            gpu.ctx.CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, 0, Some(&region));
+            step("convert", gpu.conv.lock().unwrap().convert(&src, &region, &dst))?;
             let _ = t0.compare_exchange(-1, t, Ordering::SeqCst, Ordering::SeqCst);
             step("frame time", sample.SetSampleTime(t - t0.load(Ordering::SeqCst)).and_then(|_| sample.SetSampleDuration(frame_len)))?;
             step("encode", wr.sink.WriteSample(wr.video, &sample))?;
@@ -534,6 +563,25 @@ unsafe fn record(o: Opts) -> Result<()> {
     say("done");
     let _ = MFShutdown();
     Ok(())
+}
+
+/// Where a window is on its monitor's captured picture (physical pixels), clipped to it.
+/// None when it's minimised or not on that monitor.
+unsafe fn window_region(hwnd: HWND, frame: windows::Graphics::SizeInt32) -> Option<D3D11_BOX> {
+    if IsIconic(hwnd).as_bool() {
+        return None;
+    }
+    let mut r = RECT::default();
+    DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as *mut _, std::mem::size_of::<RECT>() as u32).ok()?;
+    let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    GetMonitorInfoW(mon, &mut mi).ok().ok()?;
+    let (ox, oy) = (mi.rcMonitor.left, mi.rcMonitor.top);
+    let l = (r.left - ox).clamp(0, frame.Width);
+    let t = (r.top - oy).clamp(0, frame.Height);
+    let rr = (r.right - ox).clamp(0, frame.Width);
+    let b = (r.bottom - oy).clamp(0, frame.Height);
+    (rr - l >= 16 && b - t >= 16).then_some(D3D11_BOX { left: l as u32, top: t as u32, front: 0, right: rr as u32, bottom: b as u32, back: 1 })
 }
 
 fn wr_name(w: &Arc<Mutex<Writer>>) -> &'static str {

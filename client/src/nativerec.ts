@@ -40,7 +40,10 @@ export function pickRecording() {
 
 let off: (() => void) | null = null;
 
-export async function startRecording(sourceId: string, fps: 30 | 60, quality: RecQuality, sound: "app" | "all" | "off", title = "") {
+/** Recording size: the height (width follows the shape), or 0 for exactly what's captured. */
+export type RecSize = 0 | 1080 | 1440 | 2160;
+
+export async function startRecording(sourceId: string, fps: 30 | 60, quality: RecQuality, sound: "app" | "all" | "off", size: RecSize = 0, title = "") {
   const n = window.llambleNative?.nativeRec;
   if (!n || useNativeRec.getState().active) return;
   const id = "clip-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -56,7 +59,7 @@ export async function startRecording(sourceId: string, fps: 30 | 60, quality: Re
       toast(v.ok ? "Recording saved — it's in Library → Recordings" : "The recording stopped unexpectedly; what was recorded is in Library → Recordings", v.ok ? "info" : "error");
     }
   });
-  const r = await n.start({ id, sourceId, fps, bpp: recBpp(quality, fps), sound, title });
+  const r = await n.start({ id, sourceId, fps, bpp: recBpp(quality, fps), sound, height: size || undefined, title });
   if ("error" in r) {
     useNativeRec.setState({ error: r.error });
     toast("Couldn't start recording: " + r.error, "error");

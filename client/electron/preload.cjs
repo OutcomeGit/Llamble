@@ -19,6 +19,16 @@ contextBridge.exposeInMainWorld("llambleNative", {
       };
     },
   },
+  // sharing a window's area of the screen (when it shows another window on top of itself)
+  shareArea: {
+    start: (sourceId) => ipcRenderer.invoke("share-area-start", sourceId),
+    stop: () => ipcRenderer.invoke("share-area-stop"),
+    on: (cb) => {
+      const h = (_e, v) => cb(v);
+      ipcRenderer.on("share-area", h);
+      return () => ipcRenderer.removeListener("share-area", h);
+    },
+  },
   // native recording (Windows): the helper records a window/screen on the graphics card to MP4
   nativeRec: {
     start: (o) => ipcRenderer.invoke("native-rec-start", o),

@@ -1,4 +1,5 @@
 import { useGames } from "./games";
+import { areaFor, cropToWindow, stopArea } from "./sharearea";
 import { startNativeSound, type NativeSound } from "./appsound";
 import {
   AudioPresets, ConnectionState, DisconnectReason, LocalParticipant, Participant, RemoteParticipant, RemoteTrack,
@@ -717,7 +718,10 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
   if (isAndroidApp) return startPhoneShare(quality);
   // Windows: take just the shared program's sound (or the game's) instead of the whole PC's
   const app = audio ? await startAppAudio(sourceId, mode === "all" ? "all" : "app") : null;
-  await window.llambleNative?.setScreenSource({ id: sourceId, audio: audio && !app });
+  // a window that shows another window on top of itself (Godot's running game): share the
+  // screen it's on, cropped to it (the sound still comes from the window's program)
+  const areaScreen = await areaFor(sourceId);
+  await window.llambleNative?.setScreenSource({ id: areaScreen ?? sourceId, audio: audio && !app });
   const p = sharePreset(quality);
   // a game: keep the frame rate steady (let sharpness give way first), tell the encoder it's
   // motion, and give it more room; documents and desktops keep sharp text instead
@@ -764,6 +768,10 @@ export async function startScreenShare(sourceId: string, sound: boolean | ShareS
       });
       appSound = app;
     } else app?.stop();
+    if (areaScreen) {
+      const vt = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined;
+      if (vt) await cropToWindow(vt).catch((e) => console.warn("[llamble] couldn't crop to the window", e));
+    }
     watchEncoder("screen", codec);
     vset({ screen: true, pickerOpen: false, shareSound: app?.what ?? (audio ? "pc" : null) });
     const t = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
@@ -914,6 +922,7 @@ export async function stopScreenShare() {
     appSound = null;
   }
   await room.localParticipant.setScreenShareEnabled(false).catch(() => {});
+  stopArea();
   vset({ screen: false, shareSound: null });
   useEncoder.setState({ screen: undefined });
   syncServerState();

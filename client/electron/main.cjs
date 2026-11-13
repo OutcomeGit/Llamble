@@ -112,6 +112,8 @@ async function captureArgs(sourceId, sound) {
   const args = [];
   const win32 = /^window:(\d+):/.exec(String(sourceId || ""));
   if (win32) {
+    // (the helper itself switches to the window's area of the screen when the window shows
+    // another window on top of itself, like Godot's running game)
     args.push("--window", win32[1]);
   } else {
     // a whole screen: find it by a point in its middle, in real pixels
@@ -152,7 +154,8 @@ function nativeRecStart(o) {
   const bpp = Math.max(0.03, Math.min(1, Number(o.bpp) || 0.2)); // bits per pixel per frame
   return (async () => {
     await fsp.mkdir(recDir(), { recursive: true });
-    const args = ["record", file, "--fps", String(fps), "--bpp", String(bpp), "--codec", o.codec === "h264" || o.codec === "cpu" ? o.codec : "auto"];
+    const height = [1080, 1440, 2160].includes(Number(o.height)) ? ["--height", String(o.height)] : [];
+    const args = ["record", file, ...height, "--fps", String(fps), "--bpp", String(bpp), "--codec", o.codec === "h264" || o.codec === "cpu" ? o.codec : "auto"];
     const cap = await captureArgs(o.sourceId, o.sound);
     args.push(...cap.args);
     const what = cap.what;
@@ -234,6 +237,69 @@ async function nativeRecStop() {
 }
 ipcMain.handle("native-rec-start", (_e, o) => nativeRecStart(o || {}));
 ipcMain.handle("native-rec-stop", () => nativeRecStop());
+
+// ---- sharing a window that shows another window on top of itself (Godot's running game) ----
+// Window capture leaves the top window out, so instead: share the screen it's on and crop to
+// where the window is, following it as it moves (the page does the cropping).
+let areaTrack = null;
+function helperOnce(args) {
+  return new Promise((resolve) => {
+    const exe = process.platform === "win32" && require("./helper.cjs").exePath();
+    if (!exe) return resolve("");
+    require("child_process").execFile(exe, args, { windowsHide: true, timeout: 5000 }, (_e, out) => resolve(String(out || "").trim()));
+  });
+}
+async function shareArea(sourceId) {
+  const m = /^window:(\d+):/.exec(String(sourceId || ""));
+  if (!m || (await helperOnce(["covers", m[1]])) !== "yes") return null;
+  // the screen it's on
+  const { screen } = require("electron");
+  const srcs = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
+  const exe = require("./helper.cjs").exePath();
+  if (areaTrack) try { areaTrack.kill(); } catch {}
+  const p = require("child_process").spawn(exe, ["track", m[1]], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  areaTrack = p;
+  let screenId = null;
+  let buf = "";
+  const first = new Promise((resolve) => {
+    p.stdout.setEncoding("utf8");
+    p.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        const v = line.split(" ");
+        if (v[0] === "rect") {
+          const [l, t, r, b, mw, mh] = v.slice(1).map(Number);
+          if (!screenId) {
+            // which screen: the display whose real-pixel size matches and that holds the window
+            const disp = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+            const byId = (d) => srcs.find((s) => String(s.display_id) === String(d.id));
+            const all = screen.getAllDisplays();
+            const match = all.find((d) => Math.round(d.size.width * d.scaleFactor) === mw && Math.round(d.size.height * d.scaleFactor) === mh) || disp;
+            screenId = (byId(match) || srcs[0] || {}).id || null;
+            resolve(screenId);
+          }
+          if (win && !win.isDestroyed()) win.webContents.send("share-area", { left: l, top: t, right: r, bottom: b, mw, mh });
+        } else if (v[0] === "gone" && win && !win.isDestroyed()) win.webContents.send("share-area", { gone: true });
+      }
+    });
+    p.on("exit", () => resolve(null));
+    setTimeout(() => resolve(null), 4000);
+  });
+  const id = await first;
+  if (!id) {
+    try { p.kill(); } catch {}
+    return null;
+  }
+  return { screenId: id };
+}
+ipcMain.handle("share-area-start", (_e, sourceId) => shareArea(sourceId));
+ipcMain.handle("share-area-stop", () => {
+  if (areaTrack) try { areaTrack.stdin.end(); areaTrack.kill(); } catch {}
+  areaTrack = null;
+});
 // ---- instant replay: the helper keeps the last N seconds of your game (or main screen) in
 // memory, encoded on the graphics card; Alt+F10 (or the buttons) saves it as a clip. Off unless
 // turned on in Settings. Follows the game: when one starts or quits, it switches to it. ----

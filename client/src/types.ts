@@ -291,8 +291,13 @@ declare global {
       getScreenSources: () => Promise<{ id: string; name: string; kind: "screen" | "window"; thumbnail: string | null; icon: string | null }[]>;
       setScreenSource: (c: { id: string; audio: boolean }) => Promise<boolean>;
       /** one program's sound for a screen share (Windows 10 2004+); resolves to what's captured, or null */
+      shareArea?: {
+        start: (sourceId: string) => Promise<{ screenId: string } | null>;
+        stop: () => Promise<void>;
+        on: (cb: (v: { left?: number; top?: number; right?: number; bottom?: number; mw?: number; mh?: number; gone?: boolean }) => void) => () => void;
+      };
       nativeRec?: {
-        start: (o: { id: string; sourceId: string; fps: 30 | 60; bpp: number; sound: "app" | "all" | "off"; codec?: "auto" | "h264"; title?: string }) => Promise<{ id: string; codec: string; gpu: boolean; width: number; height: number; bitrate: number; sound: string } | { error: string }>;
+        start: (o: { id: string; sourceId: string; fps: 30 | 60; bpp: number; height?: number; sound: "app" | "all" | "off"; codec?: "auto" | "h264"; title?: string }) => Promise<{ id: string; codec: string; gpu: boolean; width: number; height: number; bitrate: number; sound: string } | { error: string }>;
         stop: () => Promise<boolean>;
         on: (cb: (kind: "stat" | "done", v: { id: string; fps?: number; dropped?: number; bytes?: number; error?: string; ok?: boolean }) => void) => () => void;
       };

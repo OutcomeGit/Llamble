@@ -39,7 +39,7 @@ import { CameraFxPicker } from "./CameraFx";
 import { DirectorPanel, ShowBanner, StartShow } from "./Show";
 import { showQuality, useShows } from "../show";
 import { saveReplay, useReplay } from "../replay";
-import { canRecordNatively, pickRecording, startRecording, stopRecording, useNativeRec, type RecQuality } from "../nativerec";
+import { canRecordNatively, pickRecording, startRecording, stopRecording, useNativeRec, type RecQuality, type RecSize } from "../nativerec";
 import { listeningIn, useBotVoice, useListen } from "../listen";
 import { popOut, popoutSupported as canPopVideo } from "./Popouts";
 import { userMenu } from "./Sidebar";
@@ -478,6 +478,7 @@ export function ScreenPicker({ onClose, mode = "share" }: { onClose: () => void;
   const recording = mode === "record";
   const [recFps, setRecFps] = useState<30 | 60>(60);
   const [recQ, setRecQ] = useState<RecQuality>("great");
+  const [recSize, setRecSize] = useState<RecSize>(() => (Number(localStorage.getItem("llamble.recSize")) as RecSize) || 1440);
   const [sources, setSources] = useState<Awaited<
     ReturnType<NonNullable<typeof window.llambleNative>["getScreenSources"]>
   > | null>(null);
@@ -526,7 +527,10 @@ export function ScreenPicker({ onClose, mode = "share" }: { onClose: () => void;
   const go = async () => {
     if (!picked) return;
     onClose();
-    if (recording) await startRecording(picked, recFps, recQ, audio);
+    if (recording) {
+      localStorage.setItem("llamble.recSize", String(recSize));
+      await startRecording(picked, recFps, recQ, audio, recSize);
+    }
     else await startScreenShare(picked, audio, quality);
   };
 
@@ -575,7 +579,16 @@ export function ScreenPicker({ onClose, mode = "share" }: { onClose: () => void;
       <div className="share-opts">
         {recording ? (
           <>
-            <label title="Records at the real size of what you pick (a 1440p game records at 1440p)">
+            <label title="The video's size. Smaller windows are scaled up, bigger screens down, keeping their shape.">
+              Size
+              <select value={recSize} onChange={(e) => setRecSize(Number(e.target.value) as RecSize)}>
+                <option value={1080}>1080p</option>
+                <option value={1440}>1440p</option>
+                <option value={2160}>4K</option>
+                <option value={0}>Exactly as captured</option>
+              </select>
+            </label>
+            <label>
               Smoothness
               <select value={recFps} onChange={(e) => setRecFps(Number(e.target.value) as 30 | 60)}>
                 <option value={60}>60 fps</option>
