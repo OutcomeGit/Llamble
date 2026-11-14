@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Builds client/src/legal/third-party-licenses.txt: every library that ships inside Llamble,
-with its licence text. Run from the repo root after `npm ci` in client/ (needs cargo too):
+with its license text. Run from the repo root after `npm ci` in client/ (needs cargo too):
 
     python3 tools/third_party_licenses.py
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "client/src/legal/third-party-licenses.txt"
-LICENSE_OUT = ROOT / "client/src/legal/license.txt"  # Llamble's own licence + plain-English guide, for Settings -> About
+LICENSE_OUT = ROOT / "client/src/legal/license.txt"  # Llamble's own license + plain-English guide, for Settings -> About
 LIC_NAMES = re.compile(r"^(licen[cs]e|copying|notice)([-._].*)?$", re.I)
 CARGO_SRC = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")) / "registry/src"
 
@@ -23,7 +23,7 @@ stable-diffusion.cpp ........ MIT          https://github.com/leejet/stable-diff
 sherpa-onnx ................. Apache-2.0   https://github.com/k2-fsa/sherpa-onnx
 FFmpeg ...................... LGPL-2.1+ / GPL-2.0+ (Ubuntu package, unmodified; source:
                               https://launchpad.net/ubuntu/+source/ffmpeg)
-Ubuntu base image packages .. various      https://ubuntu.com/legal/open-source-licences
+Ubuntu base image packages .. various      https://ubuntu.com/legal/open-source-licenses
 
 == Models downloaded only when an admin turns them on ==
 FLUX.2 [klein] 4B, Z-Image Turbo .... Apache-2.0
@@ -35,7 +35,7 @@ in the install folder.
 """
 
 
-def licence_files(folder: Path):
+def license_files(folder: Path):
     if not folder.is_dir():
         return []
     return sorted(p for p in folder.iterdir() if p.is_file() and LIC_NAMES.match(p.name))
@@ -58,12 +58,12 @@ def npm_packages():
         if not meta_path.exists():
             continue
         meta = json.loads(meta_path.read_text())
-        lic = meta.get("license") or meta.get("licenses") or "see licence text"
+        lic = meta.get("license") or meta.get("licenses") or "see license text"
         if isinstance(lic, dict):
             lic = lic.get("type", "")
         if isinstance(lic, list):
             lic = " OR ".join(l.get("type", "") if isinstance(l, dict) else str(l) for l in lic)
-        out.append((name, meta.get("version", ""), str(lic), licence_files(folder)))
+        out.append((name, meta.get("version", ""), str(lic), license_files(folder)))
         todo += list(meta.get("dependencies", {}))
     return out
 
@@ -86,7 +86,7 @@ def cargo_packages(manifest_dir: Path, target=None):
             continue
         name, ver = parts[0], parts[1].lstrip("v")
         folders = list(CARGO_SRC.glob(f"*/{name}-{ver}"))
-        out[(name, ver)] = (lic or "see licence text", licence_files(folders[0]) if folders else [])
+        out[(name, ver)] = (lic or "see license text", license_files(folders[0]) if folders else [])
     return out
 
 
@@ -101,7 +101,7 @@ def main():
         "================================",
         "",
         "Llamble itself is under the PolyForm Shield License 1.0.0 (see LICENSE.txt).",
-        "It includes the open-source software listed below, each under its own licence,",
+        "It includes the open-source software listed below, each under its own license,",
         "which is reproduced in full after the lists.",
         "",
         EXTRA,
@@ -110,7 +110,7 @@ def main():
     lines += [f"{n} {v} .... {l}" for n, v, l, _ in sorted(npm)]
     lines += ["", f"== Rust libraries in the server and the Windows helper ({len(rust)}) =="]
     lines += [f"{n} {v} .... {l}" for (n, v), (l, _) in sorted(rust.items())]
-    lines += ["", "", "Licence texts", "============="]
+    lines += ["", "", "License texts", "============="]
 
     entries = [(f"{n} {v}", files) for n, v, _, files in sorted(npm)]
     entries += [(f"{n} {v}", files) for (n, v), (_, files) in sorted(rust.items())]
@@ -129,12 +129,12 @@ def main():
               "is on crates.io at the versions listed above."]
     if missing:
         lines += ["", "-" * 78,
-                  "These packages ship no separate licence file; their licence is the one listed above:",
+                  "These packages ship no separate license file; their license is the one listed above:",
                   ", ".join(missing)]
     OUT.write_text("\n".join(lines) + "\n")
     LICENSE_OUT.write_text((ROOT / "LICENSING.md").read_text() + "\n\n" + "=" * 78 + "\n\n" + (ROOT / "LICENSE.md").read_text())
     print(f"wrote {OUT.relative_to(ROOT)}: {len(npm)} npm, {len(rust)} cargo, "
-          f"{len(missing)} without a licence file, {OUT.stat().st_size // 1024} KB")
+          f"{len(missing)} without a license file, {OUT.stat().st_size // 1024} KB")
 
 
 if __name__ == "__main__":

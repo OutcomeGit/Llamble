@@ -2,7 +2,7 @@ Third-party software in Llamble
 ================================
 
 Llamble itself is under the PolyForm Shield License 1.0.0 (see LICENSE.txt).
-It includes the open-source software listed below, each under its own licence,
+It includes the open-source software listed below, each under its own license,
 which is reproduced in full after the lists.
 
 == Separate programs in the server image (run as their own processes, unmodified) ==
@@ -12,7 +12,7 @@ stable-diffusion.cpp ........ MIT          https://github.com/leejet/stable-diff
 sherpa-onnx ................. Apache-2.0   https://github.com/k2-fsa/sherpa-onnx
 FFmpeg ...................... LGPL-2.1+ / GPL-2.0+ (Ubuntu package, unmodified; source:
                               https://launchpad.net/ubuntu/+source/ffmpeg)
-Ubuntu base image packages .. various      https://ubuntu.com/legal/open-source-licences
+Ubuntu base image packages .. various      https://ubuntu.com/legal/open-source-licenses
 
 == Models downloaded only when an admin turns them on ==
 FLUX.2 [klein] 4B, Z-Image Turbo .... Apache-2.0
@@ -361,7 +361,7 @@ zune-core 0.5.3 .... MIT OR Apache-2.0 OR Zlib
 zune-jpeg 0.5.15 .... MIT OR Apache-2.0 OR Zlib
 
 
-Licence texts
+License texts
 =============
 
 ------------------------------------------------------------------------------
@@ -14212,5 +14212,5 @@ MPL-2.0 libraries (cssparser, selectors, dtoa-short) are used unmodified; their 
 is on crates.io at the versions listed above.
 
 ------------------------------------------------------------------------------
-These packages ship no separate licence file; their licence is the one listed above:
+These packages ship no separate license file; their license is the one listed above:
 @bufbuild/protobuf 1.10.1, @mediapipe/tasks-vision 1.2.2, lazy-val 1.0.5, async-http-codec 0.8.0, async-web-client 0.6.4, crc-catalog 2.5.0, fxhash 0.2.1, mac 0.1.1, phf 0.10.1, phf_shared 0.10.0, rrule 0.14.0, selectors 0.25.0, servo_arc 0.3.0, tokio-yamux 0.3.20, yasna 0.5.2

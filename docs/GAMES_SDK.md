@@ -1,6 +1,6 @@
 # Llamble Games: SDK, packages and sessions
 
-Status: proposed design, Nov 9. It covers how games are packaged, how they run inside Llamble, how players in a session talk to each other, and how this ties into kid accounts, seats and the store (see the store design).
+Status: proposed design, Nov 9. It covers how games are packaged, how they run inside Llamble, how players in a session talk to each other, and how this ties into kid accounts, seats and the store (see the store design, coming later).
 
 The first title will be **Page Terrace Shuffleboard**, a Three.js browser game. It already runs its whole game room inside the host's browser, so it needs no game code on the Llamble server.
 

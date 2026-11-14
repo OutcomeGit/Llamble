@@ -576,13 +576,13 @@ export function UserSettings({ tab: initial }: { tab?: string }) {
   );
 }
 
-// Llamble's own licence and the third-party notices. Both texts are big, so they're loaded only
+// Llamble's own license and the third-party notices. Both texts are big, so they're loaded only
 // when opened (a separate chunk, which also works when the desktop app runs from its files).
 function About() {
   const [doc, setDoc] = useState<{ title: string; text: string } | null>(null);
   const open = async (which: "license" | "third") => {
     const m = which === "license" ? await import("../legal/license.txt?raw") : await import("../legal/third-party-licenses.txt?raw");
-    setDoc({ title: which === "license" ? "Llamble's licence" : "Third-party software", text: m.default });
+    setDoc({ title: which === "license" ? "Llamble's license" : "Third-party software", text: m.default });
   };
   return (
     <div>
@@ -592,11 +592,11 @@ function About() {
       </p>
       <p className="muted small">
         Free to use and to run on your own server. The code is public so anyone can check what it does, under the PolyForm Shield
-        licence: you can't use it to build or sell a rival service. Packs, themes and games from the store have their own terms.
+        license: you can't use it to build or sell a rival service. Packs, themes and games from the store have their own terms.
       </p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button className="btn" onClick={() => open("license")}>
-          Licence (plain English + full text)
+          License (plain English + full text)
         </button>
         <button className="btn" onClick={() => open("third")}>
           Third-party software

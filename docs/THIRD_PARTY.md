@@ -1,6 +1,6 @@
 # Third-party pieces bundled with Llamble
 
-Full list with every licence text: `client/src/legal/third-party-licenses.txt` (made by `tools/third_party_licenses.py`; also in the app under Settings → About).
+Full list with every license text: `client/src/legal/third-party-licenses.txt` (made by `tools/third_party_licenses.py`; also in the app under Settings → About).
 
 | What | Used for | License |
 |---|---|---|

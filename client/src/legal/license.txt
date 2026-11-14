@@ -6,7 +6,7 @@ is licensed under the [PolyForm Shield License 1.0.0](LICENSE.md), which doesn't
 to compete with Llamble.
 
 Llamble is made by eE Planet (the licensor). This page is the licensor's own reading of those terms. Where it says something is allowed, take
-it as an extra permission from the licensor on top of the licence.
+it as an extra permission from the licensor on top of the license.
 
 ## Allowed, free
 
@@ -34,18 +34,18 @@ If you're not sure whether something you want to do counts as competing, ask fir
 
 ## The name and logo
 
-The licence covers the code only. "Llamble", the llama logo and the app's look are the
+The license covers the code only. "Llamble", the llama logo and the app's look are the
 licensor's trademarks. A changed copy must not call itself Llamble or look like it's ours.
 
 ## Packs, themes and games from the store
 
-Things you get from the Llamble Store are **not** covered by the code licence. They are
+Things you get from the Llamble Store are **not** covered by the code license. They are
 licensed to you under the store's terms when you get them, and all rights are reserved. You can use what you
 bought on any Llamble server where your store account is linked.
 
 ## Other people's code inside Llamble
 
-Llamble includes open-source libraries under their own licences. The full list and texts are in
+Llamble includes open-source libraries under their own licenses. The full list and texts are in
 [client/src/legal/third-party-licenses.txt](client/src/legal/third-party-licenses.txt), and in the app
 under **Settings → About**.
 

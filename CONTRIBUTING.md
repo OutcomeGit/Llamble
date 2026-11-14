@@ -10,7 +10,7 @@ project's hands later, code is accepted only on these terms:
 
 > By submitting a contribution (code, text, art or anything else) to this repository, you
 > confirm that you wrote it or have the right to submit it, and you grant the licensor of
-> Llamble a perpetual, worldwide, non-exclusive, royalty-free, irrevocable licence to use,
+> Llamble a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use,
 > copy, change, sublicense and distribute your contribution under any terms, including terms
 > other than the PolyForm Shield License. You keep the copyright in your contribution.
 
