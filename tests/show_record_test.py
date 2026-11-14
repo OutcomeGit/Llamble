@@ -72,7 +72,7 @@ with sync_playwright() as p:
         pages[0].wait_for_timeout(1000)
         pages[0].locator("button", has_text="Director").first.click(timeout=5000)
         pages[0].wait_for_timeout(1500)
-        pages[0].locator(".director").screenshot(path="/tmp/home-director-mixer.png")
+        pages[0].locator(".director-full").screenshot(path="/tmp/home-director-mixer.png")
     except Exception as e:
         print("  (no director screenshot:", e, ")")
     time.sleep(3)

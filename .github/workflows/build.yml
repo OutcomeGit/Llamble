@@ -308,7 +308,14 @@ jobs:
         run: |
           $d = "$env:RUNNER_TEMP\dl"; New-Item -ItemType Directory -Force $d | Out-Null
           gh release download --repo livekit/livekit --pattern "*windows_amd64.zip" --dir $d
-          gh release download --repo ggml-org/llama.cpp --pattern "*bin-win-cpu-x64.zip" --dir $d
+          # llama.cpp's processor-only Windows build (the name changes now and then: pick it from the list)
+          $names = gh release view --repo ggml-org/llama.cpp --json assets -q ".assets[].name"
+          $names | Where-Object { $_ -match "win" } | ForEach-Object { Write-Host "  llama.cpp asset: $_" }
+          $llama = $names | Where-Object { $_ -match "bin-win-cpu-x64\.zip$" } | Select-Object -First 1
+          if (-not $llama) { $llama = $names | Where-Object { $_ -match "win" -and $_ -match "x64" -and $_ -match "\.zip$" -and $_ -notmatch "cuda|cudart|vulkan|sycl|hip|opencl|kompute|arm64" } | Select-Object -First 1 }
+          if (-not $llama) { throw "no llama.cpp Windows build found" }
+          gh release download --repo ggml-org/llama.cpp --pattern $llama --dir $d
+          Rename-Item "$d\$llama" "llama-win-x64.zip"
           gh release download latest --repo BtbN/FFmpeg-Builds --pattern "ffmpeg-master-latest-win64-lgpl-shared.zip" --dir $d
           Get-ChildItem $d
       - name: Put it together
@@ -321,7 +328,10 @@ jobs:
           Copy-Item client\dist $s\web -Recurse
           Expand-Archive (Get-ChildItem $d\*windows_amd64.zip)[0] "$env:RUNNER_TEMP\lk"
           Copy-Item (Get-ChildItem "$env:RUNNER_TEMP\lk" -Recurse -Filter livekit-server.exe)[0] $s\livekit\
-          Expand-Archive (Get-ChildItem $d\*bin-win-cpu-x64.zip)[0] $s\llama
+          Expand-Archive $d\llama-win-x64.zip "$env:RUNNER_TEMP\ll"
+          # the exe may sit in a subfolder: take the folder that has llama-server.exe
+          $srv = (Get-ChildItem "$env:RUNNER_TEMP\ll" -Recurse -Filter llama-server.exe)[0]
+          Copy-Item "$($srv.DirectoryName)\*" $s\llama\ -Recurse
           Expand-Archive (Get-ChildItem $d\ffmpeg-*.zip)[0] "$env:RUNNER_TEMP\ff"
           Copy-Item "$env:RUNNER_TEMP\ff\*\bin\*" $s\ffmpeg\
           "0.1.${{ github.run_number }}" | Set-Content -NoNewline $s\version.txt
