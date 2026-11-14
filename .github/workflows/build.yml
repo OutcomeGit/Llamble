@@ -9,8 +9,8 @@
 name: build
 on:
   push:
+    # main only: tag pushes must never build (moving old tags once rebuilt and published old code)
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
