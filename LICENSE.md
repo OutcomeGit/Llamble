@@ -1,4 +1,4 @@
-Required Notice: Copyright 2026 eE Planet (Outcome Studios) (https://llamble.com)
+Required Notice: Copyright 2026 eE Planet (https://llamble.com)
 Licensor Line of Business: chat, voice, video and live-streaming software and hosted services, and a store for packs, themes and games (https://llamble.com)
 
 The plain-English guide in LICENSING.md says how the licensor reads these terms, and grants the extra permissions listed there.

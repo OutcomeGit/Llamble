@@ -5,7 +5,7 @@ yourself. It is **source-available, not open source**: it's free to use and self
 is licensed under the [PolyForm Shield License 1.0.0](LICENSE.md), which doesn't allow using it
 to compete with Llamble.
 
-Llamble is made by Outcome Studios, part of eE Planet (the licensor). This page is the licensor's own reading of those terms. Where it says something is allowed, take
+Llamble is made by eE Planet (the licensor). This page is the licensor's own reading of those terms. Where it says something is allowed, take
 it as an extra permission from the licensor on top of the licence.
 
 ## Allowed, free
