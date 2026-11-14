@@ -102,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
     }
     bootstrap(&state).await?;
     tokio::spawn(janitor(state.clone()));
+    tokio::spawn(api::files::backfill_video_thumbs(state.clone()));
     tokio::spawn(ai::boot(state.clone()));
     voicebot::boot(state.clone());
     images::boot(state.clone());

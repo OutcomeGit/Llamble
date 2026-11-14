@@ -23,7 +23,7 @@ function Visual({ h }: { h: Highlight }) {
   if (!m) return null;
   const att = m.attachments.find((a) => /^(image|video)\//.test(a.mime));
   if (att) {
-    if (att.mime.startsWith("video/")) return <video className="hl-media" src={media(att.url)} muted loop playsInline controls preload="metadata" />;
+    if (att.mime.startsWith("video/")) return <video className="hl-media" src={media(att.url)} poster={att.thumb_url ? media(att.thumb_url) : undefined} muted loop playsInline controls preload="metadata" />;
     return (
       <img
         className="hl-media"

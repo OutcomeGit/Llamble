@@ -33,6 +33,18 @@ assert m["attachments"][0]["id"]==f["id"]
 assert requests.get(B+f["url"], headers=T2).status_code==200
 r=requests.get(B+f["url"], headers={**T2,"Range":"bytes=0-9"}); assert r.status_code==206 and len(r.content)==10, r.status_code
 assert requests.get(B+f["thumb_url"]+"?access_token="+b["token"]).status_code==200
+# a video gets a real thumbnail, even a clip shorter than the half-second the poster is taken at
+import subprocess, tempfile, os
+if subprocess.run(["which","ffmpeg"],capture_output=True).returncode==0:
+    for secs in ("3","0.3"):
+        vp=os.path.join(tempfile.mkdtemp(),"clip.webm")
+        subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-f","lavfi","-i","testsrc=size=640x360:rate=30","-t",secs,"-c:v","libvpx","-f","webm",vp],check=True)
+        with open(vp,"rb") as fh:
+            v = ok(requests.post(B+"/api/files", headers=T, files={"file":("clip.webm",fh,"video/webm")}))
+        assert v["thumb_url"], ("no thumbnail for a %ss video" % secs, v)
+        tr = requests.get(B+v["thumb_url"]+"?access_token="+a["token"])  # the uploader
+        assert tr.status_code==200 and tr.content[:2]==b"\xff\xd8", ("the %ss video's thumbnail isn't a picture" % secs, tr.status_code)
+    print("videos get real thumbnails (3 s and 0.3 s clips)")
 # user2 cannot attach admin's file
 r=requests.post(B+f"/api/channels/{text}/messages", headers=T2, json={"content":"x","attachments":[{"id":f["id"]}]}); assert r.status_code==400
 reply = ok(requests.post(B+f"/api/channels/{text}/messages", headers=T2, json={"content":"hi back","reply_to":m["id"]}))

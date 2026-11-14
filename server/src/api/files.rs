@@ -195,33 +195,67 @@ async fn make_preview(state: &Shared, id: &str, mime: &str) -> (Option<i64>, Opt
         };
     }
     if mime.starts_with("video/") {
-        // Poster frame via ffmpeg if installed (bundled in the Docker image).
-        let out = tokio::process::Command::new("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", "0.5", "-i"])
-            .arg(&src)
-            .args(["-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-f", "image2"])
-            .arg(&dst)
-            .kill_on_drop(true)
-            .output();
-        if let Ok(Ok(o)) = tokio::time::timeout(std::time::Duration::from_secs(20), out).await {
-            if o.status.success() {
-                let probe = tokio::process::Command::new("ffprobe")
-                    .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x"])
-                    .arg(file_path(state, id))
-                    .output()
-                    .await;
-                let (mut w, mut h) = (None, None);
-                if let Ok(p) = probe {
-                    let s = String::from_utf8_lossy(&p.stdout);
-                    let mut it = s.trim().split('x');
-                    w = it.next().and_then(|v| v.parse().ok());
-                    h = it.next().and_then(|v| v.parse().ok());
-                }
-                return (w, h, true);
+        // Poster frame via ffmpeg (bundled in the server image). Half a second in skips a black
+        // first frame; a clip that's shorter, or a recording that can't be seeked (no index),
+        // falls back to the very first frame.
+        let mut made = false;
+        for seek in ["0.5", "0"] {
+            let _ = tokio::fs::remove_file(&dst).await;
+            let out = tokio::process::Command::new("ffmpeg")
+                .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", seek, "-i"])
+                .arg(&src)
+                .args(["-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-f", "image2", "-c:v", "mjpeg"])
+                .arg(&dst)
+                .kill_on_drop(true)
+                .output();
+            let ran = matches!(tokio::time::timeout(std::time::Duration::from_secs(20), out).await, Ok(Ok(o)) if o.status.success());
+            // ffmpeg can "succeed" without writing a frame: only a real picture counts
+            if ran && tokio::fs::metadata(&dst).await.map(|m| m.len() > 0).unwrap_or(false) {
+                made = true;
+                break;
             }
         }
+        if !made {
+            let _ = tokio::fs::remove_file(&dst).await;
+        }
+        let probe = tokio::process::Command::new("ffprobe")
+            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x"])
+            .arg(file_path(state, id))
+            .output()
+            .await;
+        let (mut w, mut h) = (None, None);
+        if let Ok(p) = probe {
+            let s = String::from_utf8_lossy(&p.stdout);
+            let mut it = s.trim().split('x');
+            w = it.next().and_then(|v| v.parse().ok());
+            h = it.next().and_then(|v| v.parse().ok());
+        }
+        return (w, h, made);
     }
     (None, None, false)
+}
+
+/// Videos posted before thumbnails worked (or when ffmpeg failed on them) get one now.
+/// Runs once at startup in the background, oldest first, a few hundred at most.
+pub async fn backfill_video_thumbs(state: Shared) {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, mime FROM files WHERE mime LIKE 'video/%' AND has_thumb = 0 ORDER BY created_at DESC LIMIT 500")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+    let mut n = 0;
+    for (id, mime) in rows {
+        if !file_path(&state, &id).exists() {
+            continue;
+        }
+        let (w, h, made) = make_preview(&state, &id, &mime).await;
+        if made {
+            n += 1;
+            let _ = sqlx::query("UPDATE files SET has_thumb = 1, width = COALESCE(width, ?), height = COALESCE(height, ?) WHERE id = ?").bind(w).bind(h).bind(&id).execute(&state.db).await;
+        }
+    }
+    if n > 0 {
+        tracing::info!("made thumbnails for {n} older videos");
+    }
 }
 
 pub async fn can_view_file(state: &Shared, auth: &AuthUser, f: &FileRow) -> ApiResult<bool> {
