@@ -18,6 +18,10 @@ export interface SceneItem {
   contain: boolean;
   radius: number;
   tag?: { text: string; x: number; y: number; scale: number };
+  /** someone without video: the Llamble logo and their name, painted instead of a picture */
+  persona?: { name: string };
+  /** a green ring while this person talks */
+  ring?: boolean;
 }
 
 export interface Scene {
@@ -54,8 +58,10 @@ export function drawScene(ctx: Ctx, W: number, H: number, sc: Scene, frame: (key
     return;
   }
   for (const it of sc.items) {
-    fit(ctx, frame(it.key), it);
+    if (it.persona) persona(ctx, it, it.persona.name);
+    else fit(ctx, frame(it.key), it);
     if (it.tag) nameTag(ctx, it.tag.text, it.tag.x, it.tag.y, it.tag.scale);
+    if (it.ring) ring(ctx, it);
   }
   if (sc.board) board(ctx, sc.board);
   if (sc.lower) lowerThird(ctx, sc.lower.text, sc.lower.sub);
@@ -80,6 +86,43 @@ function fit(ctx: Ctx, f: Frame | null, it: SceneItem) {
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(f.img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
   }
+  ctx.restore();
+}
+
+/** A tile for someone with no video: the llama logo and their name, readable even when small. */
+function persona(ctx: Ctx, it: SceneItem, name: string) {
+  const { x, y, w, h } = it;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, it.radius || 0);
+  ctx.clip();
+  const g = ctx.createLinearGradient(x, y, x + w, y + h);
+  g.addColorStop(0, "#2b2f8f");
+  g.addColorStop(1, "#5a2b8f");
+  ctx.fillStyle = g;
+  ctx.fillRect(x, y, w, h);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.round(h * 0.4)}px sans-serif`;
+  ctx.fillText("🦙", x + w / 2, y + h * 0.4);
+  ctx.fillStyle = "#fff";
+  let size = Math.max(22, Math.round(h * 0.16));
+  ctx.font = `700 ${size}px sans-serif`;
+  while (size > 16 && ctx.measureText(name).width > w * 0.9) {
+    size -= 2;
+    ctx.font = `700 ${size}px sans-serif`;
+  }
+  ctx.fillText(name, x + w / 2, y + h * 0.8);
+  ctx.restore();
+}
+
+function ring(ctx: Ctx, it: SceneItem) {
+  ctx.save();
+  ctx.lineWidth = Math.max(4, Math.round(it.h * 0.025));
+  ctx.strokeStyle = "#23a55a";
+  ctx.beginPath();
+  ctx.roundRect(it.x, it.y, it.w, it.h, it.radius || 0);
+  ctx.stroke();
   ctx.restore();
 }
 

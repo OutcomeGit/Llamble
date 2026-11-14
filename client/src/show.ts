@@ -30,8 +30,15 @@ export interface ShowPerson {
 }
 export interface ShowState {
   focus?: string | null; // user id (or "screen:<uid>") on the main shot
-  hold?: boolean; // director holds the shot (no auto-switch)
+  hold?: boolean; // director holds the shot on `focus`
+  /** "auto" / "speaker": main shot + pop-up windows; "screen": main shot + everyone's face; "grid": everyone */
   layout?: "auto" | "speaker" | "grid" | "screen";
+  /** the main shot jumps to whoever talks (their shared screen if they share one, else their camera). Off unless the director turns it on. */
+  follow_talk?: boolean;
+  /** small windows for people talking: one for the latest talker, one each while they talk, or none */
+  pip?: "talker" | "talkers" | "off";
+  pip_pos?: "br" | "bl" | "tr" | "tl";
+  pip_size?: "s" | "m" | "l";
   title?: string | null;
   lower_third?: { text: string; sub?: string } | null;
   card?: string | null;
@@ -230,20 +237,33 @@ export class SceneMaker {
     for (const [k, w] of want) if (!this.sources.has(k)) this.sources.set(k, w);
   }
 
+  /** when each person last talked (for the pop-up windows) */
+  private talked = new Map<string, number>();
+  /** the main shot last time, so it stays put unless something says to change it */
+  private lastMain: string | null = null;
+  /** who the single pop-up window shows, and since when */
+  private pipWho: { uid: string; since: number } | null = null;
+
   private build(s: Show): Scene {
     const st = s.state || {};
     const extras: Pick<Scene, "lower" | "title"> = {};
     if (st.lower_third?.text) extras.lower = { text: st.lower_third.text, sub: st.lower_third.sub };
     if (st.title) extras.title = st.title;
     if (st.card) return { card: st.card, items: [] };
+    const now = Date.now();
+    const speaking = useVoice.getState().speaking;
+    for (const u of speaking) this.talked.set(u, now);
     const srcs = [...this.sources.values()];
     const cams = srcs.filter((x) => x.kind === "camera");
-    const screens = srcs.filter((x) => x.kind === "screen");
-    const main = this.mainShot(s, srcs);
-    const layout = st.layout && st.layout !== "auto" ? st.layout : screens.length ? "screen" : "speaker";
     const items: SceneItem[] = [];
-    if (layout === "grid" || (!main && srcs.length)) {
-      const n = Math.max(1, srcs.length);
+    // nobody has any video at all: the only time the name board shows
+    if (!srcs.length) {
+      const voiceOnly = s.people.filter((p) => p.consent?.voice).map((p) => p.user_id);
+      const who = voiceOnly.length ? voiceOnly : s.people.map((p) => p.user_id);
+      return { items, board: who.map((u) => ({ name: name(u), speaking: speaking.includes(u) })), ...extras };
+    }
+    if (st.layout === "grid") {
+      const n = srcs.length;
       const cols = Math.ceil(Math.sqrt(n));
       const rows = Math.ceil(n / cols);
       const gw = STAGE_W / cols;
@@ -251,51 +271,91 @@ export class SceneMaker {
       srcs.forEach((x, i) => {
         const gx = (i % cols) * gw;
         const gy = Math.floor(i / cols) * gh;
-        items.push({ key: x.key, x: gx + 4, y: gy + 4, w: gw - 8, h: gh - 8, contain: x.kind === "screen", radius: 12, tag: { text: name(x.uid), x: gx + 16, y: gy + gh - 56, scale: 0.75 } });
+        items.push({ key: x.key, x: gx + 4, y: gy + 4, w: gw - 8, h: gh - 8, contain: x.kind === "screen", radius: 12, tag: { text: name(x.uid), x: gx + 16, y: gy + gh - 56, scale: 0.75 }, ring: speaking.includes(x.uid) });
       });
       return { items, ...extras };
     }
-    if (main) {
-      items.push({ key: main.key, x: 0, y: 0, w: STAGE_W, h: STAGE_H, contain: main.kind === "screen", radius: 0, tag: main.kind === "camera" ? { text: name(main.uid), x: 24, y: STAGE_H - 70, scale: 1 } : undefined });
-      // everyone else in a strip
-      const others = (layout === "screen" ? cams : srcs).filter((x) => x !== main).slice(0, 5);
+    const main = this.mainShot(s, srcs, speaking, now);
+    this.lastMain = main.key;
+    items.push({ key: main.key, x: 0, y: 0, w: STAGE_W, h: STAGE_H, contain: main.kind === "screen", radius: 0, tag: main.kind === "camera" ? { text: name(main.uid), x: 24, y: STAGE_H - 70, scale: 1 } : undefined });
+    if (st.layout === "screen") {
+      // main shot plus everyone's face in a strip
+      const others = cams.filter((x) => x !== main).slice(0, 5);
       const tw = Math.round(STAGE_W * 0.16);
       const th = Math.round((tw * 9) / 16);
       others.forEach((o, i) => {
         const x = STAGE_W - tw - 24;
         const y = 24 + i * (th + 12);
-        items.push({ key: o.key, x, y, w: tw, h: th, contain: false, radius: 10, tag: { text: name(o.uid), x: x + 8, y: y + th - 34, scale: 0.6 } });
+        items.push({ key: o.key, x, y, w: tw, h: th, contain: false, radius: 10, tag: { text: name(o.uid), x: x + 8, y: y + th - 34, scale: 0.6 }, ring: speaking.includes(o.uid) });
       });
       return { items, ...extras };
     }
-    const speaking = useVoice.getState().speaking;
-    const voiceOnly = s.people.filter((p) => p.consent?.voice && !cams.some((c) => c.uid === p.user_id)).map((p) => p.user_id);
-    const who = voiceOnly.length ? voiceOnly : s.people.map((p) => p.user_id);
-    return { items, board: who.map((u) => ({ name: name(u), speaking: speaking.includes(u) })), ...extras };
+    items.push(...this.popups(s, main, speaking, now));
+    return { items, ...extras };
   }
 
-  /** Main shot: the director's pick when held, else whoever's talking (with a little patience). */
-  private mainShot(s: Show, srcs: Source[]): Source | undefined {
+  /**
+   * The main shot. It only changes when the director says so: a held pick, or "follow whoever
+   * talks" turned on. Otherwise it stays where it was, falling back to a shared screen, then a camera.
+   */
+  private mainShot(s: Show, srcs: Source[], speaking: string[], now: number): Source {
     const st = s.state || {};
-    const byKey = (k: string | null | undefined) => (k ? srcs.find((x) => x.key === k || x.uid === k) : undefined);
+    const byKey = (k: string | null | undefined) => (k ? srcs.find((x) => x.key === k) ?? srcs.find((x) => x.uid === k && x.kind === "camera") : undefined);
     if (st.hold && st.focus) {
       const f = byKey(st.focus);
       if (f) return f;
     }
-    const screens = srcs.filter((x) => x.kind === "screen");
-    if ((st.layout === "screen" || !st.layout || st.layout === "auto") && screens.length) {
-      if (st.focus?.startsWith("screen:")) return byKey(st.focus) ?? screens[0];
-      return screens[0];
+    if (st.follow_talk) {
+      const videoOf = (uid: string) => srcs.find((x) => x.key === "screen:" + uid) ?? srcs.find((x) => x.uid === uid && x.kind === "camera");
+      const talking = speaking.find((uid) => videoOf(uid));
+      if (talking && talking !== this.auto?.uid) {
+        if (this.candidate?.uid !== talking) this.candidate = { uid: talking, since: now };
+        // switch after they've talked for 1.2 s, and keep each shot at least 3 s
+        if (now - this.candidate.since > 1200 && (!this.auto || now - this.auto.since > 3000)) this.auto = { uid: talking, since: now };
+      }
+      const cur = this.auto && videoOf(this.auto.uid);
+      if (cur) return cur;
     }
-    const now = Date.now();
-    const talking = useVoice.getState().speaking.find((uid) => srcs.some((x) => x.uid === uid && x.kind === "camera"));
-    if (talking && talking !== this.auto?.uid) {
-      if (this.candidate?.uid !== talking) this.candidate = { uid: talking, since: now };
-      // switch after they've talked for 1.2 s, and keep each shot at least 3 s
-      if (now - this.candidate.since > 1200 && (!this.auto || now - this.auto.since > 3000)) this.auto = { uid: talking, since: now };
-    }
-    const cur = this.auto && srcs.find((x) => x.uid === this.auto!.uid && x.kind === "camera");
-    return cur || srcs.find((x) => x.kind === "camera");
+    const last = this.lastMain && srcs.find((x) => x.key === this.lastMain);
+    if (last) return last;
+    return srcs.find((x) => x.kind === "screen") ?? srcs[0];
+  }
+
+  /** Small windows for people talking (their camera, or the logo with their name), never covering the main shot's own person. */
+  private popups(s: Show, main: Source, speaking: string[], now: number): SceneItem[] {
+    const st = s.state || {};
+    const mode = st.pip ?? "talker";
+    if (mode === "off") return [];
+    const inShow = s.people.filter((p) => p.consent?.voice || p.consent?.camera).map((p) => p.user_id);
+    const onMain = main.kind === "camera" ? main.uid : null;
+    const linger = 2500; // keep a window up this long after they stop
+    const recent = inShow.filter((u) => u !== onMain && now - (this.talked.get(u) ?? 0) < linger);
+    let who: string[];
+    if (mode === "talker") {
+      const latest = recent.sort((a, b) => (this.talked.get(b) ?? 0) - (this.talked.get(a) ?? 0))[0];
+      // don't flicker between two people talking over each other: hold each for 1.5 s
+      if (latest && latest !== this.pipWho?.uid && (!this.pipWho || now - this.pipWho.since > 1500 || !recent.includes(this.pipWho.uid))) this.pipWho = { uid: latest, since: now };
+      if (this.pipWho && !recent.includes(this.pipWho.uid)) this.pipWho = null;
+      who = this.pipWho ? [this.pipWho.uid] : [];
+    } else who = recent.slice(0, 4);
+    const frac = st.pip_size === "s" ? 0.16 : st.pip_size === "l" ? 0.3 : 0.22;
+    const w = Math.round(STAGE_W * frac);
+    const h = Math.round((w * 9) / 16);
+    const pos = st.pip_pos ?? "br";
+    const right = pos === "br" || pos === "tr";
+    const bottom = pos === "br" || pos === "bl";
+    const m = 28;
+    return who.map((uid, i) => {
+      const x = right ? STAGE_W - w - m : m;
+      // keep clear of the lower third (bottom left) and the title bar (top middle)
+      const base = bottom ? STAGE_H - m - h - (st.lower_third?.text && !right ? 210 : 0) : m + (st.title ? 90 : 0);
+      const y = bottom ? base - i * (h + 14) : base + i * (h + 14);
+      const cam = this.sources.get(uid);
+      const it: SceneItem = { key: cam ? cam.key : "persona:" + uid, x, y, w, h, contain: false, radius: 14, ring: speaking.includes(uid) };
+      if (cam) it.tag = { text: name(uid), x: x + 10, y: y + h - 40 * Math.max(0.6, frac * 3.2) - 8, scale: Math.max(0.6, frac * 3.2) };
+      else it.persona = { name: name(uid) };
+      return it;
+    });
   }
 }
 

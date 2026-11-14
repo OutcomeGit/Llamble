@@ -1276,3 +1276,13 @@ body.pop-body > .pop { height: 100vh; }
 @keyframes rec-blink { 50% { opacity: 0.35; } }
 .rec-err { color: #f23f43; }
 .ov-replay { color: #b5bac1; font-size: 11px; margin: 0 0 4px; }
+/* the director: the show's main window, filling the screen */
+.director-full { position: fixed; inset: 0; z-index: 200; background: #111214; display: flex; flex-direction: column; }
+.director-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #2b2d31; }
+.director-head .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.director-body { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px; }
+.director-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.director-stage .director-preview { max-height: calc(100vh - 220px); width: auto; max-width: 100%; margin: 0 auto; }
+.director-side { width: 380px; flex-shrink: 0; overflow-y: auto; }
+.director-side input { flex: 1; min-width: 0; }
+@media (max-width: 900px) { .director-body { flex-direction: column; overflow-y: auto; } .director-side { width: auto; } }

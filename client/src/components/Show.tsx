@@ -383,8 +383,8 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
       comp?.destroy();
       comp = null;
       canvas = document.createElement("canvas");
-      canvas.width = 960;
-      canvas.height = 540;
+      canvas.width = 1280;
+      canvas.height = 720;
       canvas.className = "director-preview";
       prev.current?.appendChild(canvas);
       fromRecorder = recorderPreview(canvas);
@@ -392,7 +392,7 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
         comp = new Compositor(() => {
           const ch = useVoice.getState().channelId;
           return ch ? useShows.getState().live[ch] : undefined;
-        }, 960, 540);
+        }, 1280, 720);
         canvas.replaceWith(comp.canvas);
         canvas = comp.canvas;
         canvas.className = "director-preview";
@@ -421,37 +421,64 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
     if (p.consent?.screen && participants().find((x) => x.identity === p.user_id)?.getTrackPublication(Track.Source.ScreenShare)) shots.push({ key: "screen:" + p.user_id, label: name(p.user_id) + "'s screen" });
   }
 
+  const chip = (on: boolean, label: string, onClick: () => void, title?: string) => (
+    <button className={"camfx-chip" + (on ? " on" : "")} onClick={onClick} title={title}>
+      {label}
+    </button>
+  );
+  const layout = st.layout === "speaker" || !st.layout ? "auto" : st.layout;
+  const pip = st.pip ?? "talker";
+
   return (
-    <div className="camfx-pop director">
-      <div className="sb-head">
+    <div className="director-full">
+      <div className="director-head">
         <b>🎬 Director</b>
+        <span className="muted small">
+          {show.title || "Show"} · recording {qualityText(show)} on {show.recorder_id === me ? "your app" : name(show.recorder_id) + "'s app"}, {show.record_on === "server" ? "saved to the server" : "kept on the recorder's device"}
+        </span>
         <button className="btn small" onClick={onClose}>
           Close
         </button>
       </div>
-      <div ref={prev} className="director-preview-box" />
-      <div className="muted small">
-        Recording {qualityText(show)} on {show.recorder_id === me ? "your app" : name(show.recorder_id) + "'s app"}, {show.record_on === "server" ? "saved to the server" : "kept on the recorder's device"}. Who's in it and what of theirs was set at the start; you pick shots and sound levels here.
-      </div>
-      <div className="camfx-title">Shot {st.hold ? "(held)" : "(auto: follows whoever talks)"}</div>
-      <div className="camfx-row">
-        <button className={"camfx-chip" + (!st.hold ? " on" : "")} onClick={() => set({ hold: false, focus: null })}>
-          Auto
-        </button>
-        {shots.map((s) => (
-          <button key={s.key} className={"camfx-chip" + (st.hold && st.focus === s.key ? " on" : "")} onClick={() => set({ hold: true, focus: s.key })}>
-            {s.label}
-          </button>
-        ))}
-      </div>
-      <div className="camfx-title">Layout</div>
-      <div className="camfx-row">
-        {(["auto", "speaker", "screen", "grid"] as const).map((l) => (
-          <button key={l} className={"camfx-chip" + ((st.layout || "auto") === l ? " on" : "")} onClick={() => set({ layout: l })}>
-            {l === "auto" ? "Auto" : l === "speaker" ? "Speaker" : l === "screen" ? "Screen + faces" : "Grid"}
-          </button>
-        ))}
-      </div>
+      <div className="director-body">
+        <div className="director-stage">
+          <div ref={prev} className="director-preview-box" />
+          <div className="camfx-title">Main shot {st.hold ? "(your pick)" : st.follow_talk ? "(follows whoever talks)" : "(stays put)"}</div>
+          <div className="camfx-row">
+            {chip(!st.hold, "Automatic", () => set({ hold: false, focus: null }), "Keeps the current shot; starts on a shared screen if there is one")}
+            {shots.map((s) => chip(!!st.hold && st.focus === s.key, s.label, () => set({ hold: true, focus: s.key })))}
+          </div>
+          <label className="check" title="Only when this is on does the main shot jump to whoever is talking: their shared screen if they share one, otherwise their camera">
+            <input type="checkbox" checked={!!st.follow_talk} onChange={(e) => set({ follow_talk: e.target.checked, ...(e.target.checked ? { hold: false } : {}) })} /> Switch the main shot to whoever talks
+          </label>
+        </div>
+        <div className="director-side">
+          <div className="camfx-title">Layout</div>
+          <div className="camfx-row">
+            {chip(layout === "auto", "Main + pop-ups", () => set({ layout: "auto" }), "The main shot full screen, with small windows for people as they talk")}
+            {chip(layout === "screen", "Main + all faces", () => set({ layout: "screen" }), "The main shot with everyone's camera down the side")}
+            {chip(layout === "grid", "Grid", () => set({ layout: "grid" }), "Every camera and screen side by side")}
+          </div>
+          {layout === "auto" && (
+            <>
+              <div className="camfx-title">Pop-up windows</div>
+              <div className="camfx-row">
+                {chip(pip === "talker", "Latest talker", () => set({ pip: "talker" }), "One window that shows whoever spoke last (their camera, or the logo with their name)")}
+                {chip(pip === "talkers", "Everyone talking", () => set({ pip: "talkers" }), "A window for each person while they talk, up to four")}
+                {chip(pip === "off", "Off", () => set({ pip: "off" }))}
+              </div>
+              {pip !== "off" && (
+                <>
+                  <div className="camfx-row">
+                    {(["tl", "tr", "bl", "br"] as const).map((c) => chip((st.pip_pos ?? "br") === c, { tl: "↖ Top left", tr: "↗ Top right", bl: "↙ Bottom left", br: "↘ Bottom right" }[c], () => set({ pip_pos: c })))}
+                  </div>
+                  <div className="camfx-row">
+                    {(["s", "m", "l"] as const).map((z) => chip((st.pip_size ?? "m") === z, { s: "Small", m: "Medium", l: "Large" }[z], () => set({ pip_size: z })))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
       <div className="camfx-title">Sound in the recording</div>
       <SoundMixer show={show} />
       <div className="camfx-title">Music & sounds</div>
@@ -502,6 +529,8 @@ export function DirectorPanel({ onClose }: { onClose: () => void }) {
         <button className="btn small" disabled={!handTo} onClick={() => showApi.director(show.id, handTo).then(onClose).catch((e) => toast(e.message, "error"))}>
           Hand off
         </button>
+      </div>
+        </div>
       </div>
     </div>
   );
