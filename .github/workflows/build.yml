@@ -309,12 +309,19 @@ jobs:
           $d = "$env:RUNNER_TEMP\dl"; New-Item -ItemType Directory -Force $d | Out-Null
           gh release download --repo livekit/livekit --pattern "*windows_amd64.zip" --dir $d
           # llama.cpp's processor-only Windows build (the name changes now and then: pick it from the list)
-          $names = gh release view --repo ggml-org/llama.cpp --json assets -q ".assets[].name"
-          $names | Where-Object { $_ -match "win" } | ForEach-Object { Write-Host "  llama.cpp asset: $_" }
-          $llama = $names | Where-Object { $_ -match "bin-win-cpu-x64\.zip$" } | Select-Object -First 1
-          if (-not $llama) { $llama = $names | Where-Object { $_ -match "win" -and $_ -match "x64" -and $_ -match "\.zip$" -and $_ -notmatch "cuda|cudart|vulkan|sycl|hip|opencl|kompute|arm64" } | Select-Object -First 1 }
+          # the newest release can be missing its Windows files while they're still uploading:
+          # use the newest of the last few releases that has them
+          $llama = $null; $tag = $null
+          foreach ($t in (gh release list --repo ggml-org/llama.cpp -L 8 --json tagName -q ".[].tagName")) {
+            $names = gh release view $t --repo ggml-org/llama.cpp --json assets -q ".assets[].name"
+            $llama = $names | Where-Object { $_ -match "bin-win-cpu-x64\.zip$" } | Select-Object -First 1
+            if (-not $llama) { $llama = $names | Where-Object { $_ -match "win" -and $_ -match "x64" -and $_ -match "\.zip$" -and $_ -notmatch "cuda|cudart|vulkan|sycl|hip|opencl|kompute|arm64" } | Select-Object -First 1 }
+            if ($llama) { $tag = $t; break }
+            Write-Host "  llama.cpp $t has no Windows build yet"
+          }
           if (-not $llama) { throw "no llama.cpp Windows build found" }
-          gh release download --repo ggml-org/llama.cpp --pattern $llama --dir $d
+          Write-Host "  llama.cpp: $tag / $llama"
+          gh release download $tag --repo ggml-org/llama.cpp --pattern $llama --dir $d
           Rename-Item "$d\$llama" "llama-win-x64.zip"
           gh release download latest --repo BtbN/FFmpeg-Builds --pattern "ffmpeg-master-latest-win64-lgpl-shared.zip" --dir $d
           Get-ChildItem $d
