@@ -278,3 +278,94 @@ jobs:
         with:
           name: Llamble-apk
           path: Llamble.apk
+
+  # Llamble Server for Windows: the same server as the NAS image (server, web app, voice
+  # server, AI, ffmpeg) with a small tray app, as LlambleServer-Setup.exe on the same release
+  windows-server:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Web app
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      - name: Server
+        working-directory: server
+        run: cargo build --release --locked
+      - name: Tray app
+        working-directory: server-app
+        run: cargo build --release
+      - name: Voice server, AI and ffmpeg for Windows
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $d = "$env:RUNNER_TEMP\dl"; New-Item -ItemType Directory -Force $d | Out-Null
+          gh release download --repo livekit/livekit --pattern "*windows_amd64.zip" --dir $d
+          gh release download --repo ggml-org/llama.cpp --pattern "*bin-win-cpu-x64.zip" --dir $d
+          gh release download latest --repo BtbN/FFmpeg-Builds --pattern "ffmpeg-master-latest-win64-lgpl-shared.zip" --dir $d
+          Get-ChildItem $d
+      - name: Put it together
+        shell: pwsh
+        run: |
+          $s = "$env:RUNNER_TEMP\stage"; $d = "$env:RUNNER_TEMP\dl"
+          New-Item -ItemType Directory -Force "$s\bin","$s\livekit","$s\llama","$s\ffmpeg" | Out-Null
+          Copy-Item server-app\target\release\LlambleServer.exe $s\
+          Copy-Item server\target\release\llamble-server.exe $s\bin\
+          Copy-Item client\dist $s\web -Recurse
+          Expand-Archive (Get-ChildItem $d\*windows_amd64.zip)[0] "$env:RUNNER_TEMP\lk"
+          Copy-Item (Get-ChildItem "$env:RUNNER_TEMP\lk" -Recurse -Filter livekit-server.exe)[0] $s\livekit\
+          Expand-Archive (Get-ChildItem $d\*bin-win-cpu-x64.zip)[0] $s\llama
+          Expand-Archive (Get-ChildItem $d\ffmpeg-*.zip)[0] "$env:RUNNER_TEMP\ff"
+          Copy-Item "$env:RUNNER_TEMP\ff\*\bin\*" $s\ffmpeg\
+          "0.1.${{ github.run_number }}" | Set-Content -NoNewline $s\version.txt
+          Get-Content LICENSE.md, client\src\legal\third-party-licenses.txt | Set-Content $s\LICENSE.txt
+          Get-ChildItem $s -Recurse -Filter *.exe | ForEach-Object { "{0,10:N0} KB  {1}" -f ($_.Length / 1KB), $_.FullName.Substring($s.Length) }
+      - name: Check the server runs on Windows
+        shell: pwsh
+        run: |
+          $s = "$env:RUNNER_TEMP\stage"
+          & $s\livekit\livekit-server.exe --version
+          & $s\llama\llama-server.exe --version
+          & $s\ffmpeg\ffmpeg.exe -hide_banner -version | Select-Object -First 1
+          $env:LLAMBLE_DATA = "$env:RUNNER_TEMP\data"; $env:LLAMBLE_BIND = "0.0.0.0:8090"; $env:LLAMBLE_WEB_DIR = "$s\web"
+          $env:LLAMBLE_LIVEKIT_BIN = "$s\livekit\livekit-server.exe"; $env:LLAMBLE_LLAMA_BIN = "$s\llama\llama-server.exe"
+          $env:PATH = "$s\ffmpeg;$env:PATH"
+          $p = Start-Process "$s\bin\llamble-server.exe" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\out.txt" -RedirectStandardError "$env:RUNNER_TEMP\err.txt"
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try { $r = Invoke-WebRequest http://127.0.0.1:8090/ -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200 -and $r.Content -match "Llamble") { $ok = $true; break } } catch {}
+            Start-Sleep 1
+          }
+          Get-Content "$env:RUNNER_TEMP\out.txt","$env:RUNNER_TEMP\err.txt" -ErrorAction SilentlyContinue | Select-Object -Last 30
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "the server didn't answer on Windows" }
+          Write-Host "the server answers on Windows"
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /Qp "/DAppVersion=0.1.${{ github.run_number }}" "/DStage=$env:RUNNER_TEMP\stage" server-app\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
+          Get-Item server-app\Output\LlambleServer-Setup.exe | Select-Object Name, Length
+      - name: Add it to the release
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=v0.1.${{ github.run_number }}
+          # the Windows app job creates the release; wait for it
+          for i in $(seq 1 90); do gh release view "$tag" --repo ${{ github.repository }} >/dev/null 2>&1 && break; sleep 20; done
+          gh release upload "$tag" server-app/Output/LlambleServer-Setup.exe --clobber --repo ${{ github.repository }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LlambleServer-Setup
+          path: server-app/Output/LlambleServer-Setup.exe

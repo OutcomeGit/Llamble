@@ -180,3 +180,12 @@ what's allowed in plain English. Packs, themes and games from the Llamble Store 
 Third-party software and its licences: [client/src/legal/third-party-licenses.txt](client/src/legal/third-party-licenses.txt)
 (regenerate with `python3 tools/third_party_licenses.py` after changing dependencies).
 Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Llamble Server for Windows
+
+For people without a NAS: `LlambleServer-Setup.exe` (on every release, and on llamble.com) installs the same
+server (web app, voice server, AI, ffmpeg) with a small tray app (`server-app/`). It runs from the system tray,
+restarts the server if it stops, can start with Windows, and keeps everything in `%LOCALAPPDATA%\Llamble Server`.
+People connect to `http://THAT-PC-IP:8090` with the app or a browser, exactly as with a NAS. The installer adds
+Windows Firewall rules (private networks) for the server and its voice server. Pictures and voice AI aren't in
+the Windows build yet.

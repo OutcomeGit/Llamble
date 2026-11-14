@@ -1,0 +1,26 @@
+[package]
+name = "llamble-server-app"
+version = "0.1.0"
+edition = "2021"
+description = "Llamble Server for Windows: runs the Llamble server on this PC from the system tray"
+publish = false
+
+[[bin]]
+name = "LlambleServer"
+path = "src/main.rs"
+
+[dependencies]
+tray-icon = "0.26"
+tao = "0.37"
+png = "0.18"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true
