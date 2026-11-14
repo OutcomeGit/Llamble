@@ -1,0 +1,25 @@
+# One-off cleanup (Nov 13): moving the release tags rebuilt old versions of Llamble and published
+# them as new releases. This deletes those releases (and the tags they created) and marks the real
+# current build as latest. Runs once when this file is pushed; safe to delete afterwards.
+name: cleanup-releases
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/cleanup-releases.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Delete the old-code releases from Nov 13
+        run: |
+          for t in v0.1.145 v0.1.150 v0.1.151 v0.1.152 v0.1.154 v0.1.155 v0.1.157 v0.1.158 v0.1.160 v0.1.162 v0.1.164 v0.1.165 v0.1.167 v0.1.168 v0.1.169 v0.1.171 v0.1.173 v0.1.174 v0.1.175 v0.1.177 v0.1.178 v0.1.179 v0.1.180 v0.1.181 v0.1.182 v0.1.183 v0.1.185 v0.1.186 v0.1.187 v0.1.188 v0.1.190 v0.1.193 v0.1.194 v0.1.196 v0.1.197 v0.1.199 v0.1.201 v0.1.202 v0.1.205 v0.1.206 v0.1.208 v0.1.210 v0.1.211 v0.1.218 v0.1.225 v0.1.230 v0.1.231 v0.1.232 v0.1.234 v0.1.235 v0.1.236 v0.1.237 v0.1.238 v0.1.240 v0.1.241 v0.1.242 v0.1.244 v0.1.245 v0.1.246 v0.1.247 v0.1.248 v0.1.250 v0.1.253 v0.1.255 ; do
+            gh release delete "$t" --repo "$REPO" --yes --cleanup-tag || echo "skip $t"
+          done
+      - name: Mark the real current build as latest
+        run: gh release edit v0.1.263 --repo "$REPO" --draft=false --latest
